@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+
+/* Surfaces step up in lightness so each level reads as depth, not as a border. */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1420;
+  --s1: #151c2a;
+  --s2: #1c2536;
+  --s3: #26314a;
+  --raise: #2e3a55;
+  --line: #243048;
+  --ink: #e7eaf0;
+  --ink-2: #aab3c3;
+  --ink-3: #8590a3;
+  --focus: #9db8f5;
+  --danger: #f08a8a;
+  --ok: #7fcfa9;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f4ef;
+  --s1: #fffdf9;
+  --s2: #eeebe4;
+  --s3: #e2ddd2;
+  --raise: #fffdf9;
+  --line: #ddd7cb;
+  --ink: #1a1f2b;
+  --ink-2: #485164;
+  --ink-3: #636c7c;
+  --focus: #2f5fc4;
+  --danger: #b4323a;
+  --ok: #1f7a52;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-s1: var(--s1);
+  --color-s2: var(--s2);
+  --color-s3: var(--s3);
+  --color-raise: var(--raise);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-focus: var(--focus);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  /* Numbers are the design: every figure aligns in columns. */
+  font-variant-numeric: tabular-nums lining-nums;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+button {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* Tap feedback is the only motion outside the timer. */
+.press {
+  transition: transform 80ms ease-out, background-color 120ms ease-out;
+}
+.press:active {
+  transform: scale(0.96);
+}
+
+/* The running timer: the one live thing in the interface. */
+@keyframes breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+.timer-dot {
+  animation: breathe 2s ease-in-out infinite;
+}
+.timer-sweep {
+  animation: sweep 3s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .timer-dot,
+  .timer-sweep {
+    animation: none;
+  }
+  .press,
+  .press:active {
+    transition: none;
+    transform: none;
+  }
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
