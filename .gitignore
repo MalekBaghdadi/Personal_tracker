@@ -4,3 +4,4 @@ dev-dist
 .env.local
 .firebase
 *.log
+e2e/shots
