@@ -5,7 +5,7 @@ import { deviceId } from '../lib/device';
 import { deviceTimezone, todayIn } from '../lib/dates';
 import { forgetOwnTimer, ownTimer, paths, reassertOwnTimer, timerClosedRef } from '../lib/repo';
 import { seedAccount } from '../lib/seed';
-import type { ActiveTimer, DayStats, Entry, Metric, Settings } from '../lib/types';
+import type { ActiveTimer, CalendarItem, DayStats, Entry, Metric, Settings } from '../lib/types';
 
 export type SyncState = 'synced' | 'pending' | 'offline';
 
@@ -17,6 +17,10 @@ interface Data {
   metricById: Map<string, Metric>;
   /** Non-deleted entries. */
   entries: Entry[];
+  /** Non-deleted events and reminders. */
+  items: CalendarItem[];
+  /** localDate → that day's items, sorted (all-day first, then by time). */
+  itemsByDate: Map<string, CalendarItem[]>;
   /** metricId → localDate → aggregate. */
   dayStats: Map<string, DayStats>;
   settings: Settings | null;
@@ -48,6 +52,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   const uid = user.uid;
   const [metrics, setMetrics] = useState<Metric[] | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [items, setItems] = useState<CalendarItem[]>([]);
   const [settings, setSettings] = useState<Settings | null | undefined>(undefined);
   const [timer, setTimer] = useState<ActiveTimer | null>(null);
   const [meta, setMeta] = useState<Record<string, Meta>>({});
@@ -58,7 +63,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   const serverTimer = useRef<{ value: ActiveTimer | null; seq: number }>({ value: null, seq: 0 });
   const [serverTimerSeq, setServerTimerSeq] = useState(0);
 
-  // Four listeners for the whole app: entries is a single query over all
+  // Five listeners for the whole app: entries is a single query over all
   // non-deleted entries; everything else is derived in memory.
   useEffect(() => {
     const track = (key: string) => (m: SnapshotMetadata) =>
@@ -95,6 +100,10 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
         entriesSeen.current = true;
         setEntries(snap.docs.map((d) => d.data() as Entry));
       }, (err) => console.error('[entries]', err)),
+      onSnapshot(query(paths.items(uid), where('deletedAt', '==', null)), opts, (snap) => {
+        track('items')(snap.metadata);
+        setItems(snap.docs.map((d) => d.data() as CalendarItem));
+      }, (err) => console.error('[items]', err)),
       onSnapshot(paths.timer(uid), opts, (snap) => {
         track('timer')(snap.metadata);
         setTimer(snap.exists() ? (snap.data() as ActiveTimer) : null);
@@ -174,6 +183,17 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
 
   const metricById = useMemo(() => new Map((metrics ?? []).map((m) => [m.id, m])), [metrics]);
 
+  const itemsByDate = useMemo(() => {
+    const out = new Map<string, CalendarItem[]>();
+    for (const it of items) {
+      const list = out.get(it.localDate);
+      if (list) list.push(it);
+      else out.set(it.localDate, [it]);
+    }
+    for (const list of out.values()) list.sort(compareItems);
+    return out;
+  }, [items]);
+
   const sync: SyncState = useMemo(() => {
     const vals = Object.values(meta);
     if (vals.length === 0 || vals.some((v) => v.cache)) return 'offline';
@@ -188,6 +208,8 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       metrics: metrics ?? [],
       metricById,
       entries,
+      items,
+      itemsByDate,
       dayStats,
       settings: settings ?? null,
       timer,
@@ -196,8 +218,23 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       sync,
       ready: metrics !== null && settings !== undefined,
     }),
-    [uid, user, metrics, metricById, entries, dayStats, settings, timer, tz, today, sync],
+    [uid, user, metrics, metricById, entries, items, itemsByDate, dayStats, settings, timer, tz, today, sync],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}
+
+/** All-day items first, then by time, then by when they were added. */
+export function compareItems(a: CalendarItem, b: CalendarItem): number {
+  if (a.time !== b.time) {
+    if (a.time === null) return -1;
+    if (b.time === null) return 1;
+    return a.time.localeCompare(b.time);
+  }
+  return a.createdAt.localeCompare(b.createdAt);
+}
+
+const NO_ITEMS: CalendarItem[] = [];
+export function itemsOn(data: { itemsByDate: Map<string, CalendarItem[]> }, date: string): CalendarItem[] {
+  return data.itemsByDate.get(date) ?? NO_ITEMS;
 }

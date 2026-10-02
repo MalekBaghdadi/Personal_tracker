@@ -1,15 +1,16 @@
 import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, Play, Plus, Square } from 'lucide-react';
-import { statsFor, useData } from '../state/DataContext';
+import { ChevronDown, ChevronRight, Keyboard, Minus, Play, Plus, Square } from 'lucide-react';
+import { itemsOn, statsFor, useData } from '../state/DataContext';
 import { useTimerActions } from '../state/TimerContext';
 import { useHue } from '../state/theme';
-import { addEntry, softDeleteEntry } from '../lib/repo';
+import { addEntry, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
 import { computeStreaks, isHit, isScheduled } from '../lib/streaks';
 import { formatChip, formatValue, formatValueParts } from '../lib/format';
 import { formatLocalDate } from '../lib/dates';
 import { iconFor } from '../lib/icons';
 import { EntrySheet, type EntrySheetState } from '../components/EntrySheet';
 import { InstallCard, SyncDot } from '../components/Chrome';
+import { itemSummary } from '../components/Items';
 import { cx, useToast } from '../components/ui';
 import type { Metric } from '../lib/types';
 
@@ -21,13 +22,34 @@ export function Today() {
 
   const active = metrics.filter((m) => !m.archivedAt);
   const scheduled = active.filter((m) => isScheduled(m.schedule, today));
+
+  // "Network+ exam 14:00 · Dentist · 2 reminders": events by name, open reminders as a count.
+  const todaysItems = itemsOn(data, today);
+  const events = todaysItems.filter((it) => it.kind === 'event');
+  const openReminders = todaysItems.filter((it) => it.kind === 'reminder' && !it.doneAt).length;
+  const daySummary = [
+    ...events.slice(0, 2).map(itemSummary),
+    ...(events.length > 2 ? [`+${events.length - 2} more`] : []),
+    ...(openReminders ? [`${openReminders} ${openReminders === 1 ? 'reminder' : 'reminders'}`] : []),
+  ].join(' · ');
   const other = active.filter((m) => !isScheduled(m.schedule, today));
 
   return (
     <div className="mx-auto max-w-2xl px-4 pt-5 pb-28 md:pb-10">
-      <header className="mb-4 flex items-baseline justify-between">
-        <h1 className="text-[22px] font-semibold tracking-tight">{formatLocalDate(today, 'EEEE d MMMM')}</h1>
-        <span className="md:hidden"><SyncDot /></span>
+      <header className="mb-4 flex items-start justify-between gap-3">
+        {/* The date opens today in History: events, reminders and entries. */}
+        <a
+          href={`#/history/${today}`}
+          className="group -mx-2 -my-1 block min-w-0 rounded-lg px-2 py-1 hover:bg-s1"
+          aria-label={`${formatLocalDate(today, 'EEEE d MMMM')}. ${daySummary || 'No events or reminders'}. Open this day in History`}
+        >
+          <h1 className="inline-flex items-center gap-1 text-[22px] font-semibold tracking-tight">
+            {formatLocalDate(today, 'EEEE d MMMM')}
+            <ChevronRight size={18} className="text-ink-3 transition-transform group-hover:translate-x-0.5" aria-hidden />
+          </h1>
+          {daySummary && <p className="mt-0.5 truncate text-[13px] text-ink-2">{daySummary}</p>}
+        </a>
+        <span className="pt-2 md:hidden"><SyncDot /></span>
       </header>
 
       <InstallCard />
@@ -47,7 +69,7 @@ export function Today() {
           )}
           <ul className="divide-y divide-line border-y border-line">
             {scheduled.map((m) => (
-              <MetricRow key={m.id} metric={m} onManual={() => setSheet({ mode: 'add', metric: m })} />
+              <MetricRow key={m.id} metric={m} onManual={(subtract) => setSheet({ mode: 'add', metric: m, subtract })} />
             ))}
           </ul>
 
@@ -65,7 +87,7 @@ export function Today() {
               {(showOther || scheduled.length === 0) && (
                 <ul className="divide-y divide-line border-y border-line">
                   {other.map((m) => (
-                    <MetricRow key={m.id} metric={m} unscheduled onManual={() => setSheet({ mode: 'add', metric: m })} />
+                    <MetricRow key={m.id} metric={m} unscheduled onManual={(subtract) => setSheet({ mode: 'add', metric: m, subtract })} />
                   ))}
                 </ul>
               )}
@@ -79,7 +101,7 @@ export function Today() {
   );
 }
 
-function MetricRow({ metric, onManual, unscheduled }: { metric: Metric; onManual: () => void; unscheduled?: boolean }) {
+function MetricRow({ metric, onManual, unscheduled }: { metric: Metric; onManual: (subtract: boolean) => void; unscheduled?: boolean }) {
   const data = useData();
   const { uid, today, timer } = data;
   const { start, stop } = useTimerActions();
@@ -107,16 +129,36 @@ function MetricRow({ metric, onManual, unscheduled }: { metric: Metric; onManual
     toast(`Logged ${formatValue(metric, value)} to ${metric.name}`, { label: 'Undo', run: () => softDeleteEntry(uid, id) });
   };
 
+  // The row's +/− toggle. Subtracting trims today's entries; it never stores
+  // a negative value and never takes the day below zero.
+  const [minus, setMinus] = useState(false);
+  const quickSubtract = (value: number) => {
+    const now = Date.now();
+    if (now - lastTap.current < 350) return;
+    lastTap.current = now;
+    if (value > total) {
+      toast(`Only ${formatValue(metric, total)} is logged today.`);
+      return;
+    }
+    const todays = data.entries.filter((e) => e.metricId === metric.id && e.localDate === today);
+    const undo = subtractFromDay(uid, todays, value);
+    toast(`Removed ${formatValue(metric, value)} from ${metric.name}`, { label: 'Undo', run: () => undoSubtraction(uid, undo) });
+  };
+
   const progress = metric.target ? Math.min(1, total / metric.target) : 0;
   const over = metric.targetDirection === 'at_most' && metric.target != null && total > metric.target;
 
   return (
     <li className="py-3.5">
-      <div className="flex items-start gap-3">
-        <Icon size={18} className="mt-1 shrink-0" style={{ color: hue }} aria-hidden />
-        <div className="min-w-0 flex-1">
+      {/* One column: icon sits on the name line so the text, progress bar and
+          controls all share the row's left and right edges. */}
+      <div>
+        <div>
           <div className="flex items-baseline justify-between gap-3">
-            <h2 className="truncate text-[15px] font-medium">{metric.name}</h2>
+            <h2 className="flex min-w-0 items-center gap-2 text-[15px] font-medium">
+              <Icon size={17} className="shrink-0 self-center" style={{ color: hue }} aria-hidden />
+              <span className="truncate">{metric.name}</span>
+            </h2>
             <p className="shrink-0 text-right">
               <span className={cx('text-[26px] leading-none font-medium tracking-tight', total === 0 && 'text-ink-3')}>{parts.num}</span>
               {parts.unit && <span className="ml-1 text-[13px] text-ink-3">{parts.unit}</span>}
@@ -142,25 +184,41 @@ function MetricRow({ metric, onManual, unscheduled }: { metric: Metric; onManual
         </div>
       </div>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-[30px]">
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setMinus((v) => !v)}
+          aria-pressed={minus}
+          aria-label={minus ? `Subtracting from ${metric.name}. Switch to adding` : `Adding to ${metric.name}. Switch to subtracting`}
+          className={cx(
+            'press inline-flex size-11 shrink-0 items-center justify-center rounded-lg',
+            minus ? 'bg-raise text-danger ring-1 ring-danger/50' : 'bg-s2 text-ink hover:bg-s3',
+          )}
+        >
+          {minus ? <Minus size={20} strokeWidth={2.4} /> : <Plus size={20} strokeWidth={2.4} />}
+        </button>
         {metric.quickAdd.map((v) => (
           <button
             key={v}
             type="button"
-            onClick={() => quickAdd(v)}
-            aria-label={`Add ${formatValue(metric, v)} to ${metric.name}`}
-            className="press min-h-11 min-w-12 rounded-lg bg-s2 px-3 text-[14px] font-medium text-ink hover:bg-s3"
+            onClick={() => (minus ? quickSubtract(v) : quickAdd(v))}
+            disabled={minus && total === 0}
+            aria-label={minus ? `Subtract ${formatValue(metric, v)} from ${metric.name}` : `Add ${formatValue(metric, v)} to ${metric.name}`}
+            className={cx(
+              'press min-h-11 min-w-12 rounded-lg bg-s2 px-2.5 text-[14px] font-medium hover:bg-s3 disabled:opacity-40',
+              minus ? 'text-danger' : 'text-ink',
+            )}
           >
-            {formatChip(metric, v)}
+            {formatChip(metric, v, minus ? '−' : '+')}
           </button>
         ))}
         <button
           type="button"
-          onClick={onManual}
-          aria-label={`Add a custom amount to ${metric.name}`}
-          className="press inline-flex size-11 items-center justify-center rounded-lg bg-s2 text-ink hover:bg-s3"
+          onClick={() => onManual(minus)}
+          aria-label={minus ? `Subtract a custom amount from ${metric.name}` : `Add a custom amount to ${metric.name}`}
+          className={cx('press inline-flex size-11 items-center justify-center rounded-lg bg-s2 hover:bg-s3', minus ? 'text-danger' : 'text-ink')}
         >
-          <Plus size={18} />
+          <Keyboard size={18} />
         </button>
         {metric.timerEnabled && (
           <button
@@ -168,11 +226,12 @@ function MetricRow({ metric, onManual, unscheduled }: { metric: Metric; onManual
             onClick={() => (running ? stop() : start(metric.id))}
             aria-label={running ? `Stop ${metric.name} timer` : `Start ${metric.name} timer`}
             aria-pressed={running}
-            className="press ml-auto inline-flex min-h-11 items-center gap-2 rounded-lg px-4 text-[14px] font-medium"
+            // Icon-only on phones so the row stays on one line; labelled when there's room.
+            className="press ml-auto inline-flex size-11 items-center justify-center gap-2 rounded-lg text-[14px] font-medium sm:w-auto sm:px-3.5"
             style={running ? { background: hue, color: '#0e1420' } : { background: 'var(--s2)', color: 'var(--ink)' }}
           >
             {running ? <Square size={14} fill="currentColor" /> : <Play size={15} fill="currentColor" />}
-            {running ? 'Stop' : 'Start'}
+            <span className="hidden sm:inline">{running ? 'Stop' : 'Start'}</span>
           </button>
         )}
       </div>

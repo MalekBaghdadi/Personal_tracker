@@ -58,6 +58,28 @@ export interface Settings {
   updatedAt: string;
 }
 
+export type CalendarItemKind = 'event' | 'reminder';
+
+/**
+ * A calendar event or reminder on one date. Shown in the app only; nothing
+ * is ever pushed as a notification. Lives at users/{uid}/items/{id}.
+ */
+export interface CalendarItem {
+  id: string;
+  kind: CalendarItemKind;
+  title: string;
+  /** 'YYYY-MM-DD' in the configured timezone. */
+  localDate: string;
+  /** 'HH:mm' wall-clock time, or null for all day. */
+  time: string | null;
+  note: string | null;
+  /** Reminders only: when it was ticked off. */
+  doneAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
 /** Per-day aggregate for one metric. */
 export interface DayStat {
   total: number;

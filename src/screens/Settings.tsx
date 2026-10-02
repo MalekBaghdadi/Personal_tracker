@@ -21,7 +21,7 @@ function allTimezones(current: string): string[] {
 }
 
 export function Settings() {
-  const { uid, user, settings, tz, metrics, entries, timer } = useData();
+  const { uid, user, settings, tz, metrics, entries, items, timer } = useData();
   const zones = useMemo(() => allTimezones(tz), [tz]);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -72,11 +72,11 @@ export function Settings() {
         <section className="border-t border-line pt-5">
           <h2 className="text-[15px] font-medium">Export your data</h2>
           <p className="mt-1 text-[13px] text-ink-3">
-            {formatNumber(entries.length)} entries across {metrics.length} metrics, archived ones included. Durations are in seconds.
+            {formatNumber(entries.length)} entries across {metrics.length} metrics, archived ones included, plus {formatNumber(items.length)} events and reminders. Durations are in seconds.
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button onClick={() => exportJson(metrics, entries, settings)}><Download size={17} /> JSON</Button>
-            <Button onClick={() => exportCsv(metrics, entries)}><Download size={17} /> CSV</Button>
+            <Button onClick={() => exportJson(metrics, entries, items, settings)}><Download size={17} /> JSON</Button>
+            <Button onClick={() => exportCsv(metrics, entries, items)}><Download size={17} /> CSV</Button>
           </div>
         </section>
 

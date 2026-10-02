@@ -5,6 +5,7 @@ const nf = new Intl.NumberFormat('en-US');
 /** Seconds → "1h 25m", "45m", "40s". */
 export function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
+  if (s === 0) return '0m';
   if (s < 60) return `${s}s`;
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -33,9 +34,9 @@ export function formatValueParts(metric: Pick<Metric, 'type' | 'unit'>, value: n
   return { num: nf.format(value), unit: metric.unit };
 }
 
-/** Compact label for quick-add chips. */
-export function formatChip(metric: Pick<Metric, 'type' | 'unit'>, value: number): string {
-  return metric.type === 'duration' ? `+${formatDuration(value)}` : `+${nf.format(value)}`;
+/** Compact label for quick-add chips, signed by the row's +/− toggle. */
+export function formatChip(metric: Pick<Metric, 'type' | 'unit'>, value: number, sign: '+' | '−' = '+'): string {
+  return `${sign}${metric.type === 'duration' ? formatDuration(value) : nf.format(value)}`;
 }
 
 export function formatNumber(n: number): string {

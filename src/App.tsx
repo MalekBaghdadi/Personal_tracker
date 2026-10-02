@@ -19,22 +19,25 @@ import { Settings } from './screens/Settings';
 export type Route = 'today' | 'history' | 'stats' | 'metrics' | 'settings';
 const ROUTES: Route[] = ['today', 'history', 'stats', 'metrics', 'settings'];
 
-function readRoute(): Route {
-  const r = window.location.hash.replace(/^#\/?/, '') as Route;
-  return ROUTES.includes(r) ? r : 'today';
+/** `#/history/2026-10-02` → route 'history', day '2026-10-02'. */
+function readRoute(): { route: Route; day: string | null } {
+  const [r, param] = window.location.hash.replace(/^#\/?/, '').split('/') as [Route, string | undefined];
+  const route = ROUTES.includes(r) ? r : 'today';
+  const day = route === 'history' && param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : null;
+  return { route, day };
 }
 
-function useRoute(): Route {
-  const [route, setRoute] = useState(readRoute);
+function useRoute(): { route: Route; day: string | null } {
+  const [state, setState] = useState(readRoute);
   useEffect(() => {
     const on = () => {
-      setRoute(readRoute());
+      setState(readRoute());
       window.scrollTo(0, 0);
     };
     window.addEventListener('hashchange', on);
     return () => window.removeEventListener('hashchange', on);
   }, []);
-  return route;
+  return state;
 }
 
 export function App() {
@@ -61,7 +64,7 @@ export function App() {
 
 function Shell() {
   const { ready, settings, metrics, timer } = useData();
-  const route = useRoute();
+  const { route, day } = useRoute();
 
   // Only a freshly seeded account has onboardedAt === null. A settings doc
   // created later by a partial write (field absent) must never re-trigger it.
@@ -84,7 +87,7 @@ function Shell() {
                 {/* The timer bar carries the status-bar inset when it's showing. */}
                 <main className={timer ? undefined : 'safe-top'}>
                   {route === 'today' && <Today />}
-                  {route === 'history' && <History />}
+                  {route === 'history' && <History openDate={day} />}
                   {route === 'stats' && <Suspense fallback={null}><Stats /></Suspense>}
                   {route === 'metrics' && <Metrics />}
                   {route === 'settings' && <Settings />}

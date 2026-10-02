@@ -1,4 +1,4 @@
-import type { Entry, Metric, Settings } from './types';
+import type { CalendarItem, Entry, Metric, Settings } from './types';
 
 function download(filename: string, mime: string, content: string): void {
   const blob = new Blob([content], { type: mime });
@@ -16,7 +16,7 @@ function stamp(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function exportJson(metrics: Metric[], entries: Entry[], settings: Settings | null): void {
+export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarItem[], settings: Settings | null): void {
   const payload = {
     format: 'personal-tracker/1',
     exportedAt: new Date().toISOString(),
@@ -24,6 +24,7 @@ export function exportJson(metrics: Metric[], entries: Entry[], settings: Settin
     settings,
     metrics,
     entries,
+    items,
   };
   download(`logbook-${stamp()}.json`, 'application/json', JSON.stringify(payload, null, 2));
 }
@@ -64,8 +65,17 @@ export function metricsCsv(metrics: Metric[]): string {
   return toCsv([header, ...rows]);
 }
 
-export function exportCsv(metrics: Metric[], entries: Entry[]): void {
+export function itemsCsv(items: CalendarItem[]): string {
+  const header = ['item_id', 'kind', 'local_date', 'time', 'title', 'note', 'done_at', 'created_at', 'updated_at'];
+  const rows = [...items]
+    .sort((a, b) => a.localDate.localeCompare(b.localDate) || (a.time ?? '').localeCompare(b.time ?? ''))
+    .map((i) => [i.id, i.kind, i.localDate, i.time, i.title, i.note, i.doneAt, i.createdAt, i.updatedAt]);
+  return toCsv([header, ...rows]);
+}
+
+export function exportCsv(metrics: Metric[], entries: Entry[], items: CalendarItem[]): void {
   download(`logbook-entries-${stamp()}.csv`, 'text/csv', entriesCsv(metrics, entries));
   // Separate file so each CSV is a plain rectangular table.
   setTimeout(() => download(`logbook-metrics-${stamp()}.csv`, 'text/csv', metricsCsv(metrics)), 300);
+  setTimeout(() => download(`logbook-calendar-${stamp()}.csv`, 'text/csv', itemsCsv(items)), 600);
 }

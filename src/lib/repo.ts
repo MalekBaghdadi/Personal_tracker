@@ -5,7 +5,7 @@ import {
 import { db } from './firebase';
 import { deviceId, uuid } from './device';
 import { localDateOf, nowIso } from './dates';
-import type { ActiveTimer, Entry, EntrySource, Metric, Settings } from './types';
+import type { ActiveTimer, CalendarItem, Entry, EntrySource, Metric, Settings } from './types';
 
 /**
  * Every write here returns immediately. With the persistent cache, Firestore
@@ -23,6 +23,8 @@ export const paths = {
   metric: (uid: string, id: string) => doc(db, 'users', uid, 'metrics', id),
   entries: (uid: string) => collection(db, 'users', uid, 'entries'),
   entry: (uid: string, id: string) => doc(db, 'users', uid, 'entries', id),
+  items: (uid: string) => collection(db, 'users', uid, 'items'),
+  item: (uid: string, id: string) => doc(db, 'users', uid, 'items', id),
   timer: (uid: string) => doc(db, 'users', uid, 'state', 'timer'),
   settings: (uid: string) => doc(db, 'users', uid, 'state', 'settings'),
 };
@@ -78,6 +80,86 @@ export function softDeleteEntry(uid: string, id: string): void {
 
 export function restoreEntry(uid: string, id: string): void {
   fire(updateDoc(paths.entry(uid, id), { deletedAt: null, updatedAt: nowIso() }));
+}
+
+/** What a subtraction changed, so it can be undone exactly. */
+export type SubtractionUndo = { id: string; value: number; deleted: boolean }[];
+
+/**
+ * Remove `amount` from a day by trimming its entries, newest first. Entry
+ * values stay positive: an entry trimmed to nothing is soft-deleted, never
+ * left at zero or negative, so totals and the at_most evidence rule hold.
+ * Callers cap `amount` at the day's total.
+ */
+export function subtractFromDay(uid: string, dayEntries: Entry[], amount: number): SubtractionUndo {
+  const newestFirst = [...dayEntries].sort(
+    (a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.createdAt.localeCompare(a.createdAt),
+  );
+  const batch = writeBatch(db);
+  const now = nowIso();
+  const undo: SubtractionUndo = [];
+  let remaining = Math.round(amount);
+  for (const e of newestFirst) {
+    if (remaining <= 0) break;
+    if (remaining >= e.value) {
+      batch.update(paths.entry(uid, e.id), { deletedAt: now, updatedAt: now });
+      undo.push({ id: e.id, value: e.value, deleted: true });
+      remaining -= e.value;
+    } else {
+      batch.update(paths.entry(uid, e.id), { value: e.value - remaining, updatedAt: now });
+      undo.push({ id: e.id, value: e.value, deleted: false });
+      remaining = 0;
+    }
+  }
+  fire(batch.commit());
+  return undo;
+}
+
+export function undoSubtraction(uid: string, undo: SubtractionUndo): void {
+  const batch = writeBatch(db);
+  const now = nowIso();
+  for (const u of undo) {
+    batch.update(paths.entry(uid, u.id), u.deleted ? { deletedAt: null, updatedAt: now } : { value: u.value, updatedAt: now });
+  }
+  fire(batch.commit());
+}
+
+// ── Events and reminders ───────────────────────────────────────────────────
+
+export type ItemFields = Pick<CalendarItem, 'kind' | 'title' | 'localDate' | 'time' | 'note'>;
+
+export function addItem(uid: string, fields: ItemFields): string {
+  const now = nowIso();
+  const item: CalendarItem = {
+    ...fields,
+    id: uuid(),
+    title: fields.title.trim(),
+    note: fields.note?.trim() || null,
+    doneAt: null,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null,
+  };
+  fire(setDoc(paths.item(uid, item.id), item));
+  return item.id;
+}
+
+/** Field-level, like entries: edits on two devices merge per field. */
+export function updateItem(uid: string, id: string, patch: Partial<Omit<CalendarItem, 'id' | 'createdAt'>>): void {
+  fire(updateDoc(paths.item(uid, id), { ...patch, updatedAt: nowIso() }));
+}
+
+export function setItemDone(uid: string, id: string, done: boolean): void {
+  updateItem(uid, id, { doneAt: done ? nowIso() : null });
+}
+
+export function softDeleteItem(uid: string, id: string): void {
+  const now = nowIso();
+  fire(updateDoc(paths.item(uid, id), { deletedAt: now, updatedAt: now }));
+}
+
+export function restoreItem(uid: string, id: string): void {
+  updateItem(uid, id, { deletedAt: null });
 }
 
 // ── Timer ──────────────────────────────────────────────────────────────────
