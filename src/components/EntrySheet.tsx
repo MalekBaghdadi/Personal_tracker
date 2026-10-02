@@ -76,12 +76,13 @@ function EntryForm({ state, onDone }: { state: EntrySheetState; onDone: () => vo
         setError('Nothing is logged on this day, so there’s nothing to subtract.');
         return;
       }
-      if (value > dayTotal) {
-        setError(`Only ${formatValue(metric, dayTotal)} is logged on this day.`);
-        return;
-      }
-      const undo = subtractFromDay(uid, dayEntries, value);
-      toast(`Removed ${formatValue(metric, value)} from ${metric.name}`, { label: 'Undo', run: () => undoSubtraction(uid, undo) });
+      // More than is logged just empties the day; it never goes below zero.
+      const removed = Math.min(value, dayTotal);
+      const undo = subtractFromDay(uid, dayEntries, removed);
+      toast(
+        removed < value ? `Removed all ${formatValue(metric, removed)} from ${metric.name}` : `Removed ${formatValue(metric, removed)} from ${metric.name}`,
+        { label: 'Undo', run: () => undoSubtraction(uid, undo) },
+      );
       onDone();
       return;
     }
@@ -132,26 +133,31 @@ function EntryForm({ state, onDone }: { state: EntrySheetState; onDone: () => vo
           <CountInput id="entry-count" value={count} onChange={(v) => { setCount(v); setError(null); }} unit={metric.unit} autoFocus />
         )}
         <FieldError>{error}</FieldError>
+        {/* Full-width lines rather than a column beside the date: iOS Safari sizes
+            date fields its own way and knocked the side-by-side layout out of line. */}
+        {subtracting && !error && (
+          <p className="mt-1.5 text-[13px] text-ink-2">
+            <span className="font-medium text-ink">{formatValue(metric, dayTotal)}</span> logged on this day
+            {value > dayTotal && dayTotal > 0 ? `, so this takes it to ${formatValue(metric, 0)}` : ''}
+          </p>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="entry-date">Date</Label>
-          <input id="entry-date" type="date" className={inputClass} value={date} max={today} onChange={(e) => setDate(e.target.value)} />
-        </div>
-        {existing ? (
-          <div>
-            <Label>Logged</Label>
-            <p className="flex min-h-11 items-center text-[15px] text-ink-2">
-              {sourceLabel(existing.source)} · {formatTimeIn(existing.occurredAt, tz)}
-            </p>
-          </div>
-        ) : subtracting ? (
-          <div>
-            <Label>Logged that day</Label>
-            <p className="flex min-h-11 items-center text-[15px] font-medium">{formatValue(metric, dayTotal)}</p>
-          </div>
-        ) : null}
+      <div>
+        <Label htmlFor="entry-date">Date</Label>
+        <input
+          id="entry-date"
+          type="date"
+          className={inputClass}
+          value={date}
+          max={today}
+          onChange={(e) => setDate(e.target.value)}
+        />
+        {existing && (
+          <p className="mt-1.5 text-[13px] text-ink-3">
+            Logged at {formatTimeIn(existing.occurredAt, tz)} · {sourceLabel(existing.source)}
+          </p>
+        )}
       </div>
 
       {subtracting ? (
@@ -172,7 +178,8 @@ function EntryForm({ state, onDone }: { state: EntrySheetState; onDone: () => vo
       <div className="flex flex-col gap-2">
         <Button type="submit" variant="primary">
           {subtracting
-            ? value > 0 ? `Subtract ${formatValue(metric, value)}` : 'Subtract'
+            ? value > dayTotal && dayTotal > 0 ? `Subtract all ${formatValue(metric, dayTotal)}`
+              : value > 0 ? `Subtract ${formatValue(metric, value)}` : 'Subtract'
             : confirmLong ? `Yes, log ${formatDuration(value)}` : existing ? 'Save changes' : 'Log it'}
         </Button>
         {existing && (

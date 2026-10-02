@@ -123,6 +123,30 @@ button {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/*
+ * Date and time fields. iOS Safari sizes them its own way (wider than their
+ * grid column) unless appearance is reset, and once it's reset the value sits
+ * at the top of the box. A fixed height with a matching line-height centres it.
+ */
+input[type="date"],
+input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  min-width: 0;
+  height: 2.75rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: calc(2.75rem - 2px); /* minus the 1px top and bottom border */
+}
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value {
+  text-align: left;
+  margin: 0;
+  min-height: 0;
+  line-height: inherit;
+}
+
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;

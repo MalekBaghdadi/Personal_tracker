@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Archive, ArchiveRestore, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Flag, Trash2 } from 'lucide-react';
 import { useData } from '../state/DataContext';
 import { useTheme } from '../state/theme';
 import { deleteMetric, saveMetric, setArchived } from '../lib/repo';
@@ -12,11 +12,11 @@ import { Button, DayPicker, FieldError, Label, Segmented, Sheet, Switch, cx, inp
 import { CountInput, DurationInput, parseCount, parseDuration, splitDuration } from './inputs';
 import type { Metric, MetricType, Schedule, TargetDirection } from '../lib/types';
 
-export function MetricEditor({ target, onClose }: { target: Metric | 'new' | null; onClose: () => void }) {
+export function MetricEditor({ target, onClose, onGoal }: { target: Metric | 'new' | null; onClose: () => void; onGoal?: (metricId: string) => void }) {
   const title = target === 'new' ? 'New metric' : target ? `Edit ${target.name}` : '';
   return (
     <Sheet open={target !== null} onClose={onClose} title={title}>
-      {target && <Form key={target === 'new' ? 'new' : target.id} initial={target === 'new' ? null : target} onDone={onClose} />}
+      {target && <Form key={target === 'new' ? 'new' : target.id} initial={target === 'new' ? null : target} onDone={onClose} onGoal={onGoal} />}
     </Sheet>
   );
 }
@@ -25,8 +25,8 @@ function quickAddToText(m: Pick<Metric, 'type' | 'quickAdd'>): string {
   return m.quickAdd.map((v) => (m.type === 'duration' ? Math.round(v / 60) : v)).join(', ');
 }
 
-function Form({ initial, onDone }: { initial: Metric | null; onDone: () => void }) {
-  const { uid, metrics, entries, timer, settings } = useData();
+function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () => void; onGoal?: (metricId: string) => void }) {
+  const { uid, metrics, entries, timer, settings, goals } = useData();
   const theme = useTheme();
   const toast = useToast();
 
@@ -50,6 +50,8 @@ function Form({ initial, onDone }: { initial: Metric | null; onDone: () => void 
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const entryIds = initial ? entries.filter((e) => e.metricId === initial.id).map((e) => e.id) : [];
+  const goalIds = initial ? goals.filter((g) => g.metricId === initial.id).map((g) => g.id) : [];
+  const activeGoal = initial ? goals.find((g) => g.metricId === initial.id && !g.archivedAt) : undefined;
 
   const changeType = (t: MetricType) => {
     if (t === type) return;
@@ -110,22 +112,28 @@ function Form({ initial, onDone }: { initial: Metric | null; onDone: () => void 
 
   if (confirmDelete && initial) {
     const n = entryIds.length;
+    const g = goalIds.length;
+    const parts = [
+      ...(n > 0 ? [`${formatNumber(n)} ${n === 1 ? 'entry' : 'entries'}`] : []),
+      ...(g > 0 ? [`${g} deadline ${g === 1 ? 'goal' : 'goals'}`] : []),
+    ];
     return (
       <div className="mt-2">
         <p className="text-[15px] text-ink-2">
-          This removes {initial.name} and {n === 0 ? 'has no entries to remove' : <>its <strong className="text-ink">{formatNumber(n)} {n === 1 ? 'entry' : 'entries'}</strong></>} from the app.
+          This removes {initial.name}
+          {parts.length ? <> and its <strong className="text-ink">{parts.join(' and ')}</strong></> : ', which has no entries,'} from the app.
           To hide it but keep its history, archive it instead.
         </p>
         <div className="mt-5 flex flex-col gap-2">
           <Button
             variant="danger"
             onClick={() => {
-              deleteMetric(uid, initial.id, entryIds, timer?.metricId === initial.id ? timer : null);
+              deleteMetric(uid, initial.id, entryIds, timer?.metricId === initial.id ? timer : null, goalIds);
               toast(`Deleted ${initial.name}`);
               onDone();
             }}
           >
-            Delete {initial.name}{n > 0 ? ` and ${formatNumber(n)} ${n === 1 ? 'entry' : 'entries'}` : ''}
+            Delete {initial.name}{parts.length ? ` and ${parts.join(' and ')}` : ''}
           </Button>
           <Button onClick={() => setConfirmDelete(false)}>Keep it</Button>
         </div>
@@ -251,6 +259,16 @@ function Form({ initial, onDone }: { initial: Metric | null; onDone: () => void 
 
       <div className="flex flex-col gap-2">
         <Button type="submit" variant="primary">{initial ? 'Save changes' : 'Create metric'}</Button>
+        {/* Goals need an at_least metric; a cumulative ceiling means nothing. */}
+        {initial && initial.targetDirection === 'at_least' && onGoal && (
+          activeGoal ? (
+            <a href={`#/goals/${activeGoal.id}`} onClick={onDone} className="press inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-s2 px-4 text-[15px] font-medium hover:bg-s3">
+              <Flag size={17} /> View deadline goal
+            </a>
+          ) : (
+            <Button onClick={() => onGoal(initial.id)}><Flag size={17} /> Add deadline goal</Button>
+          )
+        )}
         {initial && (
           <div className="grid grid-cols-2 gap-2">
             <Button

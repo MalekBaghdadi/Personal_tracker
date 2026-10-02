@@ -13,21 +13,23 @@ import { History } from './screens/History';
 // Charts are the heaviest dependency; Today shouldn't wait on them. The chunk
 // is still precached, so Stats opens offline.
 const Stats = lazy(() => import('./screens/Stats').then((m) => ({ default: m.Stats })));
+const GoalDetail = lazy(() => import('./screens/GoalDetail').then((m) => ({ default: m.GoalDetail })));
 import { Metrics } from './screens/Metrics';
 import { Settings } from './screens/Settings';
 
-export type Route = 'today' | 'history' | 'stats' | 'metrics' | 'settings';
-const ROUTES: Route[] = ['today', 'history', 'stats', 'metrics', 'settings'];
+export type Route = 'today' | 'history' | 'stats' | 'metrics' | 'settings' | 'goals';
+const ROUTES: Route[] = ['today', 'history', 'stats', 'metrics', 'settings', 'goals'];
 
-/** `#/history/2026-10-02` → route 'history', day '2026-10-02'. */
-function readRoute(): { route: Route; day: string | null } {
+/** `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id. */
+function readRoute(): { route: Route; day: string | null; id: string | null } {
   const [r, param] = window.location.hash.replace(/^#\/?/, '').split('/') as [Route, string | undefined];
   const route = ROUTES.includes(r) ? r : 'today';
   const day = route === 'history' && param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : null;
-  return { route, day };
+  const id = route === 'goals' && param ? param : null;
+  return { route, day, id };
 }
 
-function useRoute(): { route: Route; day: string | null } {
+function useRoute(): { route: Route; day: string | null; id: string | null } {
   const [state, setState] = useState(readRoute);
   useEffect(() => {
     const on = () => {
@@ -64,7 +66,9 @@ export function App() {
 
 function Shell() {
   const { ready, settings, metrics, timer } = useData();
-  const { route, day } = useRoute();
+  const { route, day, id } = useRoute();
+  // The goal screen hangs off Metrics, where the Goals list lives.
+  const tab: Route = route === 'goals' ? 'metrics' : route;
 
   // Only a freshly seeded account has onboardedAt === null. A settings doc
   // created later by a partial write (field absent) must never re-trigger it.
@@ -81,7 +85,7 @@ function Shell() {
             <Onboarding key={metrics.map((m) => m.id).join(',')} />
           ) : (
             <div className="flex min-h-dvh">
-              <SideNav route={route} />
+              <SideNav route={tab} />
               <div className="min-w-0 flex-1">
                 <TimerBar />
                 {/* The timer bar carries the status-bar inset when it's showing. */}
@@ -91,9 +95,10 @@ function Shell() {
                   {route === 'stats' && <Suspense fallback={null}><Stats /></Suspense>}
                   {route === 'metrics' && <Metrics />}
                   {route === 'settings' && <Settings />}
+                  {route === 'goals' && <Suspense fallback={null}><GoalDetail id={id} /></Suspense>}
                 </main>
               </div>
-              <TabBar route={route} />
+              <TabBar route={tab} />
             </div>
           )}
           <UpdatePrompt />

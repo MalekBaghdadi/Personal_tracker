@@ -58,6 +58,32 @@ export interface Settings {
   updatedAt: string;
 }
 
+/**
+ * A cumulative target on one at_least metric with an end date: "Network+:
+ * 120h by 15 Dec". Inputs only — progress, status, pace and achieved date are
+ * always derived (lib/goals.ts), never stored. Lives at users/{uid}/goals/{id}.
+ */
+export interface Goal {
+  id: string;
+  metricId: string;
+  name: string;
+  /** True once the user has typed a name; until then it's regenerated from the fields. */
+  nameEdited: boolean;
+  /** Base unit: seconds for duration, integer for count. */
+  targetTotal: number;
+  /** Base unit. Work done before startDate that should count. */
+  priorProgress: number;
+  /** 'YYYY-MM-DD', inclusive. */
+  startDate: string;
+  /** 'YYYY-MM-DD', inclusive: work logged on the deadline day counts. */
+  deadline: string;
+  /** Days the user intends to work on it. Affects pace only, not what counts. */
+  paceSchedule: Schedule;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type CalendarItemKind = 'event' | 'reminder';
 
 /**

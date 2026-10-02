@@ -1,4 +1,4 @@
-import type { CalendarItem, Entry, Metric, Settings } from './types';
+import type { CalendarItem, Entry, Goal, Metric, Settings } from './types';
 
 function download(filename: string, mime: string, content: string): void {
   const blob = new Blob([content], { type: mime });
@@ -16,7 +16,7 @@ function stamp(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarItem[], settings: Settings | null): void {
+export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarItem[], goals: Goal[], settings: Settings | null): void {
   const payload = {
     format: 'personal-tracker/1',
     exportedAt: new Date().toISOString(),
@@ -25,6 +25,8 @@ export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarI
     metrics,
     entries,
     items,
+    // Raw inputs only; progress and status are derived, never exported.
+    goals,
   };
   download(`logbook-${stamp()}.json`, 'application/json', JSON.stringify(payload, null, 2));
 }
@@ -73,9 +75,25 @@ export function itemsCsv(items: CalendarItem[]): string {
   return toCsv([header, ...rows]);
 }
 
-export function exportCsv(metrics: Metric[], entries: Entry[], items: CalendarItem[]): void {
+export function goalsCsv(metrics: Metric[], goals: Goal[]): string {
+  const byId = new Map(metrics.map((m) => [m.id, m]));
+  const header = ['goal_id', 'name', 'metric', 'metric_id', 'target_total', 'prior_progress', 'value_unit', 'start_date', 'deadline', 'pace_schedule', 'archived_at', 'created_at', 'updated_at'];
+  const rows = goals.map((g) => {
+    const m = byId.get(g.metricId);
+    return [
+      g.id, g.name, m?.name ?? '', g.metricId, g.targetTotal, g.priorProgress,
+      m?.type === 'duration' ? 'seconds' : (m?.unit ?? ''), g.startDate, g.deadline,
+      g.paceSchedule.kind === 'daily' ? 'daily' : `days:${g.paceSchedule.days.join(' ')}`,
+      g.archivedAt, g.createdAt, g.updatedAt,
+    ];
+  });
+  return toCsv([header, ...rows]);
+}
+
+export function exportCsv(metrics: Metric[], entries: Entry[], items: CalendarItem[], goals: Goal[]): void {
   download(`logbook-entries-${stamp()}.csv`, 'text/csv', entriesCsv(metrics, entries));
   // Separate file so each CSV is a plain rectangular table.
   setTimeout(() => download(`logbook-metrics-${stamp()}.csv`, 'text/csv', metricsCsv(metrics)), 300);
   setTimeout(() => download(`logbook-calendar-${stamp()}.csv`, 'text/csv', itemsCsv(items)), 600);
+  setTimeout(() => download(`logbook-goals-${stamp()}.csv`, 'text/csv', goalsCsv(metrics, goals)), 900);
 }

@@ -5,7 +5,7 @@ import { deviceId } from '../lib/device';
 import { deviceTimezone, todayIn } from '../lib/dates';
 import { forgetOwnTimer, ownTimer, paths, reassertOwnTimer, timerClosedRef } from '../lib/repo';
 import { seedAccount } from '../lib/seed';
-import type { ActiveTimer, CalendarItem, DayStats, Entry, Metric, Settings } from '../lib/types';
+import type { ActiveTimer, CalendarItem, DayStats, Entry, Goal, Metric, Settings } from '../lib/types';
 
 export type SyncState = 'synced' | 'pending' | 'offline';
 
@@ -17,6 +17,8 @@ interface Data {
   metricById: Map<string, Metric>;
   /** Non-deleted entries. */
   entries: Entry[];
+  /** Deadline goals, archived included, whose metric still exists. Nearest deadline first. */
+  goals: Goal[];
   /** Non-deleted events and reminders. */
   items: CalendarItem[];
   /** localDate → that day's items, sorted (all-day first, then by time). */
@@ -53,6 +55,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   const [metrics, setMetrics] = useState<Metric[] | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [items, setItems] = useState<CalendarItem[]>([]);
+  const [rawGoals, setRawGoals] = useState<Goal[]>([]);
   const [settings, setSettings] = useState<Settings | null | undefined>(undefined);
   const [timer, setTimer] = useState<ActiveTimer | null>(null);
   const [meta, setMeta] = useState<Record<string, Meta>>({});
@@ -63,7 +66,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   const serverTimer = useRef<{ value: ActiveTimer | null; seq: number }>({ value: null, seq: 0 });
   const [serverTimerSeq, setServerTimerSeq] = useState(0);
 
-  // Five listeners for the whole app: entries is a single query over all
+  // Six listeners for the whole app: entries is a single query over all
   // non-deleted entries; everything else is derived in memory.
   useEffect(() => {
     const track = (key: string) => (m: SnapshotMetadata) =>
@@ -100,6 +103,10 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
         entriesSeen.current = true;
         setEntries(snap.docs.map((d) => d.data() as Entry));
       }, (err) => console.error('[entries]', err)),
+      onSnapshot(paths.goals(uid), opts, (snap) => {
+        track('goals')(snap.metadata);
+        setRawGoals(snap.docs.map((d) => d.data() as Goal));
+      }, (err) => console.error('[goals]', err)),
       onSnapshot(query(paths.items(uid), where('deletedAt', '==', null)), opts, (snap) => {
         track('items')(snap.metadata);
         setItems(snap.docs.map((d) => d.data() as CalendarItem));
@@ -183,6 +190,13 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
 
   const metricById = useMemo(() => new Map((metrics ?? []).map((m) => [m.id, m])), [metrics]);
 
+  // A goal can outlive its metric if another device edited it offline after
+  // the metric was deleted; with nothing to count, it's ignored.
+  const goals = useMemo(
+    () => rawGoals.filter((g) => metricById.has(g.metricId)).sort((a, b) => a.deadline.localeCompare(b.deadline) || a.createdAt.localeCompare(b.createdAt)),
+    [rawGoals, metricById],
+  );
+
   const itemsByDate = useMemo(() => {
     const out = new Map<string, CalendarItem[]>();
     for (const it of items) {
@@ -208,6 +222,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       metrics: metrics ?? [],
       metricById,
       entries,
+      goals,
       items,
       itemsByDate,
       dayStats,
@@ -218,7 +233,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       sync,
       ready: metrics !== null && settings !== undefined,
     }),
-    [uid, user, metrics, metricById, entries, items, itemsByDate, dayStats, settings, timer, tz, today, sync],
+    [uid, user, metrics, metricById, entries, goals, items, itemsByDate, dayStats, settings, timer, tz, today, sync],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

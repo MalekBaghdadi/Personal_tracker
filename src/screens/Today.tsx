@@ -11,6 +11,7 @@ import { iconFor } from '../lib/icons';
 import { EntrySheet, type EntrySheetState } from '../components/EntrySheet';
 import { InstallCard, SyncDot } from '../components/Chrome';
 import { itemSummary } from '../components/Items';
+import { GoalCard, GoalPaceLine } from '../components/Goals';
 import { cx, useToast } from '../components/ui';
 import type { Metric } from '../lib/types';
 
@@ -21,6 +22,8 @@ export function Today() {
   const [showOther, setShowOther] = useState(false);
 
   const active = metrics.filter((m) => !m.archivedAt);
+  // Already ordered by nearest deadline.
+  const activeGoals = data.goals.filter((g) => !g.archivedAt);
   const scheduled = active.filter((m) => isScheduled(m.schedule, today));
 
   // "Network+ exam 14:00 · Dentist · 2 reminders": events by name, open reminders as a count.
@@ -53,6 +56,12 @@ export function Today() {
       </header>
 
       <InstallCard />
+
+      {activeGoals.length > 0 && (
+        <section aria-label="Deadline goals" className="mb-4 flex flex-col gap-2">
+          {activeGoals.map((g) => <GoalCard key={g.id} goal={g} />)}
+        </section>
+      )}
 
       {active.length === 0 ? (
         <div className="rounded-xl border border-dashed border-line px-5 py-10 text-center">
@@ -116,6 +125,7 @@ function MetricRow({ metric, onManual, unscheduled }: { metric: Metric; onManual
   const streak = useMemo(() => computeStreaks(metric, stats, today), [metric, stats, today]);
   const hit = isHit(metric, total, count);
   const running = timer?.metricId === metric.id;
+  const goal = data.goals.find((g) => g.metricId === metric.id && !g.archivedAt);
   const parts = formatValueParts(metric, total);
 
   // UI-only guard against an accidental double tap. Two deliberate taps
@@ -136,13 +146,15 @@ function MetricRow({ metric, onManual, unscheduled }: { metric: Metric; onManual
     const now = Date.now();
     if (now - lastTap.current < 350) return;
     lastTap.current = now;
-    if (value > total) {
-      toast(`Only ${formatValue(metric, total)} is logged today.`);
-      return;
-    }
+    if (total === 0) return;
+    // More than is logged just empties the day; it never goes below zero.
+    const removed = Math.min(value, total);
     const todays = data.entries.filter((e) => e.metricId === metric.id && e.localDate === today);
-    const undo = subtractFromDay(uid, todays, value);
-    toast(`Removed ${formatValue(metric, value)} from ${metric.name}`, { label: 'Undo', run: () => undoSubtraction(uid, undo) });
+    const undo = subtractFromDay(uid, todays, removed);
+    toast(
+      removed < value ? `Removed all ${formatValue(metric, removed)} from ${metric.name}` : `Removed ${formatValue(metric, removed)} from ${metric.name}`,
+      { label: 'Undo', run: () => undoSubtraction(uid, undo) },
+    );
   };
 
   const progress = metric.target ? Math.min(1, total / metric.target) : 0;
@@ -176,6 +188,7 @@ function MetricRow({ metric, onManual, unscheduled }: { metric: Metric; onManual
             </span>
             {streak && <span>{streak.current} in a row</span>}
           </div>
+          {goal && <GoalPaceLine goal={goal} metric={metric} />}
           {metric.target != null && (
             <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-s3" role="presentation">
               <div className="h-full rounded-full" style={{ width: `${progress * 100}%`, background: over ? 'var(--danger)' : hue }} />

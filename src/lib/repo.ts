@@ -5,7 +5,7 @@ import {
 import { db } from './firebase';
 import { deviceId, uuid } from './device';
 import { localDateOf, nowIso } from './dates';
-import type { ActiveTimer, CalendarItem, Entry, EntrySource, Metric, Settings } from './types';
+import type { ActiveTimer, CalendarItem, Entry, EntrySource, Goal, Metric, Settings } from './types';
 
 /**
  * Every write here returns immediately. With the persistent cache, Firestore
@@ -23,6 +23,8 @@ export const paths = {
   metric: (uid: string, id: string) => doc(db, 'users', uid, 'metrics', id),
   entries: (uid: string) => collection(db, 'users', uid, 'entries'),
   entry: (uid: string, id: string) => doc(db, 'users', uid, 'entries', id),
+  goals: (uid: string) => collection(db, 'users', uid, 'goals'),
+  goal: (uid: string, id: string) => doc(db, 'users', uid, 'goals', id),
   items: (uid: string) => collection(db, 'users', uid, 'items'),
   item: (uid: string, id: string) => doc(db, 'users', uid, 'items', id),
   timer: (uid: string) => doc(db, 'users', uid, 'state', 'timer'),
@@ -122,6 +124,18 @@ export function undoSubtraction(uid: string, undo: SubtractionUndo): void {
     batch.update(paths.entry(uid, u.id), u.deleted ? { deletedAt: null, updatedAt: now } : { value: u.value, updatedAt: now });
   }
   fire(batch.commit());
+}
+
+// ── Deadline goals ─────────────────────────────────────────────────────────
+
+/** Inputs only; every derived figure is computed in lib/goals.ts. */
+export function saveGoal(uid: string, goal: Goal): void {
+  fire(setDoc(paths.goal(uid, goal.id), { ...goal, updatedAt: nowIso() }));
+}
+
+export function setGoalArchived(uid: string, id: string, archived: boolean): void {
+  const now = nowIso();
+  fire(updateDoc(paths.goal(uid, id), { archivedAt: archived ? now : null, updatedAt: now }));
 }
 
 // ── Events and reminders ───────────────────────────────────────────────────
@@ -276,7 +290,13 @@ export function setArchived(uid: string, id: string, archived: boolean): void {
  * under the 500-operation batch limit; the metric goes in the last batch so a
  * partial failure never leaves orphaned live entries behind a deleted metric.
  */
-export function deleteMetric(uid: string, id: string, entryIds: string[], runningTimer: ActiveTimer | null): void {
+export function deleteMetric(
+  uid: string,
+  id: string,
+  entryIds: string[],
+  runningTimer: ActiveTimer | null,
+  goalIds: string[] = [],
+): void {
   const now = nowIso();
   const refs: DocumentReference[] = entryIds.map((e) => paths.entry(uid, e));
   const chunks: DocumentReference[][] = [];
@@ -287,6 +307,8 @@ export function deleteMetric(uid: string, id: string, entryIds: string[], runnin
     chunk.forEach((ref) => batch.update(ref, { deletedAt: now, updatedAt: now }));
     if (i === chunks.length - 1) {
       batch.delete(paths.metric(uid, id));
+      // A goal without its metric has nothing to count; it goes in the same batch.
+      goalIds.forEach((g) => batch.delete(paths.goal(uid, g)));
       if (runningTimer) {
         batch.delete(paths.timer(uid));
         markClosed(batch, uid, runningTimer.startedAt);

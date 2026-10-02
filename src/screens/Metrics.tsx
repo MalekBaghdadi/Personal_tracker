@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import { ChevronRight, GripVertical, Plus } from 'lucide-react';
+import { ChevronRight, Flag, GripVertical, Plus } from 'lucide-react';
 import { useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
 import { reorderMetrics } from '../lib/repo';
@@ -7,11 +7,13 @@ import { iconFor } from '../lib/icons';
 import { formatValue } from '../lib/format';
 import { WEEKDAYS, cx } from '../components/ui';
 import { MetricEditor } from '../components/MetricEditor';
-import type { Metric } from '../lib/types';
+import { GoalSheet, fmtGoal, statusLabel, useGoalResult, type GoalSheetState } from '../components/Goals';
+import type { Goal, Metric } from '../lib/types';
 
 export function Metrics() {
   const { metrics } = useData();
   const [editing, setEditing] = useState<Metric | 'new' | null>(null);
+  const [goalSheet, setGoalSheet] = useState<GoalSheetState | null>(null);
   const active = metrics.filter((m) => !m.archivedAt);
   const archived = metrics.filter((m) => m.archivedAt);
 
@@ -37,6 +39,8 @@ export function Metrics() {
       )}
       {active.length > 1 && <p className="mt-2 text-[12px] text-ink-3">Drag the handle to change the order on Today.</p>}
 
+      <GoalsSection onNew={() => setGoalSheet({ mode: 'new' })} />
+
       {archived.length > 0 && (
         <section className="mt-8">
           <h2 className="mb-2 text-[14px] font-medium text-ink-2">Archived</h2>
@@ -49,8 +53,66 @@ export function Metrics() {
         </section>
       )}
 
-      <MetricEditor target={editing} onClose={() => setEditing(null)} />
+      <MetricEditor
+        target={editing}
+        onClose={() => setEditing(null)}
+        onGoal={(metricId) => {
+          setEditing(null);
+          setGoalSheet({ mode: 'new', metricId });
+        }}
+      />
+      <GoalSheet state={goalSheet} onClose={() => setGoalSheet(null)} onSwitch={setGoalSheet} />
     </div>
+  );
+}
+
+/** Active goals first (nearest deadline), then archived ones with how they ended. */
+function GoalsSection({ onNew }: { onNew: () => void }) {
+  const { goals } = useData();
+  const active = goals.filter((g) => !g.archivedAt);
+  const archived = goals.filter((g) => g.archivedAt).sort((a, b) => b.deadline.localeCompare(a.deadline));
+  return (
+    <section className="mt-8" aria-labelledby="goals-h">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h2 id="goals-h" className="text-[16px] font-medium">Deadline goals</h2>
+        <button type="button" onClick={onNew} className="press inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-s2 px-3 text-[14px] font-medium hover:bg-s3">
+          <Plus size={16} /> New goal
+        </button>
+      </div>
+      {goals.length === 0 ? (
+        <p className="text-[14px] text-ink-3">
+          A total to reach by a date, like 120 hours of Network+ by 15 December. The app tracks whether you’re on pace.
+        </p>
+      ) : (
+        <ul className="divide-y divide-line border-y border-line">
+          {active.map((g) => <GoalLine key={g.id} goal={g} />)}
+          {archived.map((g) => <GoalLine key={g.id} goal={g} />)}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function GoalLine({ goal }: { goal: Goal }) {
+  const { metricById, today } = useData();
+  const metric = metricById.get(goal.metricId)!;
+  const hue = useHue(metric.color);
+  const r = useGoalResult(goal);
+  let detail: string;
+  if (!goal.archivedAt) detail = `${statusLabel(goal, metric, r, today)} · ${fmtGoal(metric, r.done)} of ${fmtGoal(metric, goal.targetTotal)}`;
+  else if (r.status === 'achieved' || r.status === 'missed') detail = `Archived · ${statusLabel(goal, metric, r, today)}`;
+  else detail = `Archived early · ${fmtGoal(metric, r.done)} of ${fmtGoal(metric, goal.targetTotal)}`;
+  return (
+    <li>
+      <a href={`#/goals/${goal.id}`} className="flex min-h-14 items-center gap-3 py-2 pr-1 hover:bg-s1/60">
+        <Flag size={17} style={{ color: hue }} aria-hidden className="ml-1 shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className={cx('block truncate text-[15px] font-medium', goal.archivedAt && 'text-ink-2')}>{goal.name}</span>
+          <span className="block truncate text-[13px] text-ink-3">{detail}</span>
+        </span>
+        <ChevronRight size={18} className="text-ink-3" aria-hidden />
+      </a>
+    </li>
   );
 }
 
