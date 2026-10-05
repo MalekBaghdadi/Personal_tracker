@@ -54,6 +54,8 @@ try {
   await wait(200);
   let d = await dialog();
   log('Preview:', (d.match(/That’s[^\n]*/) || ['(none)'])[0]);
+  // The pace depends on today's date, so take it from the preview rather than hardcoding it.
+  const pace = d.match(/That’s (.+?) per day/)?.[1];
   log('Auto name:', await page.$eval('#g-name', (el) => el.value));
   await page.screenshot({ path: `${OUT}70-goal-form.png` });
   await click('dialog[open] button[type=submit]');
@@ -61,14 +63,16 @@ try {
 
   await click('nav.fixed a[href="#/today"]');
   log('Card:', JSON.stringify(await card()));
+  log('Card on day one reads exactly on schedule:', /Exactly on schedule/.test(await card()));
   const row = await page.evaluate(() => [...document.querySelectorAll('li')].find((li) => li.querySelector('h2')?.textContent.includes('Network+'))?.innerText);
-  log('Metric row has goal pace line:', /Goal pace: 1h 20m today/.test(row ?? ''));
+  log('Metric row has goal pace line:', (row ?? '').includes(`Goal pace: ${pace} today`), '|', (row ?? '').match(/Goal pace:[^\n]*/)?.[0]);
   await page.screenshot({ path: `${OUT}71-today-goal.png` });
 
   // Log 1h: card updates, required pace for today doesn't move.
   await click('::-p-aria(Add 1h to Network+)');
   await wait(400);
   log('Card after +1h:', JSON.stringify(await card()));
+  log('Card shows the amount ahead, not just "On track":', /1h ahead/.test(await card()));
 
   // Detail screen with chart.
   await click('section[aria-label="Deadline goals"] a');

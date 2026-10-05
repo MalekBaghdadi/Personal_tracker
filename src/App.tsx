@@ -4,6 +4,7 @@ import { auth, firebaseConfigured } from './lib/firebase';
 import { DataProvider, useData } from './state/DataContext';
 import { TimerProvider } from './state/TimerContext';
 import { ThemeProvider } from './state/theme';
+import { useAppBadge } from './state/badge';
 import { SideNav, TabBar, TimerBar, UpdatePrompt } from './components/Chrome';
 import { ToastProvider } from './components/ui';
 import { AuthScreen } from './screens/Auth';
@@ -67,6 +68,7 @@ export function App() {
 function Shell() {
   const { ready, settings, metrics, timer } = useData();
   const { route, day, id } = useRoute();
+  useAppBadge();
   // The goal screen hangs off Metrics, where the Goals list lives.
   const tab: Route = route === 'goals' ? 'metrics' : route;
 

@@ -53,6 +53,8 @@ export interface Settings {
   timezone: string;
   weekStartsOn: 0 | 1;
   theme: 'dark' | 'light' | 'system';
+  /** Hour (0–6) the tracking day rolls over. Absent on older docs: DEFAULT_DAY_START_HOUR. */
+  dayStartHour?: number;
   /** Set once the first-run target walkthrough is finished. */
   onboardedAt: string | null;
   updatedAt: string;

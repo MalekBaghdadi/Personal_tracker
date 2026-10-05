@@ -92,3 +92,35 @@ export function hitRate(
   }
   return { hits, scheduled };
 }
+
+/**
+ * For each day in [from, to], how far into a streak it is: 1 on the first hit
+ * of a run, 2 on the next scheduled hit, and so on; 0 on a miss. Unscheduled
+ * days are left out (they neither extend nor break a run), and today never
+ * breaks one. Runs are counted from the first entry, so a streak that started
+ * last month carries into this one.
+ */
+export function streakDays(metric: TargetFields, stats: DayStats, from: string, to: string, today: string): Map<string, number> {
+  const out = new Map<string, number>();
+  if (metric.target == null) return out;
+  const first = earliest(stats);
+  if (first === null) {
+    for (let d = from; d <= to; d = addDays(d, 1)) if (isScheduled(metric.schedule, d)) out.set(d, 0);
+    return out;
+  }
+  let run = 0;
+  for (let d = first < from ? first : from; d <= to; d = addDays(d, 1)) {
+    if (!isScheduled(metric.schedule, d)) continue;
+    let pos = 0;
+    if (hitOn(metric, stats, d)) pos = ++run;
+    else if (d < today) run = 0;
+    if (d >= from) out.set(d, pos);
+  }
+  return out;
+}
+
+/** Brightness step 0–7: one step brighter each day of a streak, full from day 7. Averages round up. */
+export function streakLevel(days: number): number {
+  if (days <= 0) return 0;
+  return Math.min(7, Math.ceil(days));
+}

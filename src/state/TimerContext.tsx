@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useData } from './DataContext';
-import { addEntry, discardTimer, softDeleteEntry, startTimer, stopTimer } from '../lib/repo';
+import { addEntry, discardTimer, softDeleteEntry, startTimer, stopTimer, updateEntry } from '../lib/repo';
 import { formatDuration } from '../lib/format';
-import { localDateOf } from '../lib/dates';
 import { Button, Sheet, useToast } from '../components/ui';
 import { DurationInput, parseDuration } from '../components/inputs';
 
 export const ABANDONED_AFTER_S = 12 * 3600;
+/** Timer sessions longer than this ask what was accomplished. */
+export const NOTE_PROMPT_AFTER_S = 10 * 60;
 
 /**
  * Elapsed seconds since an ISO instant, recomputed every animation frame and
@@ -42,8 +43,8 @@ export function useElapsed(startedAt: string | null | undefined): number {
 }
 
 interface TimerActions {
-  /** Start a timer, prompting if another one is running. */
-  start: (metricId: string) => void;
+  /** Start a timer, prompting if another one is running. `startedAt` backdates it. */
+  start: (metricId: string, startedAt?: string) => void;
   stop: () => boolean;
 }
 
@@ -55,9 +56,9 @@ export function useTimerActions(): TimerActions {
 }
 
 export function TimerProvider({ children }: { children: ReactNode }) {
-  const { uid, timer, metricById, tz } = useData();
+  const { uid, timer, metricById, tz, dayOf } = useData();
   const toast = useToast();
-  const [switchTo, setSwitchTo] = useState<string | null>(null);
+  const [switchTo, setSwitchTo] = useState<{ metricId: string; startedAt?: string } | null>(null);
   const [recovering, setRecovering] = useState(false);
   const elapsed = useElapsed(timer?.startedAt);
 
@@ -77,20 +78,25 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       toast("This device's clock is behind the one that started the timer, so nothing was recorded.");
       return true;
     }
-    const id = stopTimer(uid, timer, raw, tz);
+    const id = stopTimer(uid, timer, raw, dayOf);
     const name = metricName(timer.metricId);
-    if (id) toast(`Logged ${formatDuration(raw)} to ${name}`, { label: 'Undo', run: () => softDeleteEntry(uid, id) });
+    if (id)
+      toast(
+        `Logged ${formatDuration(raw)} to ${name}`,
+        { label: 'Undo', run: () => softDeleteEntry(uid, id) },
+        raw > NOTE_PROMPT_AFTER_S ? { note: { prompt: 'What did you accomplish?', save: (note) => updateEntry(uid, id, { note }) } } : undefined,
+      );
     else toast('Timer stopped. Under a second, so nothing was logged.');
     return true;
-  }, [timer, uid, tz, toast, metricById]);
+  }, [timer, uid, dayOf, toast, metricById]);
 
   const start = useCallback(
-    (metricId: string) => {
+    (metricId: string, startedAt?: string) => {
       if (timer) {
-        if (timer.metricId !== metricId) setSwitchTo(metricId);
+        if (timer.metricId !== metricId) setSwitchTo({ metricId, startedAt });
         return;
       }
-      startTimer(uid, metricId);
+      startTimer(uid, metricId, startedAt);
     },
     [timer, uid],
   );
@@ -115,17 +121,17 @@ export function TimerProvider({ children }: { children: ReactNode }) {
           <>
             <p className="text-[15px] text-ink-2">
               {metricName(timer.metricId)} has been running for {formatDuration(Math.max(0, elapsed))}. Stop it and
-              start {metricName(switchTo)}?
+              start {metricName(switchTo.metricId)}?
             </p>
             <div className="mt-5 flex flex-col gap-2">
               <Button
                 variant="primary"
                 onClick={() => {
-                  if (doStop()) startTimer(uid, switchTo);
+                  if (doStop()) startTimer(uid, switchTo.metricId, switchTo.startedAt);
                   setSwitchTo(null);
                 }}
               >
-                Stop {metricName(timer.metricId)} and start {metricName(switchTo)}
+                Stop {metricName(timer.metricId)} and start {metricName(switchTo.metricId)}
               </Button>
               <Button onClick={() => setSwitchTo(null)}>Keep {metricName(timer.metricId)} running</Button>
             </div>
@@ -149,7 +155,7 @@ export function TimerProvider({ children }: { children: ReactNode }) {
               metricId: timer.metricId,
               value: seconds,
               source: 'manual',
-              localDate: localDateOf(timer.startedAt, tz),
+              localDate: dayOf(timer.startedAt),
               occurredAt: timer.startedAt,
             });
             setRecovering(false);

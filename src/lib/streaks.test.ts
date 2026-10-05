@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeStreaks, hitRate, isHit, isScheduled } from './streaks';
+import { computeStreaks, hitRate, isHit, isScheduled, streakDays, streakLevel } from './streaks';
 import type { DayStats, Metric } from './types';
 
 type M = Pick<Metric, 'target' | 'targetDirection' | 'schedule'>;
@@ -147,5 +147,52 @@ describe('hitRate', () => {
     const s = stats({ '2026-09-28': 3600, '2026-09-29': 3600 });
     // Mon hit, Tue unscheduled, Wed missed, Thu (today) unscheduled.
     expect(hitRate(gym, s, '2026-09-28', '2026-10-01')).toEqual({ hits: 1, scheduled: 2 });
+  });
+});
+
+describe('streakDays', () => {
+  const at = (m: Map<string, number>) => Object.fromEntries(m);
+
+  it('counts up through a run and resets on a miss', () => {
+    const s = stats({ '2026-09-28': 100, '2026-09-29': 100, '2026-09-30': 50, '2026-10-01': 100 });
+    expect(at(streakDays(daily(100), s, '2026-09-28', '2026-10-01', '2026-10-05'))).toEqual({
+      '2026-09-28': 1, '2026-09-29': 2, '2026-09-30': 0, '2026-10-01': 1,
+    });
+  });
+
+  it('carries a run in from before the range', () => {
+    const s = stats({ '2026-09-29': 100, '2026-09-30': 100, '2026-10-01': 100 });
+    expect(streakDays(daily(100), s, '2026-10-01', '2026-10-01', '2026-10-05').get('2026-10-01')).toBe(3);
+  });
+
+  it('skips unscheduled days without breaking the run', () => {
+    // Mon, Wed, Fri gym; Tue and Thu are left out.
+    const s = stats({ '2026-09-28': 3600, '2026-09-30': 3600, '2026-10-02': 3600 });
+    const r = streakDays(gym, s, '2026-09-28', '2026-10-02', '2026-10-05');
+    expect(at(r)).toEqual({ '2026-09-28': 1, '2026-09-30': 2, '2026-10-02': 3 });
+  });
+
+  it('today unfinished is 0 but does not break the run into tomorrow', () => {
+    const s = stats({ '2026-10-04': 100 });
+    const r = streakDays(daily(100), s, '2026-10-04', '2026-10-06', '2026-10-05');
+    expect(r.get('2026-10-05')).toBe(0);
+  });
+
+  it('no target: no streaks', () => {
+    expect(streakDays(daily(null), stats({ '2026-10-01': 5 }), '2026-10-01', '2026-10-01', '2026-10-05').size).toBe(0);
+  });
+
+  it('ceilings need something logged', () => {
+    const s = stats({ '2026-10-01': 1800, '2026-10-03': 1900 });
+    const r = streakDays(daily(2000, 'at_most'), s, '2026-10-01', '2026-10-03', '2026-10-05');
+    expect(at(r)).toEqual({ '2026-10-01': 1, '2026-10-02': 0, '2026-10-03': 1 });
+  });
+});
+
+describe('streakLevel', () => {
+  it('reaches full brightness at 7 days', () => {
+    expect([0, 1, 2, 3, 4, 5, 6, 7, 30].map(streakLevel)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 7]);
+    expect(streakLevel(4.7)).toBe(5);
+    expect(streakLevel(0.4)).toBe(1);
   });
 });

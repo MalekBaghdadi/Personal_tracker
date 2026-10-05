@@ -2,7 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState,
   type ButtonHTMLAttributes, type ReactNode,
 } from 'react';
-import { X } from 'lucide-react';
+import { PencilLine, X } from 'lucide-react';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 export { cx };
@@ -211,45 +211,98 @@ export function DayPicker({ days, onChange, weekStartsOn }: { days: number[]; on
 
 // ── Toast ──────────────────────────────────────────────────────────────────
 
-interface ToastMsg {
+interface ToastOptions {
+  /** Adds a "What did you accomplish?" row with a pen. The toast then stays until dismissed or saved. */
+  note?: { prompt: string; save: (text: string) => void };
+}
+
+interface ToastMsg extends ToastOptions {
   id: number;
   text: string;
   action?: { label: string; run: () => void };
 }
 
-const ToastCtx = createContext<(text: string, action?: ToastMsg['action']) => void>(() => {});
+type ShowToast = (text: string, action?: ToastMsg['action'], opts?: ToastOptions) => void;
+const ToastCtx = createContext<ShowToast>(() => {});
 export const useToast = () => useContext(ToastCtx);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [msg, setMsg] = useState<ToastMsg | null>(null);
   const timer = useRef<number>();
-  const show = useCallback((text: string, action?: ToastMsg['action']) => {
+  const show = useCallback<ShowToast>((text, action, opts) => {
     window.clearTimeout(timer.current);
-    setMsg({ id: Date.now(), text, action });
-    timer.current = window.setTimeout(() => setMsg(null), action ? 5000 : 2500);
+    setMsg({ id: Date.now(), text, action, ...opts });
+    if (!opts?.note) timer.current = window.setTimeout(() => setMsg(null), action ? 5000 : 2500);
   }, []);
   return (
     <ToastCtx.Provider value={show}>
       {children}
       <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom,0px))] z-40 flex justify-center px-4 md:bottom-6">
         {msg && (
-          <div key={msg.id} className="pointer-events-auto flex min-h-11 max-w-md items-center gap-3 rounded-xl border border-line bg-s3 py-1.5 pr-1.5 pl-4 text-[14px] text-ink shadow-lg">
-            <span>{msg.text}</span>
-            {msg.action && (
-              <button
-                type="button"
-                className="press min-h-9 rounded-lg px-3 font-semibold text-ink hover:bg-s2"
-                onClick={() => {
-                  msg.action!.run();
-                  setMsg(null);
-                }}
-              >
-                {msg.action.label}
-              </button>
-            )}
+          <div key={msg.id} className="pointer-events-auto w-full max-w-md rounded-xl border border-line bg-s3 py-1.5 pr-1.5 pl-4 text-[14px] text-ink shadow-lg sm:w-auto sm:min-w-80">
+            <div className="flex min-h-9 items-center justify-between gap-3">
+              <span>{msg.text}</span>
+              {msg.action && (
+                <button
+                  type="button"
+                  className="press min-h-9 rounded-lg px-3 font-semibold text-ink hover:bg-s2"
+                  onClick={() => {
+                    msg.action!.run();
+                    setMsg(null);
+                  }}
+                >
+                  {msg.action.label}
+                </button>
+              )}
+            </div>
+            {msg.note && <NoteRow note={msg.note} onDone={() => setMsg(null)} />}
           </div>
         )}
       </div>
     </ToastCtx.Provider>
+  );
+}
+
+function NoteRow({ note, onDone }: { note: NonNullable<ToastOptions['note']>; onDone: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState('');
+  if (!editing) {
+    return (
+      <div className="flex min-h-9 items-center justify-between gap-2 border-t border-line pt-1">
+        <button type="button" className="min-h-9 flex-1 text-left text-ink-2" onClick={() => setEditing(true)}>
+          {note.prompt}
+        </button>
+        <div className="flex">
+          <button type="button" aria-label="Add a note to this session" className="press grid size-9 place-items-center rounded-lg text-ink hover:bg-s2" onClick={() => setEditing(true)}>
+            <PencilLine size={17} aria-hidden />
+          </button>
+          <button type="button" aria-label="Dismiss" className="press grid size-9 place-items-center rounded-lg text-ink-3 hover:bg-s2" onClick={onDone}>
+            <X size={17} aria-hidden />
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <form
+      className="flex items-center gap-1.5 border-t border-line pt-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (text.trim()) note.save(text.trim());
+        onDone();
+      }}
+    >
+      <input
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => e.key === 'Escape' && onDone()}
+        placeholder={note.prompt}
+        aria-label={note.prompt}
+        maxLength={280}
+        className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-bg px-2.5 text-[16px] text-ink placeholder:text-ink-3 focus:border-focus focus:outline-none"
+      />
+      <button type="submit" className="press min-h-9 rounded-lg px-3 font-semibold text-ink hover:bg-s2">Save</button>
+    </form>
   );
 }

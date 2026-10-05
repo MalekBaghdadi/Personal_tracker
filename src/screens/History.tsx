@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Pencil, Plus } from 'lucide-react';
 import { itemsOn, statsFor, useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
-import { addDays, formatLocalDate, formatTimeIn, localDateOf, weekdayOf } from '../lib/dates';
-import { isHit, isScheduled } from '../lib/streaks';
+import { addDays, formatLocalDate, formatTimeIn, weekdayOf } from '../lib/dates';
+import { isHit, isScheduled, streakDays, streakLevel } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { EntrySheet, sourceLabel, type EntrySheetState } from '../components/EntrySheet';
 import { Button, IconButton, Sheet, WEEKDAYS, cx } from '../components/ui';
@@ -27,8 +27,8 @@ function monthDays(month: string): string[] {
 }
 
 /** Days before the metric existed (or its earliest backfilled entry) aren't misses. */
-function sinceOf(metric: Metric, stats: DayStats, tz: string): string {
-  return [...stats.keys()].reduce((min, d) => (d < min ? d : min), localDateOf(metric.createdAt, tz));
+function sinceOf(metric: Metric, stats: DayStats, dayOf: (iso: string) => string): string {
+  return [...stats.keys()].reduce((min, d) => (d < min ? d : min), dayOf(metric.createdAt));
 }
 
 function monthSummary(metric: Metric, stats: DayStats, days: string[], today: string, since: string) {
@@ -142,7 +142,7 @@ function DayCell({
   label,
   onDay,
   fill,
-  darkText,
+  onFill,
   muted,
   allowFuture,
   children,
@@ -151,7 +151,8 @@ function DayCell({
   label: string;
   onDay: (d: string) => void;
   fill?: string;
-  darkText?: boolean;
+  /** Text on a bright fill: dark for metric hues, the page background for the neutral ink fill. */
+  onFill?: 'dark' | 'bg';
   muted?: boolean;
   /** The All view opens future days, for planning events and reminders. */
   allowFuture?: boolean;
@@ -179,13 +180,15 @@ function DayCell({
       )}
       style={fill ? { background: fill } : undefined}
     >
-      <span className={cx('absolute top-1 left-1.5', darkText ? 'text-[#0e1420]' : 'text-ink-2')}>{Number(date.slice(8))}</span>
+      <span className={cx('absolute top-1 left-1.5', onFill === 'dark' ? 'text-[#0e1420]' : onFill === 'bg' ? 'text-bg' : 'text-ink-2')}>{Number(date.slice(8))}</span>
       {items.length > 0 && (
         <span
           aria-hidden
           className={cx(
             'absolute top-1.5 right-1.5 h-1.5 w-2.5 rounded-sm',
-            open > 0 ? (darkText ? 'bg-[#0e1420]/80' : 'bg-ink') : (darkText ? 'bg-[#0e1420]/35' : 'bg-ink-3'),
+            onFill === 'dark' ? (open > 0 ? 'bg-[#0e1420]/80' : 'bg-[#0e1420]/35')
+              : onFill === 'bg' ? (open > 0 ? 'bg-bg' : 'bg-bg/50')
+              : open > 0 ? 'bg-ink' : 'bg-ink-3',
           )}
         />
       )}
@@ -194,16 +197,38 @@ function DayCell({
   );
 }
 
+// ── Streak shading ─────────────────────────────────────────────────────────
+
+/** Fill strength per streak level (lib/streaks streakLevel): one step per day, full at 7. */
+const LEVEL_PCT = [0, 22, 35, 48, 61, 74, 87, 100];
+/** The All view mixes the neutral ink colour, more gently. */
+const ALL_LEVEL_PCT = [0, 14, 22, 31, 40, 50, 60, 70];
+
+function StreakLegend({ color, neutral }: { color?: string; neutral?: boolean }) {
+  const swatch = (l: number) =>
+    neutral ? `color-mix(in oklab, var(--ink) ${ALL_LEVEL_PCT[l]}%, var(--s2))` : `color-mix(in oklab, ${color} ${LEVEL_PCT[l]}%, var(--s2))`;
+  return (
+    <p className="mt-2 flex items-center gap-1.5 text-[12px] text-ink-3">
+      <span className="mr-0.5">{neutral ? 'Average streak' : 'Streak'}: day 1</span>
+      {[1, 2, 3, 4, 5, 6, 7].map((l) => (
+        <span key={l} aria-hidden className="size-3 rounded-[3px]" style={{ background: swatch(l) }} />
+      ))}
+      <span className="ml-0.5">7+</span>
+    </p>
+  );
+}
+
 // ── One metric ─────────────────────────────────────────────────────────────
 
 function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; onDay: (d: string) => void }) {
   const data = useData();
-  const { today, tz } = data;
+  const { today, dayOf } = data;
   const hue = useHue(metric.color);
   const stats = statsFor(data, metric.id);
   const days = useMemo(() => monthDays(month), [month]);
   const monthMax = Math.max(1, ...days.map((d) => stats.get(d)?.total ?? 0));
-  const summary = monthSummary(metric, stats, days, today, sinceOf(metric, stats, tz));
+  const streak = useMemo(() => streakDays(metric, stats, days[0], days[days.length - 1], today), [metric, stats, days, today]);
+  const summary = monthSummary(metric, stats, days, today, sinceOf(metric, stats, dayOf));
 
   return (
     <>
@@ -215,21 +240,29 @@ function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; 
           const total = s?.total ?? 0;
           const scheduled = isScheduled(metric.schedule, d);
           const hit = isHit(metric, total, s?.count ?? 0);
-          let ratio = 0;
-          if (total > 0) {
-            if (metric.target == null) ratio = total / monthMax;
-            else if (metric.targetDirection === 'at_least') ratio = Math.min(1, total / metric.target);
-            else ratio = hit ? 1 : 0.3;
-          }
-          const fill = total > 0 ? `color-mix(in oklab, ${hue} ${Math.round(22 + ratio * 78)}%, var(--s2))` : undefined;
-          const label = `${formatLocalDate(d, 'EEEE d MMMM')}: ${total > 0 ? formatValue(metric, total) : 'nothing logged'}${hit ? ', target met' : ''}${!scheduled ? ', not scheduled' : ''}`;
+          // GitHub-style: each day further into a streak is brighter. A logged
+          // day that isn't part of one gets a faint tint. No target, no streaks:
+          // shade by amount instead.
+          const pos = streak.get(d) ?? 0;
+          let pct = 0;
+          if (metric.target == null) pct = total > 0 ? 22 + (total / monthMax) * 78 : 0;
+          else if (pos > 0) pct = LEVEL_PCT[streakLevel(pos)];
+          else if (total > 0) pct = 14;
+          const fill = pct > 0 ? `color-mix(in oklab, ${hue} ${Math.round(pct)}%, var(--s2))` : undefined;
+          const label = `${formatLocalDate(d, 'EEEE d MMMM')}: ${total > 0 ? formatValue(metric, total) : 'nothing logged'}${hit ? ', target met' : ''}${pos > 0 ? `, day ${pos} of a streak` : ''}${!scheduled ? ', not scheduled' : ''}`;
           return (
-            <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} darkText={ratio > 0.6} muted={!scheduled}>
+            <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} onFill={pct >= 70 ? 'dark' : undefined} muted={!scheduled}>
               {hit && <span aria-hidden className="absolute right-1.5 bottom-1.5 size-1.5 rounded-full bg-[#0e1420]/70" />}
             </DayCell>
           );
         }}
       />
+
+      {metric.target != null ? (
+        <StreakLegend color={hue} />
+      ) : (
+        <p className="mt-2 text-[12px] text-ink-3">{metric.name} has no target, so it has no streaks; days are shaded by amount.</p>
+      )}
 
       <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-3 text-[13px]">
         <div>
@@ -270,12 +303,16 @@ function MetricDot({ metric, state }: { metric: Metric; state: 'met' | 'logged' 
 
 function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void }) {
   const data = useData();
-  const { metrics, dayStats, today, tz } = data;
+  const { metrics, dayStats, today, dayOf } = data;
   const days = useMemo(() => monthDays(month), [month]);
   const shown = useMemo(() => visibleMetrics(metrics, dayStats, days), [metrics, dayStats, days]);
   const sinces = useMemo(
-    () => new Map(shown.map((m) => [m.id, sinceOf(m, dayStats.get(m.id) ?? new Map(), tz)])),
-    [shown, dayStats, tz],
+    () => new Map(shown.map((m) => [m.id, sinceOf(m, dayStats.get(m.id) ?? new Map(), dayOf)])),
+    [shown, dayStats, dayOf],
+  );
+  const streaks = useMemo(
+    () => new Map(shown.map((m) => [m.id, streakDays(m, dayStats.get(m.id) ?? new Map(), days[0], days[days.length - 1], today)])),
+    [shown, dayStats, days, today],
   );
 
   return (
@@ -287,6 +324,7 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
           const logged: { metric: Metric; met: boolean; total: number }[] = [];
           let due = 0;
           let met = 0;
+          let streakSum = 0;
           for (const m of shown) {
             const s = statsFor(data, m.id).get(d);
             const hit = isHit(m, s?.total ?? 0, s?.count ?? 0);
@@ -294,17 +332,22 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
             if (counts) {
               due++;
               if (hit) met++;
+              streakSum += streaks.get(m.id)?.get(d) ?? 0;
             }
             if (s) logged.push({ metric: m, met: hit !== false, total: s.total });
           }
-          // Neutral shading by share of the day's targets met; the dots carry identity.
-          const ratio = due > 0 ? met / due : 0;
-          const fill = logged.length > 0 ? `color-mix(in oklab, var(--ink) ${Math.round(5 + ratio * 22)}%, var(--s2))` : undefined;
+          // Neutral shading by the average streak across the metrics due that
+          // day, so one miss dims the day rather than resetting it. The dots
+          // carry each metric's identity.
+          const avg = due > 0 ? streakSum / due : 0;
+          const level = streakLevel(avg);
+          const pct = level > 0 ? ALL_LEVEL_PCT[level] : logged.length > 0 ? 6 : 0;
+          const fill = pct > 0 ? `color-mix(in oklab, var(--ink) ${pct}%, var(--s2))` : undefined;
           const parts = logged.map((l) => `${l.metric.name} ${formatValue(l.metric, l.total)}`);
           const logText = parts.length ? `: ${parts.join(', ')}` : d > today ? '' : ': nothing logged';
-          const label = `${formatLocalDate(d, 'EEEE d MMMM')}${logText}${due > 0 ? `; ${met} of ${due} targets met` : ''}`;
+          const label = `${formatLocalDate(d, 'EEEE d MMMM')}${logText}${due > 0 ? `; ${met} of ${due} targets met; average streak ${Math.round(avg * 10) / 10} days` : ''}`;
           return (
-            <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} allowFuture>
+            <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} onFill={level >= 6 ? 'bg' : undefined} allowFuture>
               {logged.length > 0 && (
                 <span className="absolute inset-x-1.5 bottom-1.5 flex flex-wrap gap-[3px]">
                   {logged.slice(0, 6).map((l) => (
@@ -316,7 +359,8 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
           );
         }}
       />
-      <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-3">
+      <StreakLegend neutral />
+      <p className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-3">
         <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-ink-2" />Logged, target met or none set</span>
         <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full shadow-[inset_0_0_0_1.5px_var(--ink-2)]" />Logged, target not met</span>
       </p>

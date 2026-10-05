@@ -7,6 +7,7 @@ import { addDays, formatLocalDate } from '../lib/dates';
 import { isScheduled } from '../lib/streaks';
 import { setGoalArchived } from '../lib/repo';
 import { Button, useToast } from '../components/ui';
+import { SessionNotes } from '../components/SessionNotes';
 import {
   GoalBar, GoalSheet, daysLeftLabel, fmtDay, fmtGoal, statusLabel, todayNeedLabel, useGoalResult, type GoalSheetState,
 } from '../components/Goals';
@@ -82,6 +83,12 @@ function Detail({ goal, metric }: { goal: Goal; metric: Metric }) {
 
       <Figures goal={goal} metric={metric} r={r} />
       <BurnUp goal={goal} metric={metric} r={r} hue={hue} />
+      <SessionNotes
+        metric={metric}
+        from={goal.startDate}
+        to={goal.deadline}
+        emptyHint="Stop a timer after more than 10 minutes and note what you did. Notes on this goal’s sessions collect here."
+      />
 
       <div className="mt-6 grid grid-cols-2 gap-2">
         <Button onClick={() => setSheet({ mode: 'edit', goal })}><Pencil size={16} /> Edit</Button>

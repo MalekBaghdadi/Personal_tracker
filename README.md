@@ -38,7 +38,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 | **Repo** | https://github.com/MalekBaghdadi/Personal_tracker (branch `main`) |
 | **Firebase project** | `personal-tracker-cec8a` (Spark plan) |
 | **Local checkout** | `C:\Users\Malek Baghdadi\personal-tracker` (Windows 11) |
-| **Last updated** | 2 October 2026 |
+| **Last updated** | 6 October 2026 |
 
 **Built and deployed:**
 - The original MVP: Today, History, Stats, Metrics and Settings screens; timers; quick-add and manual entry; targets and streaks; PWA install and offline support; JSON/CSV export; first-run onboarding.
@@ -46,8 +46,18 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Calendar events and reminders (in-app only).
 - A per-row +/− toggle for subtracting time.
 - Deadline goals ("Network+: 120h by 15 Dec").
+- Goal status always shows the amount ahead or behind.
+- A "What did you accomplish?" note prompt after timer sessions over 10 minutes.
+- Session notes listed on each goal and in Stats.
+- A "Last week" review at the top of Stats.
+- History calendars shaded by streak length, GitHub-style.
+- A "Yesterday" button on Today for catching up on a missed day.
+- The day rolls over at 5am (a setting), not midnight.
+- Hold ▶ to start a timer earlier ("forgot to press start").
+- Restore from a JSON backup (add-only).
+- Optional app-icon badge for today's open reminders.
 
-**Verified:** type check, 53 unit tests, and 7 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 80 unit tests, and 11 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Not yet verified** (needs real devices or the real backend): see [Known gaps](#known-gaps-and-open-questions).
 
@@ -86,29 +96,33 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 
 ### Today (`src/screens/Today.tsx`)
 - **Date header:** tap it to open that day in History. A small summary line lists today's events and the count of open reminders, e.g. "Dentist · Network+ exam 14:00 · 1 reminder".
+- **Yesterday button** (top right, `components/YesterdaySheet.tsx`): a sheet with every metric scheduled yesterday (others are hidden, like Today), yesterday's total against the target, and the same +/−, quick-add chips and custom amount as Today, all dated yesterday. Streaks are derived, so logging here restores a broken one by itself; each row says so ("1h 30m more restores your 2-day streak", "Target met · streak kept (3 days)"). Undo shows inside the sheet, because the app toast sits behind a modal. Long header dates use the short month so the button fits.
 - **Install card:** shown once, until dismissed. It explains why to install to the home screen (iOS evicts a plain site's storage after 7 days).
 - **Deadline goal cards**, nearest deadline first. Each shows:
   - total of target, and days left
   - a progress bar with a thin **expected-position marker** (bar past the marker means ahead)
-  - status in time ("2h 10m behind", "On track", "45m ahead")
+  - status in time, always with the amount ("2h 10m behind", "12m ahead"; "Exactly on schedule" only when it rounds to 0). The `on_track` status still exists in `goals.ts`, but the card no longer hides the number behind it.
   - today's need ("Today: 50m of 1h 20m", or "Next: Monday, 1h 35m" on a non-work day)
   - an overload warning when the pace needed has more than doubled
-- **One row per scheduled metric**, in `order`. Metrics not scheduled today sit in a collapsed "Not scheduled today" section, still loggable. Each row has:
+- **One row per metric scheduled today**, in `order`. Metrics not scheduled today **don't appear at all** (Malek's call: Today is only what's due); log their off days from History. With nothing scheduled it says "Nothing is scheduled today". Each row has:
   - name with its icon, today's total, the target, a progress bar and the current streak
   - "Goal pace: 1h 20m today" when the metric has an active goal
   - controls: **+/− toggle**, quick-add chips, a custom-amount (keyboard) button, and Start/Stop if the metric has a timer. On phones Start/Stop is icon-only so the row fits on one line.
 - **The +/− toggle:** in − mode the chips read −15m etc., and they and the custom button subtract. It resets to + when you leave Today.
 - **Undo toast** after every log, subtract and delete.
+- **Session note prompt:** stopping a timer after more than 10 minutes (`NOTE_PROMPT_AFTER_S` in `TimerContext.tsx`) turns the Undo toast into "What did you accomplish?" with a pen and ✕. It stays until dismissed; the pen opens an inline field and Save writes the entry's `note`. Shorter sessions get the normal toast.
+- **Start earlier:** press and hold ▶ (or right-click it) to open "Start <metric> earlier": 5m–1h ago chips, or a start time (a time later than now means last night; over 12h is refused). The timer just gets an earlier `startedAt`. Holding only works while that row's timer isn't running, so a held Stop still stops.
 - **Pinned timer bar** (`components/Chrome.tsx`): visible on every tab while a timer runs. It's the only animated element in the UI.
 
 ### History (`src/screens/History.tsx`)
 - **Metric picker:** **All** (the default) or one metric.
 - **All view:**
   - calendar with a dot per metric logged that day (filled when the target was met or none is set, a ring when it wasn't)
-  - cells shaded by the share of that day's targets met
+  - cells shaded in a neutral tone by the **average streak** that day: each metric due that day contributes its streak position (0 if missed), so one miss dims the day instead of resetting it
   - a marker on days with events or reminders
   - a month summary table of total and days the target was met, per metric
-- **Single-metric view:** a heatmap by progress toward the target, plus month total and days the target was met.
+- **Single-metric view:** GitHub-style streak shading in the metric's colour: day 1 of a streak is dim and each further day is one step brighter, full from day 7 (`streakDays` and `streakLevel` in `lib/streaks.ts`). A logged day that isn't a streak day gets a faint tint. Metrics with no target have no streaks and are shaded by amount instead. Plus month total and days the target was met.
+- Streaks carry across months (counted from the first entry), skip unscheduled days, and today never breaks one; same rules as Stats.
 - **Day sheet:**
   - "Events and reminders": reminders can be ticked off; add event or reminder
   - "Logged": entries grouped by metric; tap an entry to edit or delete it, and add an entry for that day
@@ -117,12 +131,14 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - Deep link `#/history/YYYY-MM-DD` opens that day's sheet; closing it strips the date from the URL.
 
 ### Stats (`src/screens/Stats.tsx`, lazy-loaded)
+- **Last week** (`components/WeekReview.tsx`, maths in `lib/review.ts`), always at the top: each metric's total, target days met, best day and the week before; ceilings (`at_most`) show their average logged day instead of a total. Active goals show how far they moved. Weeks follow `weekStartsOn`.
 - Per metric:
   - current and longest streak
   - 30-day total
   - target-hit rate, counted from the metric's creation date so earlier days aren't counted as misses
   - a 30-day bar chart with a 7-day rolling average and a target line
 - Archived metrics are marked.
+- **Notes:** every entry with a note for that metric, newest first (5, then "Show all"). Tap one to edit the entry. Hidden when there are none.
 
 ### Metrics (`src/screens/Metrics.tsx`)
 - Create, edit, drag to reorder (pointer-based so it works on iOS; arrow keys too), archive, and hard delete with a count of what goes.
@@ -133,11 +149,14 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - Large progress, status and today's need.
 - Figures: required pace, planned pace, 14-day recent rate, projection, work days left, remaining.
 - **Burn-up chart:** done (solid, with a "now" dot), steady pace (thin), and projection (dashed, after 3 or more work days of data).
+- **Session notes** for entries between the goal's start and deadline (`components/SessionNotes.tsx`), with a hint when there are none yet.
 - Terminal states: **Achieved** (date, days early; Archive or Raise the target) and **Missed** (final total and shortfall; Extend deadline or Archive). No confetti, no scolding.
 
 ### Settings (`src/screens/Settings.tsx`)
-- Timezone (IANA, fixed; defaults to the device's on first run), week start and theme.
+- Timezone (IANA, fixed; defaults to the device's on first run), **day starts at** (midnight to 6am, default 5am), week start and theme.
 - Export: **JSON** (everything, raw) and **CSV**, which downloads four files: entries, metrics, calendar, goals.
+- **App icon** (per device, `state/badge.ts`): puts today's open reminders on the installed app's icon via `navigator.setAppBadge`. iOS draws badges only with notification permission, so turning it on there asks for it; no notification is ever sent. Updates only while the app is open. Unsupported browsers (e.g. Android Chrome) get an explanation instead of the switch.
+- **Restore from a backup** (`lib/importer.ts`, unit-tested): pick a JSON export. **Add-only**: any id already on the server, deleted ones included, is skipped, so nothing deleted comes back and nothing existing changes. Backup metrics with the same name and type as an existing one are merged into it (so restoring onto a freshly seeded account doesn't duplicate "Studying"). An incoming active goal on a metric that already has one is imported archived. Settings aren't imported. It needs a connection (it reads every collection from the server first, 15s timeout) and shows a summary to confirm.
 - Sign out, with a confirmation.
 
 ### First run
@@ -189,7 +208,7 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
 - **Entry:** `metricId`, `localDate` ('YYYY-MM-DD' in the configured timezone), `value` (always > 0), `source` ('timer', 'manual' or 'quick_add'), `note`, `occurredAt`, `deletedAt`.
 - **Goal:** `metricId` (an at_least metric), `name`, `nameEdited`, `targetTotal`, `priorProgress`, `startDate`, `deadline` (both inclusive), `paceSchedule`, `archivedAt`. **Inputs only.** Progress, status, pace, projection and achieved date are never stored.
 - **CalendarItem:** `kind` ('event' or 'reminder'), `title`, `localDate`, `time` ('HH:mm' or null for all day), `note`, `doneAt` (reminders), `deletedAt`.
-- **Settings:** `timezone`, `weekStartsOn`, `theme`, `onboardedAt` (null only on a freshly seeded account).
+- **Settings:** `timezone`, `weekStartsOn`, `theme`, `dayStartHour` (optional, 0–6; absent means 5), `onboardedAt` (null only on a freshly seeded account).
 
 ---
 
@@ -206,6 +225,8 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
    - **Today never breaks a streak.**
    - An `at_most` (ceiling) day counts only if something was logged that day, so a forgotten day isn't a perfect calorie day.
 8. **Dates are always `localDate` in the configured timezone,** never the device clock's date. Timezone logic goes through `date-fns-tz`; it isn't hand-rolled.
+   - **The tracking day starts at `settings.dayStartHour`** (default `DEFAULT_DAY_START_HOUR` = 5 when the field is absent). Turning an instant into a day always goes through `dayOf` (in `dates.ts`, exposed as `useData().dayOf`), never `localDateOf` directly: "today", a timer entry's date and a metric's creation day all follow it. At 01:30 it is still yesterday.
+   - The exception is a **clock time the user types** (Start earlier's "Started at"): that is a calendar time, resolved against the calendar date (`todayIn(tz)` with no offset).
 9. **Seeding only happens when the server confirms the account is empty** (`fromCache === false`), so a new device with an empty cache can't create duplicate metrics. Onboarding shows only when `settings.onboardedAt === null`, never merely when the field is missing.
 10. **Goals:**
     - All figures are computed in `src/lib/goals.ts`, which is pure (no React, no Firestore) and unit-tested.
@@ -228,7 +249,7 @@ Agreed with Malek or flagged to him at the time:
 - **Goals list** lives on the Metrics screen. Achieved goals stay on Today until archived.
 - **First run with no network:** the shell loads offline, but signing in needs a connection once per device. Seeding waits for the server.
 - **`timerClosed` marker:** this resolves two devices starting timers offline (the earlier `startedAt` wins) without resurrecting a timer that was stopped elsewhere.
-- Spec §18 open questions were left at their defaults: Gym is a duration on Mon/Wed/Fri, calories are a ceiling, and days roll over at midnight.
+- Spec §18 open questions were left at their defaults: Gym is a duration on Mon/Wed/Fri, and calories are a ceiling. Days rolled over at midnight until Malek asked for **5am** (he's often up past midnight); it's now a setting.
 
 ---
 
@@ -236,7 +257,7 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: src/lib/streaks.test.ts (23), src/lib/goals.test.ts (30)
+npm test              # unit tests: streaks (30), goals (30), review (7), importer (8), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
 ```
 
@@ -254,7 +275,11 @@ npm run e2e           # browser tests; or: npm run e2e -- goals core
 | `subtract-toggle` | +/− toggle, chips, Undo, row fits one line, disabled at 0 |
 | `subtract-clamp` | over-subtracting takes the day to 0, sheet layout |
 | `calendar` | row alignment, date-header link, events and reminders, future days, persistence |
-| `goals` | goal form preview and validation, card, pace line, detail and chart, edit recompute, one-per-metric, delete count, achieved |
+| `goals` | goal form preview and validation, card (incl. amount ahead), pace line, detail and chart, edit recompute, one-per-metric, delete count, achieved |
+| `extras` | (clock pinned to Monday) weekly review on Stats and not on Today, streak shading brightens day by day (metric and All views), notes on goal and Stats, hold/right-click start earlier, plain tap still starts, import rejects non-exports and needs a connection, badge setting shown |
+| `yesterday` | off-day metric hidden on Today and in the sheet, restore-a-streak hint, quick add and Undo inside the sheet, − mode, custom amount dated yesterday, streak whole again on Today and in History |
+| `day-start` | clock pinned to 01:30: Today shows the previous day, quick add and timer land on it, setting defaults to 5am, Midnight switches to the calendar date |
+| `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used,** because the Firestore emulator jar wouldn't download on this network (it hangs at 0 bytes). With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
 - **Seeding and onboarding never run** in e2e; the tests create metrics by hand.
@@ -276,9 +301,11 @@ src/
     types.ts              all data types
     firebase.ts           app/auth/firestore init (+ emulator mode)
     repo.ts               every Firestore write (entries, subtract, timer, metrics, goals, items, settings)
-    dates.ts              localDate helpers (date-fns / date-fns-tz)
-    streaks.ts (+test)    scheduled days, hits, streaks, hit rate
+    dates.ts (+test)      localDate helpers (date-fns / date-fns-tz), dayOf (5am rollover)
+    streaks.ts (+test)    scheduled days, hits, streaks, hit rate, streak position per day
     goals.ts (+test)      deadline goal calculations, validation
+    review.ts (+test)     weekly review figures
+    importer.ts (+test)   JSON backup import plan (add-only)
     format.ts             durations, values, chips
     seed.ts               first-run metrics + settings
     export.ts             JSON and CSV export
@@ -286,7 +313,8 @@ src/
     device.ts             device id, uuid, localStorage wrapper, iOS/standalone checks
   state/
     DataContext.tsx       the six listeners, derived maps, sync status, timer race resolution
-    TimerContext.tsx      start/stop, switch prompt, abandoned-timer recovery, useElapsed
+    TimerContext.tsx      start/stop, switch prompt, abandoned-timer recovery, useElapsed, note prompt
+    badge.ts              app-icon badge setting and hook
     theme.tsx             resolved theme, per-metric hue
   screens/                Today, History, Stats, Metrics, Settings, GoalDetail, Auth, Onboarding
   components/
@@ -297,6 +325,10 @@ src/
     MetricPicker.tsx      metric chips (+ "All")
     Items.tsx             event/reminder form and list
     Goals.tsx             goal form, Today card, progress bar, pace line, display helpers
+    SessionNotes.tsx      notes list (goal detail, Stats)
+    WeekReview.tsx        "Last week" card (top of Stats)
+    StartEarlier.tsx      hold-to-start-earlier sheet, useLongPress
+    YesterdaySheet.tsx    Today's "Yesterday" catch-up sheet
     inputs.tsx            duration/count inputs and parsers
 e2e/                      browser tests + run-all.mjs runner
 scripts/make-icons.mjs    regenerates public/ icons (no dependencies)
@@ -315,11 +347,27 @@ firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
   - the timer surviving a 30-minute lock
   - date and time fields: the vertical-centring fix in `index.css` was done blind, since Safari can't be reproduced here
 - **First-run seeding and onboarding** against the real backend (never runs in e2e).
+- **Import against the real backend.** The e2e only reaches the offline error. Expected: importing a fresh export adds nothing; an entry deleted after the export stays deleted after importing it.
+- **The app-icon badge** on the iPhone (needs the installed app and notification permission).
+- **Press-and-hold ▶ on iOS** (callout suppressed with `-webkit-touch-callout: none`; untested on a real device).
 - **Firebase usage** staying in the low single-digit percentages of the Spark quotas.
 - **The export downloads themselves,** especially on iOS standalone.
 
+### Device checklist
+
+About 15 minutes with the phone and the laptop, both signed in. Tick each one off; anything that fails is a bug to fix before more features.
+
+1. **Install (iPhone):** Safari → Share → Add to Home Screen. Open it from the icon, turn on airplane mode, close and reopen it: the app and today's data still show.
+2. **Offline sync:** with both devices offline, log 15m of Studying on the phone and 30m on the laptop for today. Reconnect both. Within a minute both show 45m, and any goal card agrees.
+3. **Timer across devices:** start a timer on the phone. The laptop shows the timer bar within a few seconds. Stop it on the laptop: the phone's bar disappears and the entry appears once.
+4. **Locked phone:** start a timer, lock the phone for 30 minutes, unlock. The elapsed time is about 30 minutes and stopping logs it (and asks for a note).
+5. **Date and time fields (iPhone):** open an entry's sheet and an event's sheet. The date and time text sits vertically centred in its box.
+6. **Hold ▶ (iPhone):** press and hold the play button. The "Start … earlier" sheet opens, with no text-selection or callout popup.
+7. **Badge (iPhone, installed):** Settings → App icon → turn on, allow notifications. Add a reminder for today, go to the home screen: the icon shows 1. Tick it off, reopen and leave: the badge clears.
+8. **Export (iPhone, installed):** Settings → JSON. The file saves or opens a share sheet.
+9. **Import:** on the laptop, export JSON, then import that same file. It says everything is already there.
+
 **Ideas not built** (only if Malek asks):
-- a 3am day rollover
 - Gym as a check-off
 - calorie ranges
 - repeating events
@@ -348,6 +396,12 @@ Newest last. `git log` has the details.
    - the entry sheet became one column, because iOS Safari misaligned the side-by-side layout
    - date and time fields got a fixed height so iOS centres their text
 8. **This README, `CLAUDE.md`, and the browser tests** moved into `e2e/`.
+9. **Goal amount and session notes:** goal status always shows the amount (no bare "On track"); timer sessions over 10 minutes ask "What did you accomplish?" in the toast and save the answer as the entry's note.
+10. **Review, notes, start earlier, import, badge:** session notes listed on goals and in Stats; weekly review card; hold ▶ to start earlier; add-only JSON import; opt-in icon badge; device checklist in Known gaps.
+11. **Review moved, streak calendar:** "Last week" moved from Today to the top of Stats (always shown). History shades days by streak length, one step brighter per day up to 7; the All view uses the average of each metric's streak (Malek's choice).
+12. **Yesterday button:** catch up on yesterday from Today in a sheet with quick add; rows show when logging restores a streak.
+13. **5am rollover:** the tracking day starts at `dayStartHour` (default 5) via `dayOf`; a "Day starts at" setting; e2e date math follows it.
+14. **Off days hidden:** metrics not scheduled today no longer appear on Today (the collapsed section is gone), nor in the Yesterday sheet on their off days.
 
 ---
 
@@ -355,6 +409,7 @@ Newest last. `git log` has the details.
 
 - **The CDN caches `index.html` briefly after a deploy.** Verify the live page references the new `assets/index-*.js` before telling Malek it's live.
 - **`npm run e2e` rebuilds `dist/` normally at the end.** If you build in emulator mode by hand (`vite build --mode emulators`), don't deploy that `dist/`. `npm run deploy` always rebuilds first anyway.
+- **E2E date math must follow the 5am rollover.** Between midnight and 5am the app's "today" is the previous calendar date, so suites compute dates from `Date.now() - 5h`.
 - **Puppeteer and the fixed tab bar:** clicking a button near the bottom can land on the tab bar, because the button is scrolled just into view. Click by text through `page.evaluate` instead (see the `press()` helper in `e2e/goals.mjs`).
 - **iOS Safari date and time inputs** need `appearance: none` plus an explicit height and line-height. The rule is in `index.css`; keep it when restyling inputs.
 - **Recharts single-point lines are invisible,** which is why the burn-up chart draws a dot on the latest "done" point.

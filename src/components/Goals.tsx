@@ -31,7 +31,7 @@ export function daysLeftLabel(r: GoalResult): string {
   return `${r.daysLeft} days left`;
 }
 
-/** "2h 10m behind", "On track", "45m ahead", "Achieved", … */
+/** "2h 10m behind", "12m ahead", "Exactly on schedule", "Achieved", … */
 export function statusLabel(goal: Goal, metric: Metric, r: GoalResult, today: string): string {
   switch (r.status) {
     case 'achieved':
@@ -43,12 +43,12 @@ export function statusLabel(goal: Goal, metric: Metric, r: GoalResult, today: st
       return `Starts ${fmtDay(goal.startDate, today).replace('Tomorrow', 'tomorrow')}`;
     case 'no_days_left':
       return 'No work days left';
-    case 'ahead':
-      return `${fmtGoal(metric, r.delta)} ahead`;
-    case 'behind':
-      return `${fmtGoal(metric, -r.delta)} behind`;
-    default:
-      return 'On track';
+    default: {
+      // Always the amount, even inside the on-track tolerance.
+      const amount = fmtGoal(metric, Math.abs(r.delta));
+      if (amount === fmtGoal(metric, 0)) return 'Exactly on schedule';
+      return `${amount} ${r.delta > 0 ? 'ahead' : 'behind'}`;
+    }
   }
 }
 

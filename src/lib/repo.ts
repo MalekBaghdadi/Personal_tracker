@@ -1,10 +1,11 @@
 import {
-  collection, doc, setDoc, updateDoc, writeBatch,
+  collection, doc, getDocsFromServer, setDoc, updateDoc, writeBatch,
   type DocumentReference,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { deviceId, uuid } from './device';
-import { localDateOf, nowIso } from './dates';
+import { nowIso } from './dates';
+import type { ExistingData, ImportPlan } from './importer';
 import type { ActiveTimer, CalendarItem, Entry, EntrySource, Goal, Metric, Settings } from './types';
 
 /**
@@ -221,10 +222,12 @@ function markClosed(batch: ReturnType<typeof writeBatch>, uid: string, startedAt
   batch.set(timerClosedRef(uid), { startedAt, closedAt: nowIso() });
 }
 
-export function startTimer(uid: string, metricId: string): ActiveTimer {
+/** `startedAt` backdates the start ("I forgot to press start"); it defaults to now. */
+export function startTimer(uid: string, metricId: string, startedAt?: string): ActiveTimer {
   const now = nowIso();
-  const timer: ActiveTimer = { metricId, startedAt: now, deviceId: deviceId(), updatedAt: now };
-  setOwnTimer({ metricId, startedAt: now });
+  const start = startedAt && startedAt < now ? startedAt : now;
+  const timer: ActiveTimer = { metricId, startedAt: start, deviceId: deviceId(), updatedAt: now };
+  setOwnTimer({ metricId, startedAt: start });
   fire(setDoc(paths.timer(uid), timer));
   return timer;
 }
@@ -236,9 +239,9 @@ export function reassertOwnTimer(uid: string, own: OwnTimer): void {
 
 /**
  * Stop: record the entry and clear the timer atomically. The entry belongs to
- * the day the timer started, even across midnight.
+ * the tracking day the timer started on (`dayOf`), even across the rollover.
  */
-export function stopTimer(uid: string, timer: ActiveTimer, seconds: number, tz: string): string | null {
+export function stopTimer(uid: string, timer: ActiveTimer, seconds: number, dayOf: (iso: string) => string): string | null {
   const batch = writeBatch(db);
   let entryId: string | null = null;
   if (seconds > 0) {
@@ -246,7 +249,7 @@ export function stopTimer(uid: string, timer: ActiveTimer, seconds: number, tz: 
       metricId: timer.metricId,
       value: seconds,
       source: 'timer',
-      localDate: localDateOf(timer.startedAt, tz),
+      localDate: dayOf(timer.startedAt),
       occurredAt: timer.startedAt,
     });
     batch.set(paths.entry(uid, entry.id), entry);
@@ -323,4 +326,41 @@ export function deleteMetric(
 
 export function saveSettings(uid: string, patch: Partial<Settings>): void {
   fire(setDoc(paths.settings(uid), { ...patch, updatedAt: nowIso() }, { merge: true }));
+}
+
+// ── Import ─────────────────────────────────────────────────────────────────
+
+/**
+ * Everything the server holds, deleted entries and items included, so an
+ * import can skip what's already there. Needs a connection: the local cache
+ * may not know about documents deleted on another device.
+ */
+export async function fetchExisting(uid: string): Promise<ExistingData> {
+  const [metrics, entries, items, goals] = await Promise.all([
+    getDocsFromServer(paths.metrics(uid)),
+    getDocsFromServer(paths.entries(uid)),
+    getDocsFromServer(paths.items(uid)),
+    getDocsFromServer(paths.goals(uid)),
+  ]);
+  return {
+    metrics: metrics.docs.map((d) => d.data() as Metric),
+    entryIds: new Set(entries.docs.map((d) => d.id)),
+    itemIds: new Set(items.docs.map((d) => d.id)),
+    goals: goals.docs.map((d) => d.data() as Goal),
+  };
+}
+
+/** Add-only: every planned doc is new. Metrics go in the first batch so nothing lands before its metric. */
+export function applyImport(uid: string, plan: ImportPlan): void {
+  const writes: [DocumentReference, object][] = [
+    ...plan.metrics.map((m) => [paths.metric(uid, m.id), m] as [DocumentReference, object]),
+    ...plan.goals.map((g) => [paths.goal(uid, g.id), g] as [DocumentReference, object]),
+    ...plan.entries.map((e) => [paths.entry(uid, e.id), e] as [DocumentReference, object]),
+    ...plan.items.map((i) => [paths.item(uid, i.id), i] as [DocumentReference, object]),
+  ];
+  for (let i = 0; i < writes.length; i += MAX_BATCH) {
+    const batch = writeBatch(db);
+    for (const [ref, data] of writes.slice(i, i + MAX_BATCH)) batch.set(ref, data);
+    fire(batch.commit());
+  }
 }

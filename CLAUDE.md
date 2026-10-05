@@ -15,4 +15,6 @@ invariants, decisions, testing and known gaps. This file is just the short versi
   sum of its entries (never a stored total); entry values are always > 0 (subtracting trims entries,
   clamps at 0); writes are never awaited; no hardcoded metric names; goals and streaks are derived,
   never stored; today never breaks a streak.
+- The day rolls over at `settings.dayStartHour` (default 5am), not midnight. Turn instants into days with
+  `dayOf` / `useData().dayOf`, never `localDateOf` directly.
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.

@@ -2,10 +2,12 @@ import { useMemo } from 'react';
 import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { statsFor, useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
-import { addDays, dateRange, formatLocalDate, localDateOf } from '../lib/dates';
+import { addDays, dateRange, formatLocalDate } from '../lib/dates';
 import { computeStreaks, hitRate } from '../lib/streaks';
 import { formatDuration, formatNumber, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
+import { SessionNotes } from '../components/SessionNotes';
+import { WeekReviewCard } from '../components/WeekReview';
 import type { Metric } from '../lib/types';
 
 const PERIOD = 30;
@@ -15,8 +17,9 @@ export function Stats() {
   const ordered = [...metrics.filter((m) => !m.archivedAt), ...metrics.filter((m) => m.archivedAt)];
   return (
     <div className="mx-auto max-w-2xl px-4 pt-5 pb-28 md:pb-10">
-      <h1 className="text-[22px] font-semibold tracking-tight">Stats</h1>
-      <p className="mt-1 mb-2 text-[14px] text-ink-3">Last {PERIOD} days</p>
+      <h1 className="mb-4 text-[22px] font-semibold tracking-tight">Stats</h1>
+      <WeekReviewCard />
+      {metrics.length > 0 && <h2 className="mt-6 mb-2 text-[14px] text-ink-3">Last {PERIOD} days</h2>}
       {ordered.length === 0 && <p className="text-[14px] text-ink-2">Add a metric to see stats here.</p>}
       <div className="divide-y divide-line">
         {ordered.map((m) => <MetricStats key={m.id} metric={m} />)}
@@ -47,7 +50,7 @@ function axisValue(metric: Metric, v: number): string {
 
 function MetricStats({ metric }: { metric: Metric }) {
   const data = useData();
-  const { today, tz } = data;
+  const { today, dayOf } = data;
   const hue = useHue(metric.color);
   const stats = statsFor(data, metric.id);
   const Icon = iconFor(metric.icon);
@@ -72,10 +75,10 @@ function MetricStats({ metric }: { metric: Metric }) {
   const streaks = useMemo(() => computeStreaks(metric, stats, today), [metric, stats, today]);
   // Don't judge days before the metric existed (or before its first entry, if backfilled).
   const rate = useMemo(() => {
-    const first = [...stats.keys()].reduce((min, d) => (d < min ? d : min), localDateOf(metric.createdAt, tz));
+    const first = [...stats.keys()].reduce((min, d) => (d < min ? d : min), dayOf(metric.createdAt));
     const periodStart = addDays(today, -(PERIOD - 1));
     return hitRate(metric, stats, first > periodStart ? first : periodStart, today);
-  }, [metric, stats, today, tz]);
+  }, [metric, stats, today, dayOf]);
   const ticks = useMemo(() => niceTicks(metric, Math.max(metric.target ?? 0, ...rows.map((r) => r.total))), [metric, rows]);
   const fmt = (v: number) => (metric.type === 'duration' ? formatDuration(v) : `${formatNumber(Math.round(v))} ${metric.unit}`);
 
@@ -148,6 +151,7 @@ function MetricStats({ metric }: { metric: Metric }) {
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      <SessionNotes metric={metric} title="Notes" />
     </section>
   );
 }

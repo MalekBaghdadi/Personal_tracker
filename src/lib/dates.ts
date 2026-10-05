@@ -16,8 +16,21 @@ export function localDateOf(instant: Date | string, tz: string): string {
   return formatInTimeZone(typeof instant === 'string' ? new Date(instant) : instant, tz, FMT);
 }
 
-export function todayIn(tz: string, now: Date = new Date()): string {
-  return localDateOf(now, tz);
+/** When the settings don't say: the day rolls over at 5am (Malek's choice; he's often up past midnight). */
+export const DEFAULT_DAY_START_HOUR = 5;
+
+/**
+ * The tracking day an instant belongs to: its local date in tz, with the day
+ * starting at `dayStartHour` instead of midnight. With 5, 01:30 on the 7th
+ * still belongs to the 6th.
+ */
+export function dayOf(instant: Date | string, tz: string, dayStartHour: number): string {
+  const ms = typeof instant === 'string' ? Date.parse(instant) : instant.getTime();
+  return localDateOf(new Date(ms - dayStartHour * 3_600_000), tz);
+}
+
+export function todayIn(tz: string, dayStartHour = 0, now: Date = new Date()): string {
+  return dayOf(now, tz, dayStartHour);
 }
 
 function toCalendar(localDate: string): Date {

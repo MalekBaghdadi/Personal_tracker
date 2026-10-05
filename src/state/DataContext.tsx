@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { getDocFromServer, onSnapshot, query, where, type SnapshotMetadata } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { deviceId } from '../lib/device';
-import { deviceTimezone, todayIn } from '../lib/dates';
+import { DEFAULT_DAY_START_HOUR, dayOf, deviceTimezone, todayIn } from '../lib/dates';
 import { forgetOwnTimer, ownTimer, paths, reassertOwnTimer, timerClosedRef } from '../lib/repo';
 import { seedAccount } from '../lib/seed';
 import type { ActiveTimer, CalendarItem, DayStats, Entry, Goal, Metric, Settings } from '../lib/types';
@@ -28,6 +28,10 @@ interface Data {
   settings: Settings | null;
   timer: ActiveTimer | null;
   tz: string;
+  /** Hour the tracking day rolls over (settings, default 5am). */
+  dayStart: number;
+  /** The tracking day an instant belongs to, given tz and dayStart. */
+  dayOf: (instant: Date | string) => string;
   today: string;
   sync: SyncState;
   /** Metrics and settings have been read at least once (from cache or server). */
@@ -162,9 +166,11 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   }, [serverTimerSeq, entriesFromServer, entries, uid]);
 
   const tz = settings?.timezone ?? deviceTimezone();
-  const [today, setToday] = useState(() => todayIn(tz));
+  const dayStart = settings?.dayStartHour ?? DEFAULT_DAY_START_HOUR;
+  const dayOfFn = useMemo(() => (instant: Date | string) => dayOf(instant, tz, dayStart), [tz, dayStart]);
+  const [today, setToday] = useState(() => todayIn(tz, dayStart));
   useEffect(() => {
-    const update = () => setToday(todayIn(tz));
+    const update = () => setToday(todayIn(tz, dayStart));
     update();
     const id = window.setInterval(update, 30_000);
     document.addEventListener('visibilitychange', update);
@@ -172,7 +178,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', update);
     };
-  }, [tz]);
+  }, [tz, dayStart]);
 
   const dayStats = useMemo(() => {
     const out = new Map<string, DayStats>();
@@ -229,11 +235,13 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       settings: settings ?? null,
       timer,
       tz,
+      dayStart,
+      dayOf: dayOfFn,
       today,
       sync,
       ready: metrics !== null && settings !== undefined,
     }),
-    [uid, user, metrics, metricById, entries, goals, items, itemsByDate, dayStats, settings, timer, tz, today, sync],
+    [uid, user, metrics, metricById, entries, goals, items, itemsByDate, dayStats, settings, timer, tz, dayStart, dayOfFn, today, sync],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

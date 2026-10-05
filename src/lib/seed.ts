@@ -1,7 +1,7 @@
 import { writeBatch } from 'firebase/firestore';
 import { db } from './firebase';
 import { paths } from './repo';
-import { deviceTimezone, nowIso } from './dates';
+import { DEFAULT_DAY_START_HOUR, deviceTimezone, nowIso } from './dates';
 import { uuid } from './device';
 import { PALETTE } from './palette';
 import type { Metric, Settings } from './types';
@@ -41,6 +41,7 @@ export function seedAccount(uid: string): void {
   const settings: Settings = {
     timezone: deviceTimezone(),
     weekStartsOn: 1,
+    dayStartHour: DEFAULT_DAY_START_HOUR,
     theme: 'dark',
     onboardedAt: null,
     updatedAt: now,
