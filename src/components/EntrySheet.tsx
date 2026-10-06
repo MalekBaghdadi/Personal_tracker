@@ -11,7 +11,9 @@ const LONG_DURATION_S = 12 * 3600;
 
 export type EntrySheetState =
   | { mode: 'add'; metric: Metric; date?: string; subtract?: boolean }
-  | { mode: 'edit'; metric: Metric; entry: Entry };
+  | { mode: 'edit'; metric: Metric; entry: Entry }
+  /** A merged History row: several quick adds/manual entries edited as one total. */
+  | { mode: 'total'; metric: Metric; entryIds: string[] };
 
 /**
  * Manual add and edit share one form. Edits are field-level updates, so a
@@ -25,16 +27,21 @@ export function EntrySheet({ state, onClose }: { state: EntrySheetState | null; 
       title={
         !state ? ''
           : state.mode === 'edit' ? `Edit ${state.metric.name} entry`
+          : state.mode === 'total' ? `Edit ${state.metric.name} total`
           : state.subtract ? `Subtract from ${state.metric.name}`
           : `Add to ${state.metric.name}`
       }
     >
-      {state && <EntryForm key={state.mode === 'edit' ? state.entry.id : `${state.metric.id}-${state.date}-${state.subtract ? 'sub' : 'add'}`} state={state} onDone={onClose} />}
+      {state?.mode === 'total' ? (
+        <TotalForm key={state.entryIds.join(',')} metric={state.metric} entryIds={state.entryIds} onDone={onClose} />
+      ) : state ? (
+        <EntryForm key={state.mode === 'edit' ? state.entry.id : `${state.metric.id}-${state.date}-${state.subtract ? 'sub' : 'add'}`} state={state} onDone={onClose} />
+      ) : null}
     </Sheet>
   );
 }
 
-function EntryForm({ state, onDone }: { state: EntrySheetState; onDone: () => void }) {
+function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 'total' }>; onDone: () => void }) {
   const { uid, tz, today, entries } = useData();
   const toast = useToast();
   const metric = state.metric;
@@ -194,6 +201,93 @@ function EntryForm({ state, onDone }: { state: EntrySheetState; onDone: () => vo
             Delete entry
           </Button>
         )}
+      </div>
+    </form>
+  );
+}
+
+/**
+ * One number for several entries. Lowering it trims the newest of those
+ * entries (subtractFromDay, so values stay positive); raising it adds one
+ * manual entry for the difference. Timer sessions and noted entries aren't
+ * part of a merged row, so they're never touched.
+ */
+function TotalForm({ metric, entryIds, onDone }: { metric: Metric; entryIds: string[]; onDone: () => void }) {
+  const { uid, tz, today, entries } = useData();
+  const toast = useToast();
+  const isDuration = metric.type === 'duration';
+  const parts = useMemo(() => {
+    const ids = new Set(entryIds);
+    return entries.filter((e) => ids.has(e.id)).sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+  }, [entries, entryIds]);
+  const current = parts.reduce((s, e) => s + e.value, 0);
+  const date = parts[0]?.localDate ?? today;
+
+  const initial = splitDuration(current);
+  const [hours, setHours] = useState(initial.hours);
+  const [minutes, setMinutes] = useState(initial.minutes);
+  const [count, setCount] = useState(isDuration ? '' : String(current));
+  const [error, setError] = useState<string | null>(null);
+  const value = isDuration ? parseDuration(hours, minutes) : parseCount(count);
+
+  const removeAll = () => {
+    const undo = subtractFromDay(uid, parts, current);
+    toast(`Removed ${formatValue(metric, current)} from ${metric.name}`, { label: 'Undo', run: () => undoSubtraction(uid, undo) });
+    onDone();
+  };
+
+  const submit = () => {
+    if (!Number.isFinite(value) || value <= 0) {
+      setError(isDuration ? 'Enter a duration above zero, or remove them all.' : `Enter a whole number of ${metric.unit} above zero, or remove them all.`);
+      return;
+    }
+    const diff = value - current;
+    if (diff < 0) {
+      const undo = subtractFromDay(uid, parts, -diff);
+      toast(`${metric.name} total now ${formatValue(metric, value)}`, { label: 'Undo', run: () => undoSubtraction(uid, undo) });
+    } else if (diff > 0) {
+      const occurredAt = date === today ? new Date().toISOString() : instantAt(date, '12:00:00', tz).toISOString();
+      const id = addEntry(uid, { metricId: metric.id, value: diff, source: 'manual', localDate: date, occurredAt });
+      toast(`${metric.name} total now ${formatValue(metric, value)}`, { label: 'Undo', run: () => softDeleteEntry(uid, id) });
+    }
+    onDone();
+  };
+
+  if (parts.length === 0) {
+    return <p className="mt-2 text-[14px] text-ink-2">These entries no longer exist.</p>;
+  }
+
+  return (
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+      className="mt-2 flex flex-col gap-4"
+    >
+      <div>
+        <Label htmlFor={isDuration ? 'total-m' : 'total-count'}>Total</Label>
+        {isDuration ? (
+          <DurationInput idPrefix="total" hours={hours} minutes={minutes} onHours={(v) => { setHours(v); setError(null); }} onMinutes={(v) => { setMinutes(v); setError(null); }} autoFocus />
+        ) : (
+          <CountInput id="total-count" value={count} onChange={(v) => { setCount(v); setError(null); }} unit={metric.unit} autoFocus />
+        )}
+        <FieldError>{error}</FieldError>
+        <p className="mt-1.5 text-[13px] text-ink-2" data-testid="total-parts">
+          Made of {parts.map((e) => formatValue(metric, e.value)).join(' + ')}
+        </p>
+        <p className="mt-1 text-[13px] text-ink-3">
+          Lowering it trims the most recent of these; raising it adds the difference as one entry.
+        </p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <Button type="submit" variant="primary">
+          {Number.isFinite(value) && value > 0 && value !== current ? `Save ${formatValue(metric, value)}` : 'Save'}
+        </Button>
+        <Button variant="danger" onClick={removeAll}>
+          Remove all {formatValue(metric, current)}
+        </Button>
       </div>
     </form>
   );

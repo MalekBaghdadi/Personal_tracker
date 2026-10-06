@@ -58,8 +58,9 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Optional app-icon badge for today's open reminders.
 - First run lets each new user pick their own metrics (suggestions, their own, or none) before setting targets.
 - A read-only admin view of every user for Malek's account (Settings → Admin → Users).
+- History merges a day's quick adds and manual amounts into one summed line, editable as a total.
 
-**Verified:** type check, 80 unit tests, and 13 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 86 unit tests, and 14 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -129,7 +130,10 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - Streaks carry across months (counted from the first entry), skip unscheduled days, and today never breaks one; same rules as Stats.
 - **Day sheet:**
   - "Events and reminders": reminders can be ticked off; add event or reminder
-  - "Logged": entries grouped by metric; tap an entry to edit or delete it, and add an entry for that day
+  - "Logged": entries grouped by metric, and add an entry for that day
+  - **Merged line:** a day's quick adds and manual amounts for a metric show as **one line with their sum** ("850 kcal · 3 quick adds · last at 19:05"; `lib/entryRows.ts`, unit-tested). Timer sessions and anything with a note keep their own line. Display only: storage is still one entry per logging action (invariant 1).
+  - Tapping the merged line opens **Edit total** (`TotalForm` in `EntrySheet.tsx`): lowering it trims the newest of those entries with `subtractFromDay`, raising it adds one manual entry for the difference, and "Remove all" clears them. Timer and noted entries are never touched. All with Undo.
+  - Tapping any other line edits or deletes that entry.
   - Future days show only events and reminders.
 - Month navigation goes forward too, for planning. Tapping the month title jumps back to the current month.
 - Deep link `#/history/YYYY-MM-DD` opens that day's sheet; closing it strips the date from the URL.
@@ -281,7 +285,7 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (30), goals (30), review (7), importer (8), dates (5)
+npm test              # unit tests: streaks (30), goals (30), review (7), importer (8), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
 ```
 
@@ -305,6 +309,7 @@ npm run e2e           # browser tests; or: npm run e2e -- goals core
 | `day-start` | clock pinned to 01:30: Today shows the previous day, quick add and timer land on it, setting defaults to 5am, Midnight switches to the calendar date |
 | `first-run` | (emulator-only `window.__e2eFirstRun` hook, since seeding needs the server) picker, toggling, own time and count metrics, typed suggestion name ticks it, Back keeps picks, only picks get targets, metrics created with target, existing metrics skip to targets, stays done after reload |
 | `admin` | (emulator-only `logbook:e2e-admin` localStorage flag makes the test account admin) hidden and refused for non-admins; Users link; list shows own profile with joined and last seen; offline note; user detail with metric, target, today and 7-day totals; no inputs or buttons on it. The **security rules aren't tested** (no Firestore emulator). |
+| `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used,** because the Firestore emulator jar wouldn't download on this network (it hangs at 0 bytes). With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
@@ -423,6 +428,7 @@ Newest last. `git log` has the details.
 14. **Off days hidden:** metrics not scheduled today no longer appear on Today (the collapsed section is gone), nor in the Yesterday sheet on their off days.
 15. **Choose your own metrics on first run:** new accounts no longer get Malek's five metrics; they pick from suggestions or add their own, then set targets. Device checklist passed in full the same day.
 16. **Admin view:** Malek's account can see every user (Settings → Admin → Users) read-only, via `profiles` and admin read access in the rules.
+17. **Merged quick adds:** History shows a day's quick adds and manual amounts as one summed line; tapping it edits the total.
 
 ---
 

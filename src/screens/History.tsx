@@ -5,6 +5,7 @@ import { useHue } from '../state/theme';
 import { addDays, formatLocalDate, formatTimeIn, weekdayOf } from '../lib/dates';
 import { isHit, isScheduled, streakDays, streakLevel } from '../lib/streaks';
 import { formatValue } from '../lib/format';
+import { entryRows, mergedLabel } from '../lib/entryRows';
 import { EntrySheet, sourceLabel, type EntrySheetState } from '../components/EntrySheet';
 import { Button, IconButton, Sheet, WEEKDAYS, cx } from '../components/ui';
 import { ALL, MetricPicker } from '../components/MetricPicker';
@@ -410,24 +411,37 @@ function SummaryRow({ metric, total, hits, scheduled }: { metric: Metric; total:
 
 // ── Day sheets ─────────────────────────────────────────────────────────────
 
-function EntryList({ metric, entries, onEdit }: { metric: Metric; entries: Entry[]; onEdit: (e: Entry) => void }) {
+/** Quick adds and manual amounts show as one summed row; see lib/entryRows.ts. */
+function EntryList({ metric, entries, onEdit }: { metric: Metric; entries: Entry[]; onEdit: (s: EntrySheetState) => void }) {
   const { tz } = useData();
+  const rows = useMemo(() => entryRows(entries), [entries]);
   return (
     <ul className="divide-y divide-line border-y border-line">
-      {entries.map((e) => (
-        <li key={e.id}>
-          <button type="button" onClick={() => onEdit(e)} className="flex min-h-12 w-full items-center gap-3 py-2 text-left hover:bg-s2/50">
-            <span className="w-12 shrink-0 text-[14px] text-ink-3">{formatTimeIn(e.occurredAt, tz)}</span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-medium">{formatValue(metric, e.value)}</span>
-              <span className="block truncate text-[13px] text-ink-3">
-                {sourceLabel(e.source)}{e.note ? ` · ${e.note}` : ''}
+      {rows.map((r) => {
+        const merged = r.kind === 'merged';
+        const first = merged ? r.entries[0] : r.entry;
+        const last = merged ? r.entries[r.entries.length - 1] : r.entry;
+        return (
+          <li key={first.id}>
+            <button
+              type="button"
+              onClick={() => onEdit(merged ? { mode: 'total', metric, entryIds: r.entries.map((e) => e.id) } : { mode: 'edit', metric, entry: r.entry })}
+              className="flex min-h-12 w-full items-center gap-3 py-2 text-left hover:bg-s2/50"
+            >
+              <span className="w-12 shrink-0 text-[14px] text-ink-3">{formatTimeIn(first.occurredAt, tz)}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[15px] font-medium">{formatValue(metric, merged ? r.total : r.entry.value)}</span>
+                <span className="block truncate text-[13px] text-ink-3">
+                  {merged
+                    ? `${mergedLabel(r.entries)} · last at ${formatTimeIn(last.occurredAt, tz)}`
+                    : `${sourceLabel(r.entry.source)}${r.entry.note ? ` · ${r.entry.note}` : ''}`}
+                </span>
               </span>
-            </span>
-            <Pencil size={16} className="shrink-0 text-ink-3" aria-label="Edit" />
-          </button>
-        </li>
-      ))}
+              <Pencil size={16} className="shrink-0 text-ink-3" aria-label={merged ? 'Edit total' : 'Edit'} />
+            </button>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -453,7 +467,7 @@ function DaySheet({ metric, date, onClose }: { metric: Metric; date: string | nu
             <p className="mb-2 text-[14px] text-ink-2">
               Total <span className="font-medium text-ink">{formatValue(metric, total)}</span> from {dayEntries.length} {dayEntries.length === 1 ? 'entry' : 'entries'}
             </p>
-            <EntryList metric={metric} entries={dayEntries} onEdit={(e) => setEdit({ mode: 'edit', metric, entry: e })} />
+            <EntryList metric={metric} entries={dayEntries} onEdit={setEdit} />
           </>
         )}
         <Button className="mt-4 w-full" onClick={() => date && setEdit({ mode: 'add', metric, date })}>
@@ -505,7 +519,7 @@ function AllDaySheet({ date, onClose }: { date: string | null; onClose: () => vo
             ) : (
               <div className="flex flex-col gap-5">
                 {groups.map((g) => (
-                  <DayGroup key={g.metric.id} metric={g.metric} entries={g.entries} date={date!} onEdit={(e) => setEdit({ mode: 'edit', metric: g.metric, entry: e })} />
+                  <DayGroup key={g.metric.id} metric={g.metric} entries={g.entries} date={date!} onEdit={setEdit} />
                 ))}
               </div>
             )}
@@ -528,7 +542,7 @@ function AllDaySheet({ date, onClose }: { date: string | null; onClose: () => vo
   );
 }
 
-function DayGroup({ metric, entries, date, onEdit }: { metric: Metric; entries: Entry[]; date: string; onEdit: (e: Entry) => void }) {
+function DayGroup({ metric, entries, date, onEdit }: { metric: Metric; entries: Entry[]; date: string; onEdit: (s: EntrySheetState) => void }) {
   const hue = useHue(metric.color);
   const total = entries.reduce((s, e) => s + e.value, 0);
   const hit = isHit(metric, total, entries.length);
