@@ -74,13 +74,13 @@ function MetricStats({ metric }: { metric: Metric }) {
     return { rows, periodTotal: rows.reduce((s, r) => s + r.total, 0) };
   }, [stats, today]);
 
-  const streaks = useMemo(() => computeStreaks(metric, stats, today), [metric, stats, today]);
+  const streaks = useMemo(() => computeStreaks(metric, stats, today, data.weekStartsOn), [metric, stats, today, data.weekStartsOn]);
   // Don't judge days before the metric existed (or before its first entry, if backfilled).
   const rate = useMemo(() => {
     const first = [...stats.keys()].reduce((min, d) => (d < min ? d : min), dayOf(metric.createdAt));
     const periodStart = addDays(today, -(PERIOD - 1));
-    return hitRate(metric, stats, first > periodStart ? first : periodStart, today);
-  }, [metric, stats, today, dayOf]);
+    return hitRate(metric, stats, first > periodStart ? first : periodStart, today, data.weekStartsOn);
+  }, [metric, stats, today, dayOf, data.weekStartsOn]);
   const ticks = useMemo(() => niceTicks(metric, Math.max(metric.target ?? 0, ...rows.map((r) => r.total))), [metric, rows]);
   const fmt = (v: number) => (metric.type === 'duration' ? formatDuration(v) : `${formatNumber(Math.round(v))} ${metric.unit}`);
 

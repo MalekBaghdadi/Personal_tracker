@@ -43,6 +43,10 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const [tCount, setTCount] = useState(initial?.target != null && initial.type === 'count' ? String(initial.target) : '');
   const [schedule, setSchedule] = useState<Schedule>(initial?.schedule ?? { kind: 'daily' });
   const [timerEnabled, setTimerEnabled] = useState(initial?.timerEnabled ?? true);
+  const [restPerWeek, setRestPerWeek] = useState(initial?.restDaysPerWeek ?? 0);
+  // At least one due day a week has to stay; offer up to 3.
+  const dueDaysPerWeek = schedule.kind === 'daily' ? 7 : schedule.days.length;
+  const maxRest = Math.max(0, Math.min(3, dueDaysPerWeek - 1));
   const [quick, setQuick] = useState(initial ? quickAddToText(initial) : '15, 30, 60');
   const [color, setColor] = useState(initial?.color ?? defaultColor);
   const [icon, setIcon] = useState(initial?.icon ?? 'Target');
@@ -97,6 +101,9 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       targetDirection: direction,
       schedule,
       timerEnabled: type === 'duration' && timerEnabled,
+      restDaysPerWeek: Math.min(restPerWeek, maxRest),
+      // Marks are set from Today; keep the live list rather than this form's copy.
+      restDates: metrics.find((m) => m.id === initial?.id)?.restDates ?? [],
       quickAdd: [...new Set(quickAdd.map((v) => (type === 'duration' ? Math.round(v * 60) : v)))].sort((a, b) => a - b),
       color,
       icon,
@@ -208,6 +215,21 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
           </div>
         )}
         <FieldError>{errors.schedule}</FieldError>
+      </div>
+
+      <div>
+        <Label>Rest days a week</Label>
+        <Segmented
+          label="Rest days a week"
+          value={Math.min(restPerWeek, maxRest)}
+          onChange={setRestPerWeek}
+          options={Array.from({ length: maxRest + 1 }, (_, n) => ({ value: n, label: n === 0 ? 'None' : String(n) }))}
+        />
+        <p className="mt-1.5 text-[13px] text-ink-3">
+          {restPerWeek > 0
+            ? `Each week, ${restPerWeek === 1 ? 'one due day' : `${restPerWeek} due days`} can be skipped without breaking the streak. Tap Rest day on Today, or just don’t log it.`
+            : 'Every due day counts toward the streak.'}
+        </p>
       </div>
 
       {type === 'duration' && <Switch checked={timerEnabled} onChange={setTimerEnabled} label="Show a start/stop timer" />}

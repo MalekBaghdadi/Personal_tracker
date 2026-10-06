@@ -29,6 +29,8 @@ interface Data {
   settings: Settings | null;
   timer: ActiveTimer | null;
   tz: string;
+  /** First day of the week (settings, default Monday): rest-day allowances count per week. */
+  weekStartsOn: 0 | 1;
   /** Hour the tracking day rolls over (settings, default 5am). */
   dayStart: number;
   /** The tracking day an instant belongs to, given tz and dayStart. */
@@ -243,6 +245,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       settings: settings ?? null,
       timer,
       tz,
+      weekStartsOn: settings?.weekStartsOn ?? 1,
       dayStart,
       dayOf: dayOfFn,
       today,

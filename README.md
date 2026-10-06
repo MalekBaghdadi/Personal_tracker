@@ -60,8 +60,9 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - A read-only admin view of every user for Malek's account (Settings → Admin → Users).
 - History merges a day's quick adds and manual amounts into one summed line, editable as a total.
 - A spotlight tour on each tab the first time it opens, replayable from Settings → Tutorials.
+- Rest days: a metric can allow N missed due days a week without breaking its streak (e.g. Gym Mon–Fri, 1 rest day).
 
-**Verified:** type check, 86 unit tests, and 15 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 95 unit tests, and 16 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -113,6 +114,7 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - **One row per metric scheduled today**, in `order`. Metrics not scheduled today **don't appear at all** (Malek's call: Today is only what's due); log their off days from History. With nothing scheduled it says "Nothing is scheduled today". Each row has:
   - name with its icon, today's total, the target, a progress bar and the current streak
   - "Goal pace: 1h 20m today" when the metric has an active goal
+  - **Rest day** (metrics with rest days a week and a target): shown while this week's allowance isn't used and today isn't met. Tapping it marks today (`setRestDay`, Undo in the toast); the row then reads "Rest day today · streak kept" with an Undo link.
   - controls: **+/− toggle**, quick-add chips, a custom-amount (keyboard) button, and Start/Stop if the metric has a timer. On phones Start/Stop is icon-only so the row fits on one line.
 - **The +/− toggle:** in − mode the chips read −15m etc., and they and the custom button subtract. It resets to + when you leave Today.
 - **Undo toast** after every log, subtract and delete.
@@ -241,7 +243,7 @@ The owner can read and write everything under their `users/{uid}`; the admin acc
 
 Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **seconds**, counts as integers. Conversion happens only when displaying.
 
-- **Metric:** `name`, `type` ('duration' or 'count'), `unit`, `target` (null means none), `targetDirection` ('at_least' or 'at_most'), `schedule` (daily, or days of the week with 0 = Sunday), `timerEnabled`, `quickAdd[]`, `color`, `icon`, `order`, `archivedAt`.
+- **Metric:** `name`, `type` ('duration' or 'count'), `unit`, `target` (null means none), `targetDirection` ('at_least' or 'at_most'), `schedule` (daily, or days of the week with 0 = Sunday), `timerEnabled`, `quickAdd[]`, `color`, `icon`, `order`, `archivedAt`, `restDaysPerWeek` (optional, 0–3), `restDates` (optional, days marked as rest; written with `arrayUnion`/`arrayRemove`, and the editor keeps the live list when saving).
 - **Entry:** `metricId`, `localDate` ('YYYY-MM-DD' in the configured timezone), `value` (always > 0), `source` ('timer', 'manual' or 'quick_add'), `note`, `occurredAt`, `deletedAt`.
 - **Goal:** `metricId` (an at_least metric), `name`, `nameEdited`, `targetTotal`, `priorProgress`, `startDate`, `deadline` (both inclusive), `paceSchedule`, `archivedAt`. **Inputs only.** Progress, status, pace, projection and achieved date are never stored.
 - **CalendarItem:** `kind` ('event' or 'reminder'), `title`, `localDate`, `time` ('HH:mm' or null for all day), `note`, `doneAt` (reminders), `deletedAt`.
@@ -261,6 +263,7 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
    - Only scheduled days count; unscheduled days are skipped.
    - **Today never breaks a streak.**
    - An `at_most` (ceiling) day counts only if something was logged that day, so a forgotten day isn't a perfect calorie day.
+   - **Rest days** (`restDays` in `streaks.ts`, unit-tested): with `restDaysPerWeek` = N, each week (per `weekStartsOn`) up to N due days that weren't hit are treated like unscheduled days. Days marked in `restDates` go first, then the earliest unlogged days. Today is a rest day only if marked (unmarked, it's still open). A hit is never a rest day. Days before tracking started don't use the allowance. Rest days are derived; only the marks are stored. Streaks, hit rate, History shading and "target met x / y", and the weekly review all leave them out.
 8. **Dates are always `localDate` in the configured timezone,** never the device clock's date. Timezone logic goes through `date-fns-tz`; it isn't hand-rolled.
    - **The tracking day starts at `settings.dayStartHour`** (default `DEFAULT_DAY_START_HOUR` = 5 when the field is absent). Turning an instant into a day always goes through `dayOf` (in `dates.ts`, exposed as `useData().dayOf`), never `localDateOf` directly: "today", a timer entry's date and a metric's creation day all follow it. At 01:30 it is still yesterday.
    - The exception is a **clock time the user types** (Start earlier's "Started at"): that is a calendar time, resolved against the calendar date (`todayIn(tz)` with no offset).
@@ -294,7 +297,7 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (30), goals (30), review (7), importer (8), entryRows (6), dates (5)
+npm test              # unit tests: streaks (39), goals (30), review (7), importer (8), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
 ```
 
@@ -320,6 +323,7 @@ npm run e2e           # browser tests; or: npm run e2e -- goals core
 | `admin` | (emulator-only `logbook:e2e-admin` localStorage flag makes the test account admin) hidden and refused for non-admins; Users link; list shows own profile with joined and last seen; offline note; user detail with metric, target, today and 7-day totals; no inputs or buttons on it. The **security rules aren't tested** (no Firestore emulator). |
 | `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
 | `tours` | (emulator-only `logbook:e2e-tours` flag; tours are off in every other suite) none during first run; Today tour skips missing steps; spotlight lines up with its target; taps underneath blocked; Skip, Next, Back, Done, Escape; seen tours stay seen after reload; Settings replays Today with all 8 steps; nothing logged by the tour |
+| `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used,** because the Firestore emulator jar wouldn't download on this network (it hangs at 0 bytes). With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
@@ -443,6 +447,7 @@ Newest last. `git log` has the details.
 16. **Admin view:** Malek's account can see every user (Settings → Admin → Users) read-only, via `profiles` and admin read access in the rules.
 17. **Merged quick adds:** History shows a day's quick adds and manual amounts as one summed line; tapping it edits the total.
 18. **Tutorials:** a spotlight tour per tab on first open, remembered per account, replayable from Settings.
+19. **Rest days:** "Rest days a week" on any metric; one missed due day a week (marked ahead with Rest day, or just not logged) keeps the streak. For Malek's Gym: Mon–Fri, 1 rest day.
 
 ---
 

@@ -109,12 +109,12 @@ function Row({
   // yesterday would carry on (and today then extends).
   const priorRun = useMemo(() => {
     if (metric.target == null || !scheduled) return 0;
-    const runs = streakDays(metric, stats, addDays(date, -14), addDays(date, -1), today);
+    const runs = streakDays(metric, stats, addDays(date, -14), addDays(date, -1), today, data.weekStartsOn);
     for (let d = addDays(date, -1); d >= addDays(date, -14); d = addDays(d, -1)) {
       if (runs.has(d)) return runs.get(d)!;
     }
     return 0;
-  }, [metric, stats, date, today, scheduled]);
+  }, [metric, stats, date, today, scheduled, data.weekStartsOn]);
 
   const guard = () => {
     const now = Date.now();

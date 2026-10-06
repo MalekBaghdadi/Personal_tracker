@@ -1,10 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
-import { ChevronRight, History as HistoryIcon, Keyboard, Minus, Play, Plus, Square } from 'lucide-react';
+import { ChevronRight, History as HistoryIcon, Keyboard, Minus, Moon, Play, Plus, Square } from 'lucide-react';
 import { itemsOn, statsFor, useData } from '../state/DataContext';
 import { useTimerActions } from '../state/TimerContext';
 import { useHue } from '../state/theme';
-import { addEntry, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
-import { computeStreaks, isHit, isScheduled } from '../lib/streaks';
+import { addEntry, setRestDay, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
+import { computeStreaks, isHit, isScheduled, restDays, weekOf } from '../lib/streaks';
 import { formatChip, formatValue, formatValueParts } from '../lib/format';
 import { formatLocalDate } from '../lib/dates';
 import { iconFor } from '../lib/icons';
@@ -125,7 +125,24 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
   const day = stats.get(today);
   const total = day?.total ?? 0;
   const count = day?.count ?? 0;
-  const streak = useMemo(() => computeStreaks(metric, stats, today), [metric, stats, today]);
+  const { weekStartsOn } = data;
+  const streak = useMemo(() => computeStreaks(metric, stats, today, weekStartsOn), [metric, stats, today, weekStartsOn]);
+  // Rest days this week (see restDays): the allowance left decides whether
+  // "Rest day" is offered; today being one changes the row.
+  const allowance = metric.target != null ? metric.restDaysPerWeek ?? 0 : 0;
+  const restThisWeek = useMemo(() => {
+    if (allowance <= 0) return new Set<string>();
+    // Days before the metric existed (or its first entry) aren't misses.
+    const since = [...stats.keys()].reduce((min, d) => (d < min ? d : min), data.dayOf(metric.createdAt));
+    const week = weekOf(today, weekStartsOn);
+    return restDays(metric, stats, since > week ? since : week, today, today, weekStartsOn);
+  }, [allowance, metric, stats, today, weekStartsOn, data.dayOf]);
+  const restingToday = restThisWeek.has(today);
+  const canRest = allowance > 0 && !restingToday && restThisWeek.size < allowance && isHit(metric, total, count) !== true;
+  const markRest = (on: boolean) => {
+    setRestDay(uid, metric.id, today, on);
+    if (on) toast(`Rest day: ${metric.name} streak kept`, { label: 'Undo', run: () => setRestDay(uid, metric.id, today, false) });
+  };
   const hit = isHit(metric, total, count);
   const running = timer?.metricId === metric.id;
   const goal = data.goals.find((g) => g.metricId === metric.id && !g.archivedAt);
@@ -194,8 +211,28 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
               {/* A ceiling isn't "done" until the day is; only floors get this. */}
               {hit && metric.targetDirection === 'at_least' && <span className="text-ink-2"> · done</span>}
             </span>
-            {streak && <span>{streak.current} in a row</span>}
+            <span className="flex shrink-0 items-center gap-2">
+              {canRest && (
+                <button
+                  type="button"
+                  onClick={() => markRest(true)}
+                  data-tour="today-rest"
+                  className="press inline-flex min-h-8 items-center gap-1 rounded-md px-1.5 text-ink-2 hover:bg-s2 hover:text-ink"
+                >
+                  <Moon size={13} aria-hidden /> Rest day
+                </button>
+              )}
+              {streak && <span>{streak.current} in a row</span>}
+            </span>
           </div>
+          {restingToday && (
+            <p className="mt-1 flex items-center gap-1.5 text-[13px] text-ink-2">
+              <Moon size={13} aria-hidden /> Rest day today · streak kept
+              <button type="button" onClick={() => markRest(false)} className="press ml-1 rounded-md px-1.5 py-0.5 text-ink-3 underline hover:text-ink">
+                Undo
+              </button>
+            </p>
+          )}
           {goal && <GoalPaceLine goal={goal} metric={metric} />}
           {metric.target != null && (
             <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-s3" role="presentation">

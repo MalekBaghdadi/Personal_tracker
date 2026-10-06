@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Pencil, Plus } from 'lucide-react';
 import { itemsOn, statsFor, useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
 import { addDays, formatLocalDate, formatTimeIn, weekdayOf } from '../lib/dates';
-import { isHit, isScheduled, streakDays, streakLevel } from '../lib/streaks';
+import { isHit, isScheduled, restDays, streakDays, streakLevel } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { entryRows, mergedLabel } from '../lib/entryRows';
 import { EntrySheet, sourceLabel, type EntrySheetState } from '../components/EntrySheet';
@@ -32,12 +32,12 @@ function sinceOf(metric: Metric, stats: DayStats, dayOf: (iso: string) => string
   return [...stats.keys()].reduce((min, d) => (d < min ? d : min), dayOf(metric.createdAt));
 }
 
-function monthSummary(metric: Metric, stats: DayStats, days: string[], today: string, since: string) {
+function monthSummary(metric: Metric, stats: DayStats, days: string[], today: string, since: string, rest: Set<string>) {
   return days.reduce(
     (acc, d) => {
       const s = stats.get(d);
       if (s) acc.total += s.total;
-      if (d <= today && d >= since && isScheduled(metric.schedule, d)) {
+      if (d <= today && d >= since && isScheduled(metric.schedule, d) && !rest.has(d)) {
         const h = isHit(metric, s?.total ?? 0, s?.count ?? 0);
         if (h) acc.hits++;
         // Today only counts once it's a hit, so the month doesn't dip every morning.
@@ -227,13 +227,19 @@ function StreakLegend({ color, neutral }: { color?: string; neutral?: boolean })
 
 function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; onDay: (d: string) => void }) {
   const data = useData();
-  const { today, dayOf } = data;
+  const { today, dayOf, weekStartsOn } = data;
   const hue = useHue(metric.color);
   const stats = statsFor(data, metric.id);
   const days = useMemo(() => monthDays(month), [month]);
   const monthMax = Math.max(1, ...days.map((d) => stats.get(d)?.total ?? 0));
-  const streak = useMemo(() => streakDays(metric, stats, days[0], days[days.length - 1], today), [metric, stats, days, today]);
-  const summary = monthSummary(metric, stats, days, today, sinceOf(metric, stats, dayOf));
+  const streak = useMemo(() => streakDays(metric, stats, days[0], days[days.length - 1], today, weekStartsOn), [metric, stats, days, today, weekStartsOn]);
+  const since = sinceOf(metric, stats, dayOf);
+  // Days before tracking started aren't misses, so they're never rest days either.
+  const rest = useMemo(
+    () => restDays(metric, stats, since > days[0] ? since : days[0], days[days.length - 1], today, weekStartsOn),
+    [metric, stats, since, days, today, weekStartsOn],
+  );
+  const summary = monthSummary(metric, stats, days, today, since, rest);
 
   return (
     <>
@@ -243,7 +249,8 @@ function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; 
         cell={(d) => {
           const s = stats.get(d);
           const total = s?.total ?? 0;
-          const scheduled = isScheduled(metric.schedule, d);
+          const isRest = rest.has(d);
+          const scheduled = isScheduled(metric.schedule, d) && !isRest;
           const hit = isHit(metric, total, s?.count ?? 0);
           // GitHub-style: each day further into a streak is brighter. A logged
           // day that isn't part of one gets a faint tint. No target, no streaks:
@@ -254,10 +261,11 @@ function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; 
           else if (pos > 0) pct = LEVEL_PCT[streakLevel(pos)];
           else if (total > 0) pct = 14;
           const fill = pct > 0 ? `color-mix(in oklab, ${hue} ${Math.round(pct)}%, var(--s2))` : undefined;
-          const label = `${formatLocalDate(d, 'EEEE d MMMM')}: ${total > 0 ? formatValue(metric, total) : 'nothing logged'}${hit ? ', target met' : ''}${pos > 0 ? `, day ${pos} of a streak` : ''}${!scheduled ? ', not scheduled' : ''}`;
+          const label = `${formatLocalDate(d, 'EEEE d MMMM')}: ${total > 0 ? formatValue(metric, total) : 'nothing logged'}${hit ? ', target met' : ''}${pos > 0 ? `, day ${pos} of a streak` : ''}${isRest ? ', rest day' : !scheduled ? ', not scheduled' : ''}`;
           return (
             <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} onFill={pct >= 70 ? 'dark' : undefined} muted={!scheduled}>
               {hit && <span aria-hidden className="absolute right-1.5 bottom-1.5 size-1.5 rounded-full bg-[#0e1420]/70" />}
+              {isRest && <span aria-hidden className="absolute inset-x-0 bottom-1 text-center text-[10px] text-ink-3">rest</span>}
             </DayCell>
           );
         }}
@@ -308,7 +316,7 @@ function MetricDot({ metric, state }: { metric: Metric; state: 'met' | 'logged' 
 
 function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void }) {
   const data = useData();
-  const { metrics, dayStats, today, dayOf } = data;
+  const { metrics, dayStats, today, dayOf, weekStartsOn } = data;
   const days = useMemo(() => monthDays(month), [month]);
   const shown = useMemo(() => visibleMetrics(metrics, dayStats, days), [metrics, dayStats, days]);
   const sinces = useMemo(
@@ -316,8 +324,8 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
     [shown, dayStats, dayOf],
   );
   const streaks = useMemo(
-    () => new Map(shown.map((m) => [m.id, streakDays(m, dayStats.get(m.id) ?? new Map(), days[0], days[days.length - 1], today)])),
-    [shown, dayStats, days, today],
+    () => new Map(shown.map((m) => [m.id, streakDays(m, dayStats.get(m.id) ?? new Map(), days[0], days[days.length - 1], today, weekStartsOn)])),
+    [shown, dayStats, days, today, weekStartsOn],
   );
 
   return (
@@ -333,7 +341,8 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
           for (const m of shown) {
             const s = statsFor(data, m.id).get(d);
             const hit = isHit(m, s?.total ?? 0, s?.count ?? 0);
-            const counts = m.target != null && isScheduled(m.schedule, d) && d >= sinces.get(m.id)! && (d < today || hit);
+            // streakDays holds every due day, rest days left out.
+            const counts = m.target != null && (streaks.get(m.id)?.has(d) ?? false) && d >= sinces.get(m.id)! && (d < today || hit);
             if (counts) {
               due++;
               if (hit) met++;
@@ -381,7 +390,9 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
         </thead>
         <tbody className="divide-y divide-line">
           {shown.map((m) => {
-            const s = monthSummary(m, statsFor(data, m.id), days, today, sinces.get(m.id)!);
+            const st = statsFor(data, m.id);
+            const since = sinces.get(m.id)!;
+            const s = monthSummary(m, st, days, today, since, restDays(m, st, since > days[0] ? since : days[0], days[days.length - 1], today, weekStartsOn));
             return <SummaryRow key={m.id} metric={m} total={s.total} hits={s.hits} scheduled={s.scheduled} />;
           })}
         </tbody>

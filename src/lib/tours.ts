@@ -33,6 +33,7 @@ export const TOURS: Tour[] = [
       { target: 'today-chip', title: 'Quick add', body: 'Tap a chip to log that amount in one go. Tap several and they add up.' },
       { target: 'today-custom', title: 'Any amount', body: 'Type an exact amount, or log it to another day.' },
       { target: 'today-toggle', title: 'Add or take away', body: 'Switch to − and the chips subtract instead, for when you logged too much.' },
+      { target: 'today-rest', title: 'Rest day', body: 'Taking a day off? Tap Rest day and the streak stays. Forget to, and your weekly rest day is used for you.' },
       { target: 'today-timer', title: 'Timer', body: 'Start a timer and it logs the time when you stop. Forgot to start it? Press and hold to start earlier.' },
     ],
   },

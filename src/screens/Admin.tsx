@@ -160,7 +160,7 @@ function UserDetail({ data }: { data: UserData }) {
       ) : (
         <ul className="flex flex-col gap-2" data-testid="admin-metrics">
           {active.map((m) => (
-            <MetricCard key={m.id} metric={m} stats={stats.get(m.id) ?? new Map()} today={today} />
+            <MetricCard key={m.id} metric={m} stats={stats.get(m.id) ?? new Map()} today={today} weekStartsOn={settings?.weekStartsOn ?? 1} />
           ))}
         </ul>
       )}
@@ -186,13 +186,13 @@ function targetText(m: Metric): string {
   return `${m.targetDirection === 'at_most' ? 'At most' : 'At least'} ${formatValue(m, m.target)} · ${when}`;
 }
 
-function MetricCard({ metric, stats, today }: { metric: Metric; stats: DayStats; today: string }) {
+function MetricCard({ metric, stats, today, weekStartsOn }: { metric: Metric; stats: DayStats; today: string; weekStartsOn: 0 | 1 }) {
   const hue = useHue(metric.color);
   const Icon = iconFor(metric.icon);
   const days = Array.from({ length: 7 }, (_, i) => addDays(today, i - 6));
   const week = days.reduce((sum, d) => sum + (stats.get(d)?.total ?? 0), 0);
   const todayTotal = stats.get(today)?.total ?? 0;
-  const streaks = computeStreaks(metric, stats, today);
+  const streaks = computeStreaks(metric, stats, today, weekStartsOn);
 
   return (
     <li className="rounded-xl border border-line p-3">

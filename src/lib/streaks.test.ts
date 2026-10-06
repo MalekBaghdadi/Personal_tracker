@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeStreaks, hitRate, isHit, isScheduled, streakDays, streakLevel } from './streaks';
+import { computeStreaks, hitRate, isHit, isScheduled, restDays, streakDays, streakLevel } from './streaks';
 import type { DayStats, Metric } from './types';
 
 type M = Pick<Metric, 'target' | 'targetDirection' | 'schedule'>;
@@ -196,3 +196,77 @@ describe('streakLevel', () => {
     expect(streakLevel(0.4)).toBe(1);
   });
 });
+
+describe('rest days per week', () => {
+  // Mon–Fri due, one free miss a week. 2026-09-28 and 2026-10-05 are Mondays.
+  const weekdays = (restDates: string[] = []) => ({
+    target: 3600,
+    targetDirection: 'at_least' as const,
+    schedule: { kind: 'days_of_week' as const, days: [1, 2, 3, 4, 5] },
+    restDaysPerWeek: 1,
+    restDates,
+  });
+  const H = 3600;
+
+  it('one unlogged weekday a week keeps the streak', () => {
+    // Wednesday skipped, the other four done.
+    const s = stats({ '2026-09-28': H, '2026-09-29': H, '2026-10-01': H, '2026-10-02': H });
+    expect(computeStreaks(weekdays(), s, '2026-10-02')).toEqual({ current: 4, longest: 4 });
+  });
+
+  it('a second miss in the same week breaks it', () => {
+    const s = stats({ '2026-09-28': H, '2026-09-29': H, '2026-10-02': H });
+    expect(computeStreaks(weekdays(), s, '2026-10-02')?.current).toBe(1);
+  });
+
+  it('the allowance resets each week', () => {
+    const s = stats({
+      '2026-09-28': H, '2026-09-29': H, '2026-10-01': H, '2026-10-02': H, // Wed off
+      '2026-10-05': H, '2026-10-06': H, '2026-10-07': H, '2026-10-09': H, // Thu off
+    });
+    expect(computeStreaks(weekdays(), s, '2026-10-09')?.current).toBe(8);
+  });
+
+  it('a marked rest day today counts as rest, so an earlier miss is a real miss', () => {
+    // Mon missed, Tue done, Wed (today) marked rest: the allowance goes to Wed.
+    const s = stats({ '2026-10-02': H, '2026-10-06': H });
+    expect(computeStreaks(weekdays(['2026-10-07']), s, '2026-10-07')?.current).toBe(1);
+    expect(computeStreaks(weekdays([]), s, '2026-10-07')?.current).toBe(2); // Mon is the rest day
+  });
+
+  it('an unmarked today is still open, not a rest day', () => {
+    const s = stats({ '2026-10-05': H, '2026-10-06': H });
+    expect([...restDaysOf(weekdays(), s, '2026-10-07')]).toEqual([]);
+    expect([...restDaysOf(weekdays(['2026-10-07']), s, '2026-10-07')]).toEqual(['2026-10-07']);
+  });
+
+  it('a logged day is never a rest day, even if marked', () => {
+    const s = stats({ '2026-10-05': H, '2026-10-06': H, '2026-10-07': H });
+    expect([...restDaysOf(weekdays(['2026-10-07']), s, '2026-10-07')]).toEqual([]);
+  });
+
+  it('days before tracking started do not use up the allowance', () => {
+    // Started Wednesday; Mon/Tue before that aren't misses to excuse. Thu skipped.
+    const s = stats({ '2026-10-07': H, '2026-10-09': H });
+    expect(computeStreaks(weekdays(), s, '2026-10-09')?.current).toBe(2);
+  });
+
+  it('rest days leave the hit rate and calendar shading alone', () => {
+    const s = stats({ '2026-09-28': H, '2026-09-29': H, '2026-10-01': H, '2026-10-02': H });
+    expect(hitRate(weekdays(), s, '2026-09-28', '2026-10-02')).toEqual({ hits: 4, scheduled: 4 });
+    const days = streakDays(weekdays(), s, '2026-09-28', '2026-10-02', '2026-10-02');
+    expect(days.has('2026-09-30')).toBe(false);
+    expect(days.get('2026-10-02')).toBe(4);
+  });
+
+  it('respects a Sunday week start', () => {
+    // Weeks Sun–Sat: Fri 2 Oct and Mon 5 Oct fall in different weeks either way,
+    // but Sat 3 Oct–Fri 9 Oct is one Sunday-week. Miss Mon 5 and Tue 6: two in one week.
+    const s = stats({ '2026-10-02': H, '2026-10-07': H });
+    expect(computeStreaks(weekdays(), s, '2026-10-07', 0)?.current).toBe(1);
+  });
+});
+
+function restDaysOf(m: Parameters<typeof restDays>[0], s: DayStats, today: string) {
+  return restDays(m, s, '2026-10-05', today, today, 1);
+}

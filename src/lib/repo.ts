@@ -276,6 +276,11 @@ export function saveMetric(uid: string, metric: Metric): void {
   fire(setDoc(paths.metric(uid, metric.id), { ...metric, updatedAt: nowIso() }));
 }
 
+/** Mark or unmark a rest day. Array ops, so marks from two devices both land. */
+export function setRestDay(uid: string, metricId: string, date: string, on: boolean): void {
+  fire(updateDoc(paths.metric(uid, metricId), { restDates: on ? arrayUnion(date) : arrayRemove(date), updatedAt: nowIso() }));
+}
+
 export function reorderMetrics(uid: string, orderedIds: string[]): void {
   const batch = writeBatch(db);
   const now = nowIso();

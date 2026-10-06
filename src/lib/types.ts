@@ -15,6 +15,10 @@ export interface Metric {
   targetDirection: TargetDirection;
   schedule: Schedule;
   timerEnabled: boolean;
+  /** Due days a week that may be missed without breaking the streak. Absent or 0: none. */
+  restDaysPerWeek?: number;
+  /** Days marked "Rest day" ahead (localDate). Only count within the weekly allowance. */
+  restDates?: string[];
   /** Base-unit values for one-tap buttons. */
   quickAdd: number[];
   color: string;
