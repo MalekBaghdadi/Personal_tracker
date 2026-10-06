@@ -56,10 +56,13 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Hold ▶ to start a timer earlier ("forgot to press start").
 - Restore from a JSON backup (add-only).
 - Optional app-icon badge for today's open reminders.
+- First run lets each new user pick their own metrics (suggestions, their own, or none) before setting targets.
 
-**Verified:** type check, 80 unit tests, and 11 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 80 unit tests, and 12 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
-**Not yet verified** (needs real devices or the real backend): see [Known gaps](#known-gaps-and-open-questions).
+**Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
+
+**Still not verified:** see [Known gaps](#known-gaps-and-open-questions).
 
 The two specs this was built from (the MVP spec and the "Deadline goals" addendum) are **not in the repo**. Malek pasted them into chat. Their important rules are captured below. If you need the full text, ask Malek for `TRACKER_MVP_SPEC.md` and the addendum.
 
@@ -160,7 +163,13 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - Sign out, with a confirmation.
 
 ### First run
-- On a new account the server confirms it's empty, then the five starting metrics are seeded: Studying, Reading, Network+, Gym and Calories. **Onboarding** (`src/screens/Onboarding.tsx`) then asks for real targets, with empty inputs on purpose, and Gym's days.
+- On a new account the server confirms it's empty, then **only the settings doc** is seeded (`onboardedAt: null`). No metrics are made for them.
+- **Onboarding** (`src/screens/Onboarding.tsx`) has two steps:
+  1. **"What do you want to track?"**: tick any of the suggestions (`SUGGESTIONS` in `lib/seed.ts`: Studying, Reading, Gym, Calories, Water, Sleep, Walking, Meditation, Coding, Language practice, Music practice), or "Add your own" with a name and Time or Count (plus a unit). Typing a suggestion's name ticks it instead of duplicating it. "Start with nothing" finishes with no metrics.
+  2. **"Set your targets"** for just those picks, with empty inputs on purpose, and days for day-of-week ones. Back keeps the picks.
+- Finishing writes the metrics and `onboardedAt` in **one batch** (`finishSetup`). Nothing is written before that, so a half-finished setup can't exist.
+- An account that is not onboarded but already has metrics (seeded by the old version) skips straight to targets.
+- Malek's own account predates this and is unaffected. Network+ isn't a suggestion; it was his own.
 
 ---
 
@@ -227,7 +236,7 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
 8. **Dates are always `localDate` in the configured timezone,** never the device clock's date. Timezone logic goes through `date-fns-tz`; it isn't hand-rolled.
    - **The tracking day starts at `settings.dayStartHour`** (default `DEFAULT_DAY_START_HOUR` = 5 when the field is absent). Turning an instant into a day always goes through `dayOf` (in `dates.ts`, exposed as `useData().dayOf`), never `localDateOf` directly: "today", a timer entry's date and a metric's creation day all follow it. At 01:30 it is still yesterday.
    - The exception is a **clock time the user types** (Start earlier's "Started at"): that is a calendar time, resolved against the calendar date (`todayIn(tz)` with no offset).
-9. **Seeding only happens when the server confirms the account is empty** (`fromCache === false`), so a new device with an empty cache can't create duplicate metrics. Onboarding shows only when `settings.onboardedAt === null`, never merely when the field is missing.
+9. **Seeding only happens when the server confirms the account is empty** (`fromCache === false`), so a new device with an empty cache can't overwrite a real account. Seeding writes settings only; metrics come from first run. Onboarding shows only when `settings.onboardedAt === null`, never merely when the field is missing.
 10. **Goals:**
     - All figures are computed in `src/lib/goals.ts`, which is pure (no React, no Firestore) and unit-tested.
     - "Behind" is judged against yesterday's end, so nothing reads as behind at 8am.
@@ -279,10 +288,11 @@ npm run e2e           # browser tests; or: npm run e2e -- goals core
 | `extras` | (clock pinned to Monday) weekly review on Stats and not on Today, streak shading brightens day by day (metric and All views), notes on goal and Stats, hold/right-click start earlier, plain tap still starts, import rejects non-exports and needs a connection, badge setting shown |
 | `yesterday` | off-day metric hidden on Today and in the sheet, restore-a-streak hint, quick add and Undo inside the sheet, − mode, custom amount dated yesterday, streak whole again on Today and in History |
 | `day-start` | clock pinned to 01:30: Today shows the previous day, quick add and timer land on it, setting defaults to 5am, Midnight switches to the calendar date |
+| `first-run` | (emulator-only `window.__e2eFirstRun` hook, since seeding needs the server) picker, toggling, own time and count metrics, typed suggestion name ticks it, Back keeps picks, only picks get targets, metrics created with target, existing metrics skip to targets, stays done after reload |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used,** because the Firestore emulator jar wouldn't download on this network (it hangs at 0 bytes). With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
-- **Seeding and onboarding never run** in e2e; the tests create metrics by hand.
+- **Seeding never runs on its own** in e2e. Emulator builds expose `window.__e2eFirstRun()` (in `DataContext`) to put the account into the first-run state; the other suites create metrics by hand.
 - **Real sync is untested** here.
 
 `npm run emulators` also tries to start the Firestore emulator. The UI is disabled in `firebase.json` for the same download reason.
@@ -340,22 +350,13 @@ firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
 ## Known gaps and open questions
 
 **Not yet verified:**
-- **Real cross-device sync.** Log offline on the phone and on the laptop for the same metric and day, reconnect, and the totals should be the sum of both. Goals should converge too.
-- **A timer started on the phone and stopped on the laptop.** Also the offline timer-race resolution (`DataContext`, `state/timerClosed`).
-- **On an actual iPhone:**
-  - installing to the home screen and launching with no connection
-  - the timer surviving a 30-minute lock
-  - date and time fields: the vertical-centring fix in `index.css` was done blind, since Safari can't be reproduced here
+- **Two devices starting timers while both offline** (the race resolution in `DataContext`, `state/timerClosed`). The checklist covered a timer moving between online devices, not this.
 - **First-run seeding and onboarding** against the real backend (never runs in e2e).
-- **Import against the real backend.** The e2e only reaches the offline error. Expected: importing a fresh export adds nothing; an entry deleted after the export stays deleted after importing it.
-- **The app-icon badge** on the iPhone (needs the installed app and notification permission).
-- **Press-and-hold ▶ on iOS** (callout suppressed with `-webkit-touch-callout: none`; untested on a real device).
 - **Firebase usage** staying in the low single-digit percentages of the Spark quotas.
-- **The export downloads themselves,** especially on iOS standalone.
 
 ### Device checklist
 
-About 15 minutes with the phone and the laptop, both signed in. Tick each one off; anything that fails is a bug to fix before more features.
+About 15 minutes with the phone and the laptop, both signed in. **All nine passed on 6 October 2026.** Re-run it after changes that touch sync, timers, iOS input styling or the PWA setup.
 
 1. **Install (iPhone):** Safari → Share → Add to Home Screen. Open it from the icon, turn on airplane mode, close and reopen it: the app and today's data still show.
 2. **Offline sync:** with both devices offline, log 15m of Studying on the phone and 30m on the laptop for today. Reconnect both. Within a minute both show 45m, and any goal card agrees.
@@ -402,6 +403,7 @@ Newest last. `git log` has the details.
 12. **Yesterday button:** catch up on yesterday from Today in a sheet with quick add; rows show when logging restores a streak.
 13. **5am rollover:** the tracking day starts at `dayStartHour` (default 5) via `dayOf`; a "Day starts at" setting; e2e date math follows it.
 14. **Off days hidden:** metrics not scheduled today no longer appear on Today (the collapsed section is gone), nor in the Yesterday sheet on their off days.
+15. **Choose your own metrics on first run:** new accounts no longer get Malek's five metrics; they pick from suggestions or add their own, then set targets. Device checklist passed in full the same day.
 
 ---
 

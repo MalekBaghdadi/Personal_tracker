@@ -66,7 +66,7 @@ export function App() {
 }
 
 function Shell() {
-  const { ready, settings, metrics, timer } = useData();
+  const { ready, settings, timer } = useData();
   const { route, day, id } = useRoute();
   useAppBadge();
   // The goal screen hangs off Metrics, where the Goals list lives.
@@ -74,7 +74,8 @@ function Shell() {
 
   // Only a freshly seeded account has onboardedAt === null. A settings doc
   // created later by a partial write (field absent) must never re-trigger it.
-  const needsOnboarding = ready && settings !== null && settings.onboardedAt === null && metrics.length > 0;
+  // New accounts start with no metrics: first run is where they're picked.
+  const needsOnboarding = ready && settings !== null && settings.onboardedAt === null;
 
   return (
     <ThemeProvider pref={settings?.theme}>
@@ -84,7 +85,7 @@ function Shell() {
             // The local cache answers in milliseconds; this is never a network wait.
             <div className="min-h-dvh bg-bg" />
           ) : needsOnboarding ? (
-            <Onboarding key={metrics.map((m) => m.id).join(',')} />
+            <Onboarding />
           ) : (
             <div className="flex min-h-dvh">
               <SideNav route={tab} />

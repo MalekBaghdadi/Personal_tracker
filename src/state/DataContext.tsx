@@ -135,6 +135,14 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
     return () => unsubs.forEach((u) => u());
   }, [uid]);
 
+  // Browser tests run with Firestore unreachable, so seeding (which waits for
+  // the server) never happens there. Emulator builds only: let a test put the
+  // account into the first-run state.
+  useEffect(() => {
+    if (import.meta.env.VITE_USE_EMULATORS !== '1') return;
+    (window as unknown as { __e2eFirstRun?: () => void }).__e2eFirstRun = () => seedAccount(uid);
+  }, [uid]);
+
   // §8.7: if two devices raced, the earlier startedAt wins.
   useEffect(() => {
     if (serverTimerSeq === 0 || !entriesFromServer) return;
