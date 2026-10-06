@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, LogOut, Upload } from 'lucide-react';
+import { Download, LogOut, Upload, Users } from 'lucide-react';
+import { isAdmin } from '../lib/admin';
 import { signOut } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { useData } from '../state/DataContext';
@@ -96,6 +97,16 @@ export function Settings() {
         </section>
 
         <ImportSection />
+
+        {isAdmin(uid) && (
+          <section className="border-t border-line pt-5">
+            <h2 className="text-[15px] font-medium">Admin</h2>
+            <p className="mt-1 text-[13px] text-ink-3">Only you see this. View every user’s metrics, streaks and goals; read-only.</p>
+            <a href="#/admin" className="press mt-3 inline-flex min-h-11 items-center gap-2 rounded-lg bg-s2 px-4 text-[15px] font-medium hover:bg-s3">
+              <Users size={17} aria-hidden /> Users
+            </a>
+          </section>
+        )}
 
         <section className="border-t border-line pt-5">
           <h2 className="text-[15px] font-medium">Account</h2>

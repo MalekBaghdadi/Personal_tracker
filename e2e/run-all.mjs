@@ -16,7 +16,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const here = fileURLToPath(new URL('.', import.meta.url));
 mkdirSync(here + 'shots', { recursive: true });
 
-const DEV_SUITES = ['core', 'history-all', 'subtract-toggle', 'subtract-clamp', 'calendar', 'goals', 'session-note', 'extras', 'yesterday', 'day-start', 'first-run'];
+const DEV_SUITES = ['core', 'history-all', 'subtract-toggle', 'subtract-clamp', 'calendar', 'goals', 'session-note', 'extras', 'yesterday', 'day-start', 'first-run', 'admin'];
 const PREVIEW_SUITES = ['offline']; // needs the production build + service worker
 const only = process.argv.slice(2);
 const pick = (list) => (only.length ? list.filter((s) => only.includes(s)) : list);

@@ -17,4 +17,6 @@ invariants, decisions, testing and known gaps. This file is just the short versi
   never stored; today never breaks a streak.
 - The day rolls over at `settings.dayStartHour` (default 5am), not midnight. Turn instants into days with
   `dayOf` / `useData().dayOf`, never `localDateOf` directly.
+- Multi-user: each account has its own `users/{uid}`. The admin (Malek's uid) is hardcoded in both
+  `src/lib/admin.ts` and `firestore.rules`; admin access is read-only and the rules enforce it.
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.

@@ -1,8 +1,26 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Malek's account (malekbaghdadi07@gmail.com); same uid as ADMIN_UID in src/lib/admin.ts.
+    function isAdmin() {
+      return request.auth != null && request.auth.uid == 'mRRUx09pGmNZcOlLoBH5KWF9lxh1';
+    }
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // Each user's own data. The admin can read it, never write it.
     match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isOwner(userId);
+      allow read: if isAdmin();
+    }
+
+    // One small doc per account, written by that account, so the admin can list users.
+    match /profiles/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['uid', 'email', 'joinedAt', 'lastSeenAt'])
+        && request.resource.data.uid == userId;
     }
   }
 }

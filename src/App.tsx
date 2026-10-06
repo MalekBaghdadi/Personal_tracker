@@ -15,18 +15,19 @@ import { History } from './screens/History';
 // is still precached, so Stats opens offline.
 const Stats = lazy(() => import('./screens/Stats').then((m) => ({ default: m.Stats })));
 const GoalDetail = lazy(() => import('./screens/GoalDetail').then((m) => ({ default: m.GoalDetail })));
+const Admin = lazy(() => import('./screens/Admin').then((m) => ({ default: m.Admin })));
 import { Metrics } from './screens/Metrics';
 import { Settings } from './screens/Settings';
 
-export type Route = 'today' | 'history' | 'stats' | 'metrics' | 'settings' | 'goals';
-const ROUTES: Route[] = ['today', 'history', 'stats', 'metrics', 'settings', 'goals'];
+export type Route = 'today' | 'history' | 'stats' | 'metrics' | 'settings' | 'goals' | 'admin';
+const ROUTES: Route[] = ['today', 'history', 'stats', 'metrics', 'settings', 'goals', 'admin'];
 
-/** `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id. */
+/** `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id; `#/admin/<uid>` → user id. */
 function readRoute(): { route: Route; day: string | null; id: string | null } {
   const [r, param] = window.location.hash.replace(/^#\/?/, '').split('/') as [Route, string | undefined];
   const route = ROUTES.includes(r) ? r : 'today';
   const day = route === 'history' && param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : null;
-  const id = route === 'goals' && param ? param : null;
+  const id = (route === 'goals' || route === 'admin') && param ? param : null;
   return { route, day, id };
 }
 
@@ -69,8 +70,8 @@ function Shell() {
   const { ready, settings, timer } = useData();
   const { route, day, id } = useRoute();
   useAppBadge();
-  // The goal screen hangs off Metrics, where the Goals list lives.
-  const tab: Route = route === 'goals' ? 'metrics' : route;
+  // The goal screen hangs off Metrics, where the Goals list lives; admin off Settings.
+  const tab: Route = route === 'goals' ? 'metrics' : route === 'admin' ? 'settings' : route;
 
   // Only a freshly seeded account has onboardedAt === null. A settings doc
   // created later by a partial write (field absent) must never re-trigger it.
@@ -99,6 +100,7 @@ function Shell() {
                   {route === 'metrics' && <Metrics />}
                   {route === 'settings' && <Settings />}
                   {route === 'goals' && <Suspense fallback={null}><GoalDetail id={id} /></Suspense>}
+                  {route === 'admin' && <Suspense fallback={null}><Admin id={id} /></Suspense>}
                 </main>
               </div>
               <TabBar route={tab} />

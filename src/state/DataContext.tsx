@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { getDocFromServer, onSnapshot, query, where, type SnapshotMetadata } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { deviceId } from '../lib/device';
-import { DEFAULT_DAY_START_HOUR, dayOf, deviceTimezone, todayIn } from '../lib/dates';
+import { DEFAULT_DAY_START_HOUR, dayOf, deviceTimezone, nowIso, todayIn } from '../lib/dates';
+import { buildDayStats, saveProfile } from '../lib/admin';
 import { forgetOwnTimer, ownTimer, paths, reassertOwnTimer, timerClosedRef } from '../lib/repo';
 import { seedAccount } from '../lib/seed';
 import type { ActiveTimer, CalendarItem, DayStats, Entry, Goal, Metric, Settings } from '../lib/types';
@@ -135,6 +136,17 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
     return () => unsubs.forEach((u) => u());
   }, [uid]);
 
+  // Register this account in profiles so the admin can list it. Once per app
+  // open; like every write, never awaited.
+  useEffect(() => {
+    saveProfile({
+      uid,
+      email: user.email ?? '',
+      joinedAt: user.metadata.creationTime ? new Date(user.metadata.creationTime).toISOString() : nowIso(),
+      lastSeenAt: nowIso(),
+    });
+  }, [uid, user]);
+
   // Browser tests run with Firestore unreachable, so seeding (which waits for
   // the server) never happens there. Emulator builds only: let a test put the
   // account into the first-run state.
@@ -188,19 +200,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
     };
   }, [tz, dayStart]);
 
-  const dayStats = useMemo(() => {
-    const out = new Map<string, DayStats>();
-    for (const e of entries) {
-      let m = out.get(e.metricId);
-      if (!m) out.set(e.metricId, (m = new Map()));
-      const s = m.get(e.localDate);
-      if (s) {
-        s.total += e.value;
-        s.count += 1;
-      } else m.set(e.localDate, { total: e.value, count: 1 });
-    }
-    return out;
-  }, [entries]);
+  const dayStats = useMemo(() => buildDayStats(entries), [entries]);
 
   const metricById = useMemo(() => new Map((metrics ?? []).map((m) => [m.id, m])), [metrics]);
 

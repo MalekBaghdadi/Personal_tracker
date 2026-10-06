@@ -57,8 +57,9 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Restore from a JSON backup (add-only).
 - Optional app-icon badge for today's open reminders.
 - First run lets each new user pick their own metrics (suggestions, their own, or none) before setting targets.
+- A read-only admin view of every user for Malek's account (Settings → Admin → Users).
 
-**Verified:** type check, 80 unit tests, and 12 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 80 unit tests, and 13 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -160,8 +161,19 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - Export: **JSON** (everything, raw) and **CSV**, which downloads four files: entries, metrics, calendar, goals.
 - **App icon** (per device, `state/badge.ts`): puts today's open reminders on the installed app's icon via `navigator.setAppBadge`. iOS draws badges only with notification permission, so turning it on there asks for it; no notification is ever sent. Updates only while the app is open. Unsupported browsers (e.g. Android Chrome) get an explanation instead of the switch.
 - **Restore from a backup** (`lib/importer.ts`, unit-tested): pick a JSON export. **Add-only**: any id already on the server, deleted ones included, is skipped, so nothing deleted comes back and nothing existing changes. Backup metrics with the same name and type as an existing one are merged into it (so restoring onto a freshly seeded account doesn't duplicate "Studying"). An incoming active goal on a metric that already has one is imported archived. Settings aren't imported. It needs a connection (it reads every collection from the server first, 15s timeout) and shows a summary to confirm.
+- **Admin** (only for the admin account, `isAdmin` in `lib/admin.ts`): a link to the Users screen.
 - Sign out, with a confirmation.
 
+### Admin (`src/screens/Admin.tsx`, routes `#/admin` and `#/admin/<uid>`, lazy-loaded)
+- **Who:** Malek's account, malekbaghdadi07@gmail.com, uid `mRRUx09pGmNZcOlLoBH5KWF9lxh1`. The uid is in **both** `ADMIN_UID` (`lib/admin.ts`, shows the screens) and `firestore.rules` (`isAdmin()`, which actually grants access). Change both together.
+- **Read-only, enforced by the rules:** the admin can read any `users/{uid}/…` but writes stay owner-only. The screens have no buttons or inputs.
+- **Users list:** every account in `profiles`, most recently seen first: email, joined date, last seen. Spark has no server to list Auth accounts, so each account writes its own `profiles/{uid}` doc (`saveProfile`, in `DataContext`) every time the app opens. An account appears only once it has opened a version with this.
+- **One user:**
+  - header: email, joined, last seen, timezone, "still on first run" if not onboarded, last logged
+  - each active metric: target and schedule, today, last 7 days, current and best streak, and a 7-day strip (full = target met, faint = logged, outline = due and missed)
+  - active deadline goals with progress bar and status
+  - figures come from the same pure functions as the user's own screens (`buildDayStats`, `computeStreaks`, `computeGoal`), using **their** timezone and day start
+- Data is fetched once per visit (`getDocs`, not listeners). Offline it falls back to whatever this device has cached and says so.
 ### First run
 - On a new account the server confirms it's empty, then **only the settings doc** is seeded (`onboardedAt: null`). No metrics are made for them.
 - **Onboarding** (`src/screens/Onboarding.tsx`) has two steps:
@@ -209,7 +221,10 @@ users/{uid}/items/{itemId}         CalendarItem   (soft-deleted via deletedAt)
 users/{uid}/state/timer            ActiveTimer    (absent when no timer runs)
 users/{uid}/state/settings         Settings
 users/{uid}/state/timerClosed      { startedAt, closedAt }  (timer race marker, see below)
+profiles/{uid}                     Profile        (uid, email, joinedAt, lastSeenAt; owner writes, admin reads)
 ```
+
+The owner can read and write everything under their `users/{uid}`; the admin account can read it too, never write. `profiles/{uid}` is written only by its owner, with only those four fields.
 
 Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **seconds**, counts as integers. Conversion happens only when displaying.
 
@@ -289,6 +304,7 @@ npm run e2e           # browser tests; or: npm run e2e -- goals core
 | `yesterday` | off-day metric hidden on Today and in the sheet, restore-a-streak hint, quick add and Undo inside the sheet, − mode, custom amount dated yesterday, streak whole again on Today and in History |
 | `day-start` | clock pinned to 01:30: Today shows the previous day, quick add and timer land on it, setting defaults to 5am, Midnight switches to the calendar date |
 | `first-run` | (emulator-only `window.__e2eFirstRun` hook, since seeding needs the server) picker, toggling, own time and count metrics, typed suggestion name ticks it, Back keeps picks, only picks get targets, metrics created with target, existing metrics skip to targets, stays done after reload |
+| `admin` | (emulator-only `logbook:e2e-admin` localStorage flag makes the test account admin) hidden and refused for non-admins; Users link; list shows own profile with joined and last seen; offline note; user detail with metric, target, today and 7-day totals; no inputs or buttons on it. The **security rules aren't tested** (no Firestore emulator). |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used,** because the Firestore emulator jar wouldn't download on this network (it hangs at 0 bytes). With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
@@ -316,6 +332,7 @@ src/
     goals.ts (+test)      deadline goal calculations, validation
     review.ts (+test)     weekly review figures
     importer.ts (+test)   JSON backup import plan (add-only)
+    admin.ts              admin uid, profiles, loading another user's data, buildDayStats
     format.ts             durations, values, chips
     seed.ts               first-run metrics + settings
     export.ts             JSON and CSV export
@@ -326,7 +343,7 @@ src/
     TimerContext.tsx      start/stop, switch prompt, abandoned-timer recovery, useElapsed, note prompt
     badge.ts              app-icon badge setting and hook
     theme.tsx             resolved theme, per-metric hue
-  screens/                Today, History, Stats, Metrics, Settings, GoalDetail, Auth, Onboarding
+  screens/                Today, History, Stats, Metrics, Settings, GoalDetail, Admin, Auth, Onboarding
   components/
     ui.tsx                Button, Sheet (native <dialog>), Segmented, Switch, DayPicker, Toast
     Chrome.tsx            SyncDot, TimerBar, TabBar, SideNav, UpdatePrompt, InstallCard
@@ -352,6 +369,7 @@ firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
 **Not yet verified:**
 - **Two devices starting timers while both offline** (the race resolution in `DataContext`, `state/timerClosed`). The checklist covered a timer moving between online devices, not this.
 - **First-run seeding and onboarding** against the real backend (never runs in e2e).
+- **Admin access against the real rules:** Malek's account should list users and open their data; a second account must get nothing from `#/admin` (the page says it isn't available, and the rules refuse the reads).
 - **Firebase usage** staying in the low single-digit percentages of the Spark quotas.
 
 ### Device checklist
@@ -404,6 +422,7 @@ Newest last. `git log` has the details.
 13. **5am rollover:** the tracking day starts at `dayStartHour` (default 5) via `dayOf`; a "Day starts at" setting; e2e date math follows it.
 14. **Off days hidden:** metrics not scheduled today no longer appear on Today (the collapsed section is gone), nor in the Yesterday sheet on their off days.
 15. **Choose your own metrics on first run:** new accounts no longer get Malek's five metrics; they pick from suggestions or add their own, then set targets. Device checklist passed in full the same day.
+16. **Admin view:** Malek's account can see every user (Settings → Admin → Users) read-only, via `profiles` and admin read access in the rules.
 
 ---
 
