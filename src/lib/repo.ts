@@ -1,5 +1,5 @@
 import {
-  collection, doc, getDocsFromServer, setDoc, updateDoc, writeBatch,
+  arrayRemove, arrayUnion, collection, doc, getDocsFromServer, setDoc, updateDoc, writeBatch,
   type DocumentReference,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -326,6 +326,15 @@ export function deleteMetric(
 
 export function saveSettings(uid: string, patch: Partial<Settings>): void {
   fire(setDoc(paths.settings(uid), { ...patch, updatedAt: nowIso() }, { merge: true }));
+}
+
+/** arrayUnion/arrayRemove so tours finished on two devices both stick. */
+export function markTourSeen(uid: string, id: string): void {
+  fire(setDoc(paths.settings(uid), { toursSeen: arrayUnion(id), updatedAt: nowIso() }, { merge: true }));
+}
+
+export function replayTour(uid: string, id: string): void {
+  fire(setDoc(paths.settings(uid), { toursSeen: arrayRemove(id), updatedAt: nowIso() }, { merge: true }));
 }
 
 // ── Import ─────────────────────────────────────────────────────────────────

@@ -57,6 +57,8 @@ export interface Settings {
   dayStartHour?: number;
   /** Set once the first-run target walkthrough is finished. */
   onboardedAt: string | null;
+  /** Screen tours already shown (ids from lib/tours.ts). Absent means none. */
+  toursSeen?: string[];
   updatedAt: string;
 }
 

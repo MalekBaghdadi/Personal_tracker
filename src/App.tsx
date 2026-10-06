@@ -17,6 +17,7 @@ const Stats = lazy(() => import('./screens/Stats').then((m) => ({ default: m.Sta
 const GoalDetail = lazy(() => import('./screens/GoalDetail').then((m) => ({ default: m.GoalDetail })));
 const Admin = lazy(() => import('./screens/Admin').then((m) => ({ default: m.Admin })));
 import { Metrics } from './screens/Metrics';
+import { TourHost } from './components/Tour';
 import { Settings } from './screens/Settings';
 
 export type Route = 'today' | 'history' | 'stats' | 'metrics' | 'settings' | 'goals' | 'admin';
@@ -104,6 +105,7 @@ function Shell() {
                 </main>
               </div>
               <TabBar route={tab} />
+              <TourHost route={route} />
             </div>
           )}
           <UpdatePrompt />

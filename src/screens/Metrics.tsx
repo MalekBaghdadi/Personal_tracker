@@ -24,6 +24,7 @@ export function Metrics() {
         <button
           type="button"
           onClick={() => setEditing('new')}
+          data-tour="metrics-new"
           className="press inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-ink px-4 text-[15px] font-medium text-bg"
         >
           <Plus size={18} /> New metric
@@ -72,7 +73,7 @@ function GoalsSection({ onNew }: { onNew: () => void }) {
   const active = goals.filter((g) => !g.archivedAt);
   const archived = goals.filter((g) => g.archivedAt).sort((a, b) => b.deadline.localeCompare(a.deadline));
   return (
-    <section className="mt-8" aria-labelledby="goals-h">
+    <section className="mt-8" data-tour="metrics-goals" aria-labelledby="goals-h">
       <div className="mb-2 flex items-center justify-between gap-3">
         <h2 id="goals-h" className="text-[16px] font-medium">Deadline goals</h2>
         <button type="button" onClick={onNew} className="press inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-s2 px-3 text-[14px] font-medium hover:bg-s3">
@@ -167,7 +168,7 @@ function ReorderList({ metrics, onOpen }: { metrics: Metric[]; onOpen: (m: Metri
   };
 
   return (
-    <ul className="divide-y divide-line border-y border-line">
+    <ul className="divide-y divide-line border-y border-line" data-tour="metrics-list">
       {order.map((id) => {
         const m = byId.get(id);
         if (!m) return null;

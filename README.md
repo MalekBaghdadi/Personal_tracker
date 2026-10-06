@@ -59,8 +59,9 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - First run lets each new user pick their own metrics (suggestions, their own, or none) before setting targets.
 - A read-only admin view of every user for Malek's account (Settings → Admin → Users).
 - History merges a day's quick adds and manual amounts into one summed line, editable as a total.
+- A spotlight tour on each tab the first time it opens, replayable from Settings → Tutorials.
 
-**Verified:** type check, 86 unit tests, and 14 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 86 unit tests, and 15 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -166,7 +167,15 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - **App icon** (per device, `state/badge.ts`): puts today's open reminders on the installed app's icon via `navigator.setAppBadge`. iOS draws badges only with notification permission, so turning it on there asks for it; no notification is ever sent. Updates only while the app is open. Unsupported browsers (e.g. Android Chrome) get an explanation instead of the switch.
 - **Restore from a backup** (`lib/importer.ts`, unit-tested): pick a JSON export. **Add-only**: any id already on the server, deleted ones included, is skipped, so nothing deleted comes back and nothing existing changes. Backup metrics with the same name and type as an existing one are merged into it (so restoring onto a freshly seeded account doesn't duplicate "Studying"). An incoming active goal on a metric that already has one is imported archived. Settings aren't imported. It needs a connection (it reads every collection from the server first, 15s timeout) and shows a summary to confirm.
 - **Admin** (only for the admin account, `isAdmin` in `lib/admin.ts`): a link to the Users screen.
+- **Tutorials:** one button per tab to replay its tour (removes it from `toursSeen` and opens the tab).
 - Sign out, with a confirmation.
+
+### Tours (`components/Tour.tsx`, content in `lib/tours.ts`)
+- One spotlight tour per tab (Today, History, Stats, Metrics, Settings), started by `TourHost` in the shell the first time that tab opens, after 600ms and only if no sheet is open and settings have loaded (so never during first run).
+- Each step points at a `data-tour="…"` marker in a screen. Steps whose marker isn't on screen are dropped when the tour starts (no metrics, no timer, no goals…); steps with no target are a centred card.
+- The screen is dimmed except a ring around the target; taps underneath are blocked. Skip, Back, Next/Done, "2 of 8"; Escape skips, arrow keys move.
+- Finishing or skipping adds the id to `settings.toursSeen` with `arrayUnion` (per account, so it holds on every device). Leaving the tab mid-tour doesn't mark it.
+- **When adding UI, add a step** with a marker if it's something a new user should know about.
 
 ### Admin (`src/screens/Admin.tsx`, routes `#/admin` and `#/admin/<uid>`, lazy-loaded)
 - **Who:** Malek's account, malekbaghdadi07@gmail.com, uid `mRRUx09pGmNZcOlLoBH5KWF9lxh1`. The uid is in **both** `ADMIN_UID` (`lib/admin.ts`, shows the screens) and `firestore.rules` (`isAdmin()`, which actually grants access). Change both together.
@@ -236,7 +245,7 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
 - **Entry:** `metricId`, `localDate` ('YYYY-MM-DD' in the configured timezone), `value` (always > 0), `source` ('timer', 'manual' or 'quick_add'), `note`, `occurredAt`, `deletedAt`.
 - **Goal:** `metricId` (an at_least metric), `name`, `nameEdited`, `targetTotal`, `priorProgress`, `startDate`, `deadline` (both inclusive), `paceSchedule`, `archivedAt`. **Inputs only.** Progress, status, pace, projection and achieved date are never stored.
 - **CalendarItem:** `kind` ('event' or 'reminder'), `title`, `localDate`, `time` ('HH:mm' or null for all day), `note`, `doneAt` (reminders), `deletedAt`.
-- **Settings:** `timezone`, `weekStartsOn`, `theme`, `dayStartHour` (optional, 0–6; absent means 5), `onboardedAt` (null only on a freshly seeded account).
+- **Settings:** `timezone`, `weekStartsOn`, `theme`, `dayStartHour` (optional, 0–6; absent means 5), `onboardedAt` (null only on a freshly seeded account), `toursSeen` (optional list of tour ids).
 
 ---
 
@@ -310,6 +319,7 @@ npm run e2e           # browser tests; or: npm run e2e -- goals core
 | `first-run` | (emulator-only `window.__e2eFirstRun` hook, since seeding needs the server) picker, toggling, own time and count metrics, typed suggestion name ticks it, Back keeps picks, only picks get targets, metrics created with target, existing metrics skip to targets, stays done after reload |
 | `admin` | (emulator-only `logbook:e2e-admin` localStorage flag makes the test account admin) hidden and refused for non-admins; Users link; list shows own profile with joined and last seen; offline note; user detail with metric, target, today and 7-day totals; no inputs or buttons on it. The **security rules aren't tested** (no Firestore emulator). |
 | `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
+| `tours` | (emulator-only `logbook:e2e-tours` flag; tours are off in every other suite) none during first run; Today tour skips missing steps; spotlight lines up with its target; taps underneath blocked; Skip, Next, Back, Done, Escape; seen tours stay seen after reload; Settings replays Today with all 8 steps; nothing logged by the tour |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used,** because the Firestore emulator jar wouldn't download on this network (it hangs at 0 bytes). With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
@@ -338,6 +348,8 @@ src/
     review.ts (+test)     weekly review figures
     importer.ts (+test)   JSON backup import plan (add-only)
     admin.ts              admin uid, profiles, loading another user's data, buildDayStats
+    tours.ts              tour steps per tab
+    entryRows.ts (+test)  merging a day's quick adds into one History row
     format.ts             durations, values, chips
     seed.ts               first-run metrics + settings
     export.ts             JSON and CSV export
@@ -360,6 +372,7 @@ src/
     SessionNotes.tsx      notes list (goal detail, Stats)
     WeekReview.tsx        "Last week" card (top of Stats)
     StartEarlier.tsx      hold-to-start-earlier sheet, useLongPress
+    Tour.tsx              spotlight tours (TourHost)
     YesterdaySheet.tsx    Today's "Yesterday" catch-up sheet
     inputs.tsx            duration/count inputs and parsers
 e2e/                      browser tests + run-all.mjs runner
@@ -429,6 +442,7 @@ Newest last. `git log` has the details.
 15. **Choose your own metrics on first run:** new accounts no longer get Malek's five metrics; they pick from suggestions or add their own, then set targets. Device checklist passed in full the same day.
 16. **Admin view:** Malek's account can see every user (Settings → Admin → Users) read-only, via `profiles` and admin read access in the rules.
 17. **Merged quick adds:** History shows a day's quick adds and manual amounts as one summed line; tapping it edits the total.
+18. **Tutorials:** a spotlight tour per tab on first open, remembered per account, replayable from Settings.
 
 ---
 

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, LogOut, Upload, Users } from 'lucide-react';
+import { Download, LogOut, PlayCircle, Upload, Users } from 'lucide-react';
+import { TOURS } from '../lib/tours';
 import { isAdmin } from '../lib/admin';
 import { signOut } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { useData } from '../state/DataContext';
-import { applyImport, fetchExisting, saveSettings } from '../lib/repo';
+import { applyImport, fetchExisting, replayTour, saveSettings } from '../lib/repo';
 import { NOT_AN_EXPORT, importIsEmpty, isExport, planImport, type ImportPlan } from '../lib/importer';
 import { deviceTimezone, nowIso } from '../lib/dates';
 import { exportCsv, exportJson } from '../lib/export';
@@ -53,7 +54,7 @@ export function Settings() {
           </p>
         </section>
 
-        <section>
+        <section data-tour="settings-daystart">
           <Label htmlFor="day-start">Day starts at</Label>
           <select id="day-start" className={inputClass} value={dayStart} onChange={(e) => set({ dayStartHour: Number(e.target.value) })}>
             {[0, 1, 2, 3, 4, 5, 6].map((h) => <option key={h} value={h}>{h === 0 ? 'Midnight' : `${h}:00 am`}</option>)}
@@ -85,7 +86,7 @@ export function Settings() {
 
         <BadgeSection />
 
-        <section className="border-t border-line pt-5">
+        <section className="border-t border-line pt-5" data-tour="settings-export">
           <h2 className="text-[15px] font-medium">Export your data</h2>
           <p className="mt-1 text-[13px] text-ink-3">
             {plural(entries.length, 'entry', 'entries')} across {plural(metrics.length, 'metric')}, archived ones included, plus {plural(items.length, 'event or reminder', 'events and reminders')} and {plural(goals.length, 'goal')}. Durations are in seconds.
@@ -97,6 +98,24 @@ export function Settings() {
         </section>
 
         <ImportSection />
+
+        <section className="border-t border-line pt-5" data-tour="settings-tours">
+          <h2 className="text-[15px] font-medium">Tutorials</h2>
+          <p className="mt-1 text-[13px] text-ink-3">Each tab has a short tour that shows the first time you open it. Replay one here.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {TOURS.map((t) => (
+              <Button
+                key={t.id}
+                onClick={() => {
+                  replayTour(uid, t.id);
+                  window.location.hash = `#/${t.id}`;
+                }}
+              >
+                <PlayCircle size={17} aria-hidden /> {t.name}
+              </Button>
+            ))}
+          </div>
+        </section>
 
         {isAdmin(uid) && (
           <section className="border-t border-line pt-5">

@@ -74,7 +74,11 @@ export function History({ openDate }: { openDate?: string | null }) {
   return (
     <div className="mx-auto max-w-2xl px-4 pt-5 pb-28 md:pb-10">
       <h1 className="mb-4 text-[22px] font-semibold tracking-tight">History</h1>
-      {metrics.length > 0 && <MetricPicker metrics={metrics} value={metric ? metric.id : ALL} onChange={setSelection} showAll />}
+      {metrics.length > 0 && (
+        <div data-tour="history-picker">
+          <MetricPicker metrics={metrics} value={metric ? metric.id : ALL} onChange={setSelection} showAll />
+        </div>
+      )}
       <MonthNav month={month} setMonth={setMonth} />
       {metric ? (
         <>
@@ -100,7 +104,7 @@ function MonthNav({ month, setMonth }: { month: string; setMonth: (m: string) =>
   const { today } = useData();
   const isCurrent = month === monthStart(today);
   return (
-    <div className="mt-5 mb-3 flex items-center justify-between">
+    <div className="mt-5 mb-3 flex items-center justify-between" data-tour="history-month">
       <IconButton label="Previous month" onClick={() => setMonth(shiftMonth(month, -1))}>
         <ChevronLeft size={20} />
       </IconButton>
@@ -128,7 +132,7 @@ function CalendarGrid({ month, label, cell }: { month: string; label: string; ce
   const lead = (weekdayOf(month) - weekStartsOn + 7) % 7;
   const weekdayOrder = weekStartsOn === 1 ? [1, 2, 3, 4, 5, 6, 0] : [0, 1, 2, 3, 4, 5, 6];
   return (
-    <section aria-label={label} className="grid grid-cols-7 gap-1.5">
+    <section aria-label={label} data-tour="history-calendar" className="grid grid-cols-7 gap-1.5">
       {weekdayOrder.map((d) => (
         <div key={d} className="pb-1 text-center text-[12px] text-ink-3">{WEEKDAYS[d].slice(0, 2)}</div>
       ))}

@@ -18,7 +18,9 @@ export function Stats() {
   return (
     <div className="mx-auto max-w-2xl px-4 pt-5 pb-28 md:pb-10">
       <h1 className="mb-4 text-[22px] font-semibold tracking-tight">Stats</h1>
-      <WeekReviewCard />
+      <div data-tour="stats-week">
+        <WeekReviewCard />
+      </div>
       {metrics.length > 0 && <h2 className="mt-6 mb-2 text-[14px] text-ink-3">Last {PERIOD} days</h2>}
       {ordered.length === 0 && <p className="text-[14px] text-ink-2">Add a metric to see stats here.</p>}
       <div className="divide-y divide-line">
@@ -83,7 +85,7 @@ function MetricStats({ metric }: { metric: Metric }) {
   const fmt = (v: number) => (metric.type === 'duration' ? formatDuration(v) : `${formatNumber(Math.round(v))} ${metric.unit}`);
 
   return (
-    <section className="py-5" aria-labelledby={`stats-${metric.id}`}>
+    <section className="py-5" data-tour="stats-metric" aria-labelledby={`stats-${metric.id}`}>
       <div className="flex items-center gap-2">
         <Icon size={17} style={{ color: hue }} aria-hidden />
         <h2 id={`stats-${metric.id}`} className="text-[16px] font-medium">{metric.name}</h2>

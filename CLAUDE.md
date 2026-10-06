@@ -19,4 +19,5 @@ invariants, decisions, testing and known gaps. This file is just the short versi
   `dayOf` / `useData().dayOf`, never `localDateOf` directly.
 - Multi-user: each account has its own `users/{uid}`. The admin (Malek's uid) is hardcoded in both
   `src/lib/admin.ts` and `firestore.rules`; admin access is read-only and the rules enforce it.
+- New UI a new user should know about gets a `data-tour` marker and a step in `src/lib/tours.ts`.
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.

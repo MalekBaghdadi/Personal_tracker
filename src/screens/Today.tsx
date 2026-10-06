@@ -47,6 +47,7 @@ export function Today() {
         {/* The date opens today in History: events, reminders and entries. */}
         <a
           href={`#/history/${today}`}
+          data-tour="today-date"
           className="group -mx-2 -my-1 block min-w-0 rounded-lg px-2 py-1 hover:bg-s1"
           aria-label={`${formatLocalDate(today, 'EEEE d MMMM')}. ${daySummary || 'No events or reminders'}. Open this day in History`}
         >
@@ -62,6 +63,7 @@ export function Today() {
             <button
               type="button"
               onClick={() => setYesterday(true)}
+              data-tour="today-yesterday"
               aria-label="Add to yesterday"
               className="press inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-s2 px-2.5 text-[13px] font-medium text-ink-2 hover:bg-s3 hover:text-ink"
             >
@@ -76,7 +78,7 @@ export function Today() {
       <InstallCard />
 
       {activeGoals.length > 0 && (
-        <section aria-label="Deadline goals" className="mb-4 flex flex-col gap-2">
+        <section aria-label="Deadline goals" data-tour="today-goals" className="mb-4 flex flex-col gap-2">
           {activeGoals.map((g) => <GoalCard key={g.id} goal={g} />)}
         </section>
       )}
@@ -166,7 +168,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
   const over = metric.targetDirection === 'at_most' && metric.target != null && total > metric.target;
 
   return (
-    <li className="py-3.5">
+    <li className="py-3.5" data-tour="today-row">
       {/* A modal; first so the controls stay the row's last block. */}
       {metric.timerEnabled && <StartEarlierSheet metric={metric} open={startEarlier} onClose={() => setStartEarlier(false)} />}
       {/* One column: icon sits on the name line so the text, progress bar and
@@ -207,6 +209,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
         <button
           type="button"
           onClick={() => setMinus((v) => !v)}
+          data-tour="today-toggle"
           aria-pressed={minus}
           aria-label={minus ? `Subtracting from ${metric.name}. Switch to adding` : `Adding to ${metric.name}. Switch to subtracting`}
           className={cx(
@@ -216,9 +219,10 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
         >
           {minus ? <Minus size={20} strokeWidth={2.4} /> : <Plus size={20} strokeWidth={2.4} />}
         </button>
-        {metric.quickAdd.map((v) => (
+        {metric.quickAdd.map((v, i) => (
           <button
             key={v}
+            data-tour={i === 0 ? 'today-chip' : undefined}
             type="button"
             onClick={() => (minus ? quickSubtract(v) : quickAdd(v))}
             disabled={minus && total === 0}
@@ -234,6 +238,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
         <button
           type="button"
           onClick={() => onManual(minus)}
+          data-tour="today-custom"
           aria-label={minus ? `Subtract a custom amount from ${metric.name}` : `Add a custom amount to ${metric.name}`}
           className={cx('press inline-flex size-11 items-center justify-center rounded-lg bg-s2 hover:bg-s3', minus ? 'text-danger' : 'text-ink')}
         >
@@ -243,6 +248,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
           <button
             type="button"
             onClick={running ? () => stop() : hold.guard(() => start(metric.id))}
+            data-tour="today-timer"
             {...(running ? {} : hold.handlers)}
             aria-label={running ? `Stop ${metric.name} timer` : `Start ${metric.name} timer`}
             aria-pressed={running}
