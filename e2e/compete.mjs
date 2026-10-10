@@ -203,6 +203,23 @@ try {
   await pressText('Call it off', '[data-testid="challenge-card"] .rounded-lg');
   log('Called-off challenge gone:', await until(async () => !(await card('challenge-card')).includes('First to')));
 
+  // ── Changing my name ──
+  log('Shows the name they see:', (await page.$eval('[data-testid="my-name"]', (e) => e.textContent)) === 'Me');
+  await page.evaluate(() => {
+    const row = document.querySelector('[data-testid="my-name"]').closest('div');
+    [...row.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Change').click();
+  });
+  await wait(300);
+  await page.$eval('#c-rename', (e) => { e.select(); });
+  await page.keyboard.press('Backspace');
+  await pressText('Save');
+  log('Empty name refused:', (await text()).includes('Enter a name.'));
+  await page.type('#c-rename', 'Malek');
+  await shot('cp-09-rename');
+  await pressText('Save');
+  log('New name shown:', await until(async () => (await page.$eval('[data-testid="my-name"]', (e) => e.textContent).catch(() => '')) === 'Malek'));
+  log('Toast confirms:', (await text()).includes('Cousin now sees you as Malek'));
+
   // ── Unlink ──
   await pressText('Unlink from Cousin');
   log('Unlink asks first:', (await text()).includes('You stop sharing numbers'));

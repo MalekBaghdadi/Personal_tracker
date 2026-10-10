@@ -66,9 +66,13 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/invites/$(pairId)).data.fromUid in request.resource.data.members
         && get(/databases/$(database)/documents/invites/$(pairId)).data.fromUid != request.auth.uid
         && request.resource.data.endedAt == null;
-      // Either member can unlink; nothing else about a pair changes.
+      // Either member can unlink, or change the name the other sees (their own only).
       allow update: if signedIn() && request.auth.uid in resource.data.members
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['endedAt']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['endedAt', 'names'])
+        && request.resource.data.names.diff(resource.data.names).affectedKeys().hasOnly([request.auth.uid])
+        && (request.resource.data.names[request.auth.uid] is string)
+        && request.resource.data.names[request.auth.uid].size() > 0
+        && request.resource.data.names[request.auth.uid].size() <= 30;
 
       match /links/{linkId} {
         allow read: if isMember(pairId);

@@ -74,6 +74,11 @@ try {
   await check('B reads the pair', assertSucceeds(getDoc(doc(B, 'pairs/AAAAAA'))));
   await check('C can’t read the pair', assertFails(getDoc(doc(C, 'pairs/AAAAAA'))));
   await check('C can’t list all pairs', assertFails(getDocs(collection(C, 'pairs'))));
+  await check('A renames themselves', assertSucceeds(updateDoc(doc(A, 'pairs/AAAAAA'), { 'names.A': 'Malek' })));
+  await check('A can’t rename B', assertFails(updateDoc(doc(A, 'pairs/AAAAAA'), { 'names.B': 'Loser' })));
+  await check('Can’t set an empty name', assertFails(updateDoc(doc(A, 'pairs/AAAAAA'), { 'names.A': '' })));
+  await check('Can’t set a name over 30 characters', assertFails(updateDoc(doc(A, 'pairs/AAAAAA'), { 'names.A': 'x'.repeat(31) })));
+  await check('C can’t rename anyone', assertFails(updateDoc(doc(C, 'pairs/AAAAAA'), { 'names.C': 'C' })));
   await check('Members can’t be changed', assertFails(updateDoc(doc(A, 'pairs/AAAAAA'), { members: ['A', 'C'] })));
   await check('Pairing never opens users/', assertFails(getDoc(doc(B, 'users/A/metrics/m1'))));
 

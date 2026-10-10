@@ -87,6 +87,11 @@ export async function joinWithCode(uid: string, name: string, code: string): Pro
   return { ok: true, pairId: code };
 }
 
+/** The name the other member sees. Each member changes only their own. */
+export function renameInPair(pairId: string, uid: string, name: string): void {
+  fire(updateDoc(competePaths.pair(pairId), { [`names.${uid}`]: name.trim() }));
+}
+
 /** Unlink: the pair stays (for its history) but nothing more is shared. */
 export function endPair(pairId: string): void {
   fire(updateDoc(competePaths.pair(pairId), { endedAt: nowIso() }));

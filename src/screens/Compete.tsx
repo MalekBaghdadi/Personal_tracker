@@ -10,7 +10,7 @@ import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import { canLink, challengeResult, nameFromEmail, normalizeCode, race, type Challenge, type ChallengeKind, type ChallengeResult, type Link, type SharedMetric, type Side } from '../lib/compete';
 import {
-  acceptLink, answerChallenge, cancelChallenge, cancelInvite, createInvite, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
+  acceptLink, answerChallenge, cancelChallenge, cancelInvite, createInvite, endLink, endPair, joinWithCode, proposeChallenge, proposeLink, renameInPair,
   type JoinError,
 } from '../lib/competeRepo';
 import { Button, FieldError, Label, Segmented, Sheet, cx, inputClass, useToast } from '../components/ui';
@@ -187,7 +187,8 @@ function Paired() {
 
       <Challenges onNew={() => setChallengeSheet(true)} canCreate={accepted.length > 0} />
 
-      <section className="border-t border-line pt-5">
+      <section className="flex flex-col gap-3 border-t border-line pt-5">
+        <NameRow />
         {confirmUnlink ? (
           <div className="rounded-lg bg-s2 p-3 text-[14px] text-ink-2">
             Unlink from {partnerName}? You stop sharing numbers with each other and every race and challenge ends. You can link again later with a new code.
@@ -208,6 +209,48 @@ function Paired() {
         {challengeSheet && <ChallengeForm onDone={() => setChallengeSheet(false)} />}
       </Sheet>
     </div>
+  );
+}
+
+/** The name the other person sees, editable in place. */
+function NameRow() {
+  const { uid } = useData();
+  const { pair, myName, partnerName } = useCompete();
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(myName);
+  const [error, setError] = useState<string | null>(null);
+  if (!pair) return null;
+
+  if (!editing) {
+    return (
+      <div className="flex min-h-11 items-center justify-between gap-3 text-[14px]">
+        <span className="min-w-0 text-ink-2">
+          {partnerName} sees you as <span className="font-medium text-ink" data-testid="my-name">{myName}</span>
+        </span>
+        <Button variant="ghost" className="shrink-0 px-3" onClick={() => { setName(myName); setError(null); setEditing(true); }}>Change</Button>
+      </div>
+    );
+  }
+  return (
+    <form noValidate onSubmit={(e) => {
+      e.preventDefault();
+      if (!name.trim()) return setError('Enter a name.');
+      if (name.trim() !== myName) {
+        renameInPair(pair.id, uid, name);
+        toast(`${partnerName} now sees you as ${name.trim()}`);
+      }
+      setEditing(false);
+    }}>
+      <Label htmlFor="c-rename">Your name</Label>
+      <div className="flex gap-2">
+        <input id="c-rename" className={inputClass} value={name} maxLength={30} autoFocus onChange={(e) => { setName(e.target.value); setError(null); }}
+          onKeyDown={(e) => e.key === 'Escape' && setEditing(false)} />
+        <Button type="submit" variant="primary" className="shrink-0">Save</Button>
+      </div>
+      <FieldError>{error}</FieldError>
+      <button type="button" className="mt-1.5 text-[13px] text-ink-3 underline underline-offset-2" onClick={() => setEditing(false)}>Cancel</button>
+    </form>
   );
 }
 

@@ -63,7 +63,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Rest days: a metric can allow N missed due days a week without breaking its streak (e.g. Gym Mon–Fri, 1 rest day).
 - **Compete** tab: pair with one other account by invite code, race weekly on linked metrics (total, plus target days), and challenge each other (first to X, most in a period, most target days).
 
-**Verified:** type check, 116 unit tests, 17 browser test suites, and 47 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 116 unit tests, 17 browser test suites, and 52 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -175,7 +175,7 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 
 ### Compete (`src/screens/Compete.tsx`, route `#/compete`, lazy-loaded; logic in `lib/compete.ts`, writes in `lib/competeRepo.ts`, state in `state/CompeteContext.tsx`)
 Built for Malek and his cousin (the only other user), but nothing names either account: any two accounts can pair.
-- **Pairing:** one person creates a 6-character invite code (no 0/O/1/I/L; expires after 7 days) and sends it with the share sheet; the other enters it under "Got a code?". Joining **needs a connection** (it reads the invite from the server, 15s timeout); creating the pair and deleting the invite are one batch. The pair's id is the code. One active pair per account in the UI. Each side picks the name the other sees (defaults to the email's local part). "Unlink" sets `endedAt`; nothing more is shared after that.
+- **Pairing:** one person creates a 6-character invite code (no 0/O/1/I/L; expires after 7 days) and sends it with the share sheet; the other enters it under "Got a code?". Joining **needs a connection** (it reads the invite from the server, 15s timeout); creating the pair and deleting the invite are one batch. The pair's id is the code. One active pair per account in the UI. Each side picks the name the other sees (defaults to the email's local part) and can change it any time at the bottom of the tab ("Cousin sees you as … Change"; `renameInPair`; the rules let each member change only their own name, 1–30 characters). "Unlink" sets `endedAt`; nothing more is shared after that.
 - **Linking metrics:** either side proposes one of their own **"at least"** metrics (`canLink`); the other accepts by picking one of theirs of the same type (time or count), or declines. Ceilings (calories) can't be raced. Accepting sets `startDate` to the first day of that week, so this week already counts.
 - **Weekly race** (one card per link): this week's total for each side with a bar, target days met ("target 4/5 days", only for metrics with a target), who's ahead and by how much, the tally of weeks won since the link started, and last week's result. **A week goes to the higher total; equal totals go to more target days; then a draw.** Weeks follow the pair's `weekStartsOn` (the inviter's setting when the code was made).
 - **Challenges** on a linked pair, which the other side accepts or declines; either side can call one off:
@@ -323,7 +323,7 @@ Agreed with Malek or flagged to him at the time:
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
 npm test              # unit tests: streaks (39), goals (30), compete (21), review (7), importer (8), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
-npm run test:rules    # security rules against the Firestore emulator (47 checks)
+npm run test:rules    # security rules against the Firestore emulator (52 checks)
 ```
 
 **Browser tests (`e2e/`):**
@@ -349,7 +349,7 @@ npm run test:rules    # security rules against the Firestore emulator (47 checks
 | `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
 | `tours` | (emulator-only `logbook:e2e-tours` flag; tours are off in every other suite) none during first run; Today tour skips missing steps; spotlight lines up with its target; taps underneath blocked; Skip, Next, Back, Done, Escape; seen tours stay seen after reload; Settings replays Today with all 8 steps; nothing logged by the tour |
 | `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
-| `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; first to, most days (their request, accepted), finished list; call off; unlink |
+| `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; first to, most days (their request, accepted), finished list; call off; change my name (empty refused); unlink |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used by the browser tests.** The Firestore emulator jar used to hang at 0 bytes on this network; it finally downloaded on 10 October 2026 and is used by `npm run test:rules` (`e2e/rules.mjs`, started by `e2e/run-rules.mjs`, which stops the emulator afterwards because `emulators:exec` leaves Java running on Windows). The browser tests still run with Firestore unreachable on purpose. With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
