@@ -3,6 +3,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, firebaseConfigured } from './lib/firebase';
 import { DataProvider, useData } from './state/DataContext';
 import { TimerProvider } from './state/TimerContext';
+import { CompeteProvider } from './state/CompeteContext';
 import { ThemeProvider } from './state/theme';
 import { useAppBadge } from './state/badge';
 import { SideNav, TabBar, TimerBar, UpdatePrompt } from './components/Chrome';
@@ -16,12 +17,13 @@ import { History } from './screens/History';
 const Stats = lazy(() => import('./screens/Stats').then((m) => ({ default: m.Stats })));
 const GoalDetail = lazy(() => import('./screens/GoalDetail').then((m) => ({ default: m.GoalDetail })));
 const Admin = lazy(() => import('./screens/Admin').then((m) => ({ default: m.Admin })));
+const Compete = lazy(() => import('./screens/Compete').then((m) => ({ default: m.Compete })));
 import { Metrics } from './screens/Metrics';
 import { TourHost } from './components/Tour';
 import { Settings } from './screens/Settings';
 
-export type Route = 'today' | 'history' | 'stats' | 'metrics' | 'settings' | 'goals' | 'admin';
-const ROUTES: Route[] = ['today', 'history', 'stats', 'metrics', 'settings', 'goals', 'admin'];
+export type Route = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'settings' | 'goals' | 'admin';
+const ROUTES: Route[] = ['today', 'history', 'stats', 'compete', 'metrics', 'settings', 'goals', 'admin'];
 
 /** `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id; `#/admin/<uid>` → user id. */
 function readRoute(): { route: Route; day: string | null; id: string | null } {
@@ -83,32 +85,35 @@ function Shell() {
     <ThemeProvider pref={settings?.theme}>
       <ToastProvider>
         <TimerProvider>
-          {!ready ? (
-            // The local cache answers in milliseconds; this is never a network wait.
-            <div className="min-h-dvh bg-bg" />
-          ) : needsOnboarding ? (
-            <Onboarding />
-          ) : (
-            <div className="flex min-h-dvh">
-              <SideNav route={tab} />
-              <div className="min-w-0 flex-1">
-                <TimerBar />
-                {/* The timer bar carries the status-bar inset when it's showing. */}
-                <main className={timer ? undefined : 'safe-top'}>
-                  {route === 'today' && <Today />}
-                  {route === 'history' && <History openDate={day} />}
-                  {route === 'stats' && <Suspense fallback={null}><Stats /></Suspense>}
-                  {route === 'metrics' && <Metrics />}
-                  {route === 'settings' && <Settings />}
-                  {route === 'goals' && <Suspense fallback={null}><GoalDetail id={id} /></Suspense>}
-                  {route === 'admin' && <Suspense fallback={null}><Admin id={id} /></Suspense>}
-                </main>
+          <CompeteProvider>
+            {!ready ? (
+              // The local cache answers in milliseconds; this is never a network wait.
+              <div className="min-h-dvh bg-bg" />
+            ) : needsOnboarding ? (
+              <Onboarding />
+            ) : (
+              <div className="flex min-h-dvh">
+                <SideNav route={tab} />
+                <div className="min-w-0 flex-1">
+                  <TimerBar />
+                  {/* The timer bar carries the status-bar inset when it's showing. */}
+                  <main className={timer ? undefined : 'safe-top'}>
+                    {route === 'today' && <Today />}
+                    {route === 'history' && <History openDate={day} />}
+                    {route === 'stats' && <Suspense fallback={null}><Stats /></Suspense>}
+                    {route === 'compete' && <Suspense fallback={null}><Compete /></Suspense>}
+                    {route === 'metrics' && <Metrics />}
+                    {route === 'settings' && <Settings />}
+                    {route === 'goals' && <Suspense fallback={null}><GoalDetail id={id} /></Suspense>}
+                    {route === 'admin' && <Suspense fallback={null}><Admin id={id} /></Suspense>}
+                  </main>
+                </div>
+                <TabBar route={tab} />
+                <TourHost route={route} />
               </div>
-              <TabBar route={tab} />
-              <TourHost route={route} />
-            </div>
-          )}
-          <UpdatePrompt />
+            )}
+            <UpdatePrompt />
+          </CompeteProvider>
         </TimerProvider>
       </ToastProvider>
     </ThemeProvider>

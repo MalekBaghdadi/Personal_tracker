@@ -5,7 +5,7 @@
  * A step without a target is a centred card.
  */
 
-export type TourId = 'today' | 'history' | 'stats' | 'metrics' | 'settings';
+export type TourId = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'settings';
 
 export interface TourStep {
   /** data-tour value to spotlight; the first match on the page. */
@@ -53,6 +53,15 @@ export const TOURS: Tour[] = [
       { target: 'stats-week', title: 'Last week', body: 'Your week at a glance: totals, target days met, best day, and how goals moved.' },
       { target: 'stats-metric', title: 'Per metric', body: 'Current and longest streak, the last 30 days, how often you hit the target, and any notes you wrote.' },
       { title: 'Stats', body: 'Log a few days and these fill in by themselves.' },
+    ],
+  },
+  {
+    id: 'compete',
+    name: 'Compete',
+    steps: [
+      { target: 'compete-pair', title: 'Race a friend', body: 'Link up with one other person using a code. They only see totals for the metrics you choose to race on, never your notes.' },
+      { target: 'compete-race', title: 'Weekly race', body: 'Your total against theirs this week, and how many days each of you hit your own target. The higher total takes the week.' },
+      { target: 'compete-challenges', title: 'Challenges', body: 'First to 20 hours, most this month, or most target days. Either of you can start one; the other accepts it first.' },
     ],
   },
   {

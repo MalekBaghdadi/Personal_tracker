@@ -1,0 +1,219 @@
+// Compete. Firestore is unreachable here, so there's no second account: the
+// emulator-only window.__e2eCompete hooks play the partner ("Cousin") by
+// writing straight into this device's cache. Covers the pairing screen, invite
+// codes, joining offline, linking a metric, the weekly race and tally, what
+// gets published, link and challenge requests, the three challenge kinds,
+// finished challenges and unlinking. The security rules are tested separately
+// (e2e/rules.mjs, against the Firestore emulator).
+import puppeteer from 'puppeteer-core';
+import { fileURLToPath } from 'node:url';
+
+const OUT = fileURLToPath(new URL('./shots/', import.meta.url));
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+for (let i = 0; i < 60; i++) {
+  try { await fetch('http://127.0.0.1:9099/emulator/v1/projects/demo-logbook/accounts', { method: 'DELETE' }); break; } catch { await wait(1000); }
+}
+const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: true });
+const page = await browser.newPage();
+await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+const errors = [];
+page.on('pageerror', (e) => errors.push(e.message));
+page.on('console', (m) => {
+  if (m.type() === 'error' && !/ERR_CONNECTION_REFUSED|Could not reach|invite read failed|offline/.test(m.text())) errors.push(m.text());
+});
+
+const click = async (sel) => { await page.locator(sel).setTimeout(8000).click(); await wait(400); };
+const text = () => page.evaluate(() => document.body.innerText);
+const log = (...a) => console.log('•', ...a);
+const shot = (n) => page.screenshot({ path: `${OUT}${n}.png`, fullPage: true });
+const pressText = async (label, scope = 'body') => {
+  const ok = await page.evaluate((l, s) => {
+    const b = [...document.querySelector(s).querySelectorAll('button')].find((x) => x.innerText.trim() === l);
+    b?.scrollIntoView({ block: 'center' });
+    b?.click();
+    return !!b;
+  }, label, scope);
+  if (!ok) console.log(`FAILED: no button "${label}"`);
+  await wait(500);
+};
+const hook = (fn, ...args) => page.evaluate((f, a) => window.__e2eCompete[f](...a), fn, args);
+const until = async (check, ms = 8000) => {
+  for (let t = 0; t < ms; t += 250) {
+    if (await check()) return true;
+    await wait(250);
+  }
+  return false;
+};
+const fitsPhone = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+const card = (id) => page.evaluate((i) => [...document.querySelectorAll(`[data-testid="${i}"]`)].map((e) => e.innerText).join('\n---\n'), id);
+
+// Dates follow the app's 5am day start; weeks start on Monday.
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const now = new Date(Date.now() - 5 * 3600000);
+const day = (offset) => ymd(new Date(now.getTime() + offset * 86400000));
+const TODAY = day(0);
+const weekStart = -((now.getDay() + 6) % 7);
+const LAST_MON = day(weekStart - 7);
+const LAST_TUE = day(weekStart - 6);
+const LAST_SUN = day(weekStart - 1);
+const H = 3600;
+const theirStudy = (days) => ({ 'their-study': { name: 'Study', type: 'duration', unit: 'h', target: H, color: '#e0a03a', icon: 'book', days } });
+
+try {
+  await page.goto('http://localhost:5173/', { waitUntil: 'networkidle0' });
+  await click('[role=radio]::-p-text(Create account)');
+  await page.type('#email', 'e2e@logbook.test');
+  await page.type('#password', 'emulator-only-pass');
+  await click('button[type=submit]');
+  await wait(2500);
+  await click('::-p-text(Got it)');
+
+  // Studying: at least 1h a day. 2h logged today.
+  await click('nav.fixed a[href="#/metrics"]');
+  await click('::-p-text(New metric)');
+  await page.type('#m-name', 'Studying');
+  await page.type('#m-target-h', '1');
+  await click('::-p-text(Create metric)');
+  await wait(500);
+  await page.goto('http://localhost:5173/#/today');
+  await wait(600);
+  await click('::-p-aria(Add a custom amount to Studying)');
+  await page.type('#entry-h', '2');
+  await click('dialog[open] button[type=submit]');
+  await wait(400);
+
+  // ── Not paired ──
+  const tabs = await page.evaluate(() => [...document.querySelectorAll('nav.fixed a')].map((a) => a.innerText.trim()));
+  log('Tab bar has Compete after Stats:', tabs.join(',') === 'Today,History,Stats,Compete,Metrics,Settings');
+  await click('nav.fixed a[href="#/compete"]');
+  await wait(600);
+  log('Explains what is shared:', (await text()).includes('never your notes'));
+  log('Name defaults to the email name:', (await page.$eval('#c-name', (e) => e.value)) === 'e2e');
+  log('Fits a phone:', await fitsPhone());
+  await shot('cp-01-setup');
+
+  await pressText('Create invite code');
+  const code = await page.$eval('[data-testid="invite-code"]', (e) => e.textContent).catch(() => '');
+  log('Invite code shown, 6 unambiguous characters:', /^[A-HJKMNP-Z2-9]{6}$/.test(code));
+  log('Says when it expires:', (await text()).includes('Expires'));
+  await shot('cp-02-invite');
+  await pressText('Cancel invite');
+  log('Cancel brings back Create:', await until(async () => (await text()).includes('Create invite code')));
+
+  await page.type('[aria-label="Invite code"]', 'abc');
+  await pressText('Join');
+  log('Short code refused:', (await text()).includes('six letters and numbers'));
+  await page.$eval('[aria-label="Invite code"]', (e) => { e.select(); });
+  await page.type('[aria-label="Invite code"]', 'abc-234');
+  await pressText('Join');
+  log('Joining offline says it needs a connection:', await until(async () => (await text()).includes('Joining needs a connection'), 20000));
+
+  // ── Paired (Cousin plays the partner) ──
+  await hook('pair', 'Cousin');
+  log('Header shows the pair:', await until(async () => (await text()).includes('you vs Cousin')));
+  log('No numbers from them yet:', (await text()).includes('Cousin hasn’t shared any numbers yet'));
+  log('New challenge disabled before a link:', await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('New challenge'))?.disabled === true));
+
+  await pressText('Link a metric');
+  log('Link sheet lists Studying:', (await page.$eval('#l-metric', (e) => e.innerText)).includes('Studying (time)'));
+  await pressText('Send to Cousin', 'dialog[open]');
+  log('Waiting for them:', await until(async () => (await text()).includes('Waiting for Cousin to pick a metric to race your Studying')));
+  await shot('cp-03-proposed');
+
+  // They accept, starting last week so there's a finished week.
+  await hook('acceptMine', 'their-study', LAST_MON);
+  log('Race card appears:', await until(async () => (await card('race-card')).includes('Studying')));
+  log('Me ahead with nothing from them:', (await card('race-card')).includes('You’re 2h ahead'));
+  log('My target days shown:', (await card('race-card')).includes('target 1/1 day'));
+
+  // What this account published: Studying only, numbers only.
+  const published = await until(async () => !!(await hook('myScore')), 6000);
+  const score = await hook('myScore');
+  const m = score && Object.values(score.metrics)[0];
+  log('Published after a moment:', published);
+  log('Published today’s total and a hit:', !!m && m.days[TODAY]?.t === 2 * H && m.days[TODAY]?.s === 'h');
+  log('Published nothing but the summary:', !!score && Object.keys(score).sort().join(',') === 'asOf,metrics,uid,updatedAt' && Object.keys(score.metrics).length === 1 && !JSON.stringify(score).includes('note'));
+
+  // Their numbers: 3h today, and 1h last week (when I had nothing).
+  await hook('score', TODAY, theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } }));
+  log('They lead this week:', await until(async () => (await card('race-card')).includes('Cousin is 1h ahead')));
+  log('Their metric name shown:', (await card('race-card')).includes('Studying vs Study'));
+  log('Tally counts last week for them:', (await card('race-card')).includes('Weeks won: you 0 · Cousin 1'));
+  log('Last week result:', (await card('race-card')).includes('Last week: Cousin won, 0m to 1h'));
+  log('Freshness line:', (await text()).includes('Cousin’s numbers updated'));
+  log('Fits a phone:', await fitsPhone());
+  await shot('cp-04-race');
+
+  // Their request on a count metric I don't have.
+  await hook('proposeLink', 'L-count', 'their-pushups', 'count');
+  log('Link request shown:', await until(async () => (await card('link-request')).includes('Cousin wants to race a count metric')));
+  log('Explains I have no count metric:', (await card('link-request')).includes('no free “at least” count metric'));
+  await pressText('Decline', '[data-testid="link-request"]');
+  log('Declined request goes away:', await until(async () => !(await text()).includes('wants to race')));
+
+  // ── Challenges ──
+  await pressText('New challenge');
+  await page.type('#ch-amount', 'abc');
+  await pressText('Send challenge', 'dialog[open]');
+  log('Bad amount refused:', (await text()).includes('Enter an amount in hours'));
+  await page.$eval('#ch-amount', (e) => { e.select(); });
+  await page.type('#ch-amount', '5');
+  await shot('cp-05-challenge-form');
+  await pressText('Send challenge', 'dialog[open]');
+  log('Mine waits for them:', await until(async () => (await card('challenge-card')).includes('Waiting for Cousin to accept')));
+  await hook('acceptMyChallenges');
+  log('Accepted: first to 5h, they lead:', await until(async () => {
+    const c = await card('challenge-card');
+    return c.includes('First to 5h of Studying') && c.includes('Cousin leads by 1h');
+  }));
+
+  // Their challenge: most target days this week.
+  const linkId = await hook('raceLinkId');
+  log('Found the race link:', !!linkId);
+  await hook('proposeChallenge', {
+    id: 'C-days', linkId, kind: 'most_days', amount: null, startDate: day(weekStart), endDate: day(weekStart + 6),
+    createdBy: '', createdAt: new Date().toISOString(), acceptedAt: null, declinedAt: null, cancelledAt: null,
+  });
+  log('Their challenge shown as a request:', await until(async () => (await text()).includes('Cousin challenges you')));
+  await shot('cp-06-request');
+  await page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes('Cousin challenges you'));
+    [...c.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Accept').click();
+  });
+  log('Accepted: most target days, level at 1 each:', await until(async () => {
+    const c = await card('challenge-card');
+    return c.includes('Most Studying target days') && /You\s*1 day/.test(c) && /Cousin\s*1 day/.test(c);
+  }));
+
+  // A finished one: most total last week, already accepted. They had 1h, I had nothing.
+  await hook('proposeChallenge', {
+    id: 'C-done', linkId, kind: 'most_total', amount: null, startDate: LAST_MON, endDate: LAST_SUN,
+    createdBy: '', createdAt: new Date(Date.now() - 1000).toISOString(), acceptedAt: new Date().toISOString(), declinedAt: null, cancelledAt: null,
+  });
+  log('Finished list shows the winner:', await until(async () => (await card('finished-challenges')).includes('Most Studying') && (await card('finished-challenges')).includes('Cousin won')));
+  log('Fits a phone:', await fitsPhone());
+  await shot('cp-07-challenges');
+
+  // Calling one off.
+  await page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes('First to'));
+    [...c.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Call it off').click();
+  });
+  await wait(300);
+  await pressText('Call it off', '[data-testid="challenge-card"] .rounded-lg');
+  log('Called-off challenge gone:', await until(async () => !(await card('challenge-card')).includes('First to')));
+
+  // ── Unlink ──
+  await pressText('Unlink from Cousin');
+  log('Unlink asks first:', (await text()).includes('You stop sharing numbers'));
+  await pressText('Unlink');
+  log('Back to the setup screen:', await until(async () => (await text()).includes('Create invite code')));
+  await shot('cp-08-unlinked');
+} catch (e) {
+  console.log('FAILED:', e.message);
+  await shot('cp-error').catch(() => {});
+} finally {
+  log('No page errors:', errors.length === 0);
+  if (errors.length) console.log(errors);
+  await browser.close();
+}

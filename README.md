@@ -38,7 +38,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 | **Repo** | https://github.com/MalekBaghdadi/Personal_tracker (branch `main`) |
 | **Firebase project** | `personal-tracker-cec8a` (Spark plan) |
 | **Local checkout** | `C:\Users\Malek Baghdadi\personal-tracker` (Windows 11) |
-| **Last updated** | 6 October 2026 |
+| **Last updated** | 10 October 2026 |
 
 **Built and deployed:**
 - The original MVP: Today, History, Stats, Metrics and Settings screens; timers; quick-add and manual entry; targets and streaks; PWA install and offline support; JSON/CSV export; first-run onboarding.
@@ -61,8 +61,9 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - History merges a day's quick adds and manual amounts into one summed line, editable as a total.
 - A spotlight tour on each tab the first time it opens, replayable from Settings → Tutorials.
 - Rest days: a metric can allow N missed due days a week without breaking its streak (e.g. Gym Mon–Fri, 1 rest day).
+- **Compete** tab: pair with one other account by invite code, race weekly on linked metrics (total, plus target days), and challenge each other (first to X, most in a period, most target days).
 
-**Verified:** type check, 95 unit tests, and 16 browser test suites. The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 116 unit tests, 17 browser test suites, and 47 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -172,8 +173,22 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - **Tutorials:** one button per tab to replay its tour (removes it from `toursSeen` and opens the tab).
 - Sign out, with a confirmation.
 
+### Compete (`src/screens/Compete.tsx`, route `#/compete`, lazy-loaded; logic in `lib/compete.ts`, writes in `lib/competeRepo.ts`, state in `state/CompeteContext.tsx`)
+Built for Malek and his cousin (the only other user), but nothing names either account: any two accounts can pair.
+- **Pairing:** one person creates a 6-character invite code (no 0/O/1/I/L; expires after 7 days) and sends it with the share sheet; the other enters it under "Got a code?". Joining **needs a connection** (it reads the invite from the server, 15s timeout); creating the pair and deleting the invite are one batch. The pair's id is the code. One active pair per account in the UI. Each side picks the name the other sees (defaults to the email's local part). "Unlink" sets `endedAt`; nothing more is shared after that.
+- **Linking metrics:** either side proposes one of their own **"at least"** metrics (`canLink`); the other accepts by picking one of theirs of the same type (time or count), or declines. Ceilings (calories) can't be raced. Accepting sets `startDate` to the first day of that week, so this week already counts.
+- **Weekly race** (one card per link): this week's total for each side with a bar, target days met ("target 4/5 days", only for metrics with a target), who's ahead and by how much, the tally of weeks won since the link started, and last week's result. **A week goes to the higher total; equal totals go to more target days; then a draw.** Weeks follow the pair's `weekStartsOn` (the inviter's setting when the code was made).
+- **Challenges** on a linked pair, which the other side accepts or declines; either side can call one off:
+  - **First to X:** the earlier day to reach X wins; reaching it the same day goes to the higher total that day; if nobody gets there by the end date, the higher total wins.
+  - **Most:** the higher total between the two dates.
+  - **Most days:** more days with your own target met. Needs a target on both sides.
+  - The start can't be before the link started; the end must be today or later. Finished challenges are listed with the winner (5, then "Show all").
+- **What's shared:** each app publishes `pairs/{id}/scores/{uid}` with, for each accepted link's metric only, its name/type/unit/target/colour/icon and per-day `{ t: total, s: status }` from the link's start (`s`: h = target met, d = due and missed, r = rest day, o = not due, n = no target). No entries, notes, other metrics or settings. Days before the metric existed aren't due (same as Stats). It's republished 2 seconds after any change (`PUBLISH_DELAY_MS`) and on a new day, so the other person's numbers are as fresh as **their last app open**; the screen says when they were updated.
+- **Results only settle when both sides' data is in:** a finished week or challenge waits ("waiting for Cousin's numbers") until the other side has published a day after the deciding day (`asOf`). Your own side always uses your live data, not your published doc.
+- Results are derived each time, like streaks: backfilling an old day can change who won.
+
 ### Tours (`components/Tour.tsx`, content in `lib/tours.ts`)
-- One spotlight tour per tab (Today, History, Stats, Metrics, Settings), started by `TourHost` in the shell the first time that tab opens, after 600ms and only if no sheet is open and settings have loaded (so never during first run).
+- One spotlight tour per tab (Today, History, Stats, Compete, Metrics, Settings), started by `TourHost` in the shell the first time that tab opens, after 600ms and only if no sheet is open and settings have loaded (so never during first run).
 - Each step points at a `data-tour="…"` marker in a screen. Steps whose marker isn't on screen are dropped when the tour starts (no metrics, no timer, no goals…); steps with no target are a centred card.
 - The screen is dimmed except a ring around the target; taps underneath are blocked. Skip, Back, Next/Done, "2 of 8"; Escape skips, arrow keys move.
 - Finishing or skipping adds the id to `settings.toursSeen` with `arrayUnion` (per account, so it holds on every device). Leaving the tab mid-tour doesn't mark it.
@@ -213,14 +228,15 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 **Data flow:**
 - `src/lib/firebase.ts` initialises Firestore with `persistentLocalCache({ tabManager: persistentMultipleTabManager() })`. Every read and write hits IndexedDB first; the network only reconciles.
 - `src/state/DataContext.tsx` holds **six listeners for the whole app**: metrics, entries (non-deleted), goals, items (non-deleted), and the timer and settings docs. Each uses `includeMetadataChanges` so the sync dot can show synced, pending or offline. **Everything else is derived in memory** with `useMemo`: per-metric per-day totals (`dayStats`), streaks, stats, goal results, items by date.
-- `src/lib/repo.ts` holds **all writes**, and none are awaited (the `fire()` helper). They commit to the local cache at once and flush when online.
+- `src/state/CompeteContext.tsx` adds two more listeners (this account's invites and pairs) and, once paired, three on the pair (links, challenges, scores). It wraps the whole shell, not just the tab, so logging anywhere republishes the summary.
+- `src/lib/repo.ts` holds **all writes** (Compete's are in `competeRepo.ts`, the profile's in `admin.ts`), and none are awaited (the `fire()` helper). They commit to the local cache at once and flush when online.
 - "Today" is recomputed every 30 seconds and when the tab becomes visible, so midnight rollover and goal deadlines update while the app stays open.
 
 **PWA:** `vite.config.ts` uses `registerType: 'prompt'`, so it never auto-reloads. The update prompt is hidden while a timer runs, and only the app shell is precached; Firestore has its own offline cache. iOS meta tags, safe-area insets and `navigator.storage.persist()` are in place.
 
 **Theme:** CSS variables in `src/index.css`, switched by `data-theme` on `<html>`. The theme is cached in localStorage and applied before first paint (inline script in `index.html`). Each metric's colour comes from a palette checked for contrast and colour-blind separation in both themes (`src/lib/palette.ts`); the light theme maps each stored dark hex to its pair.
 
-**Routes:** `#/today`, `#/history[/YYYY-MM-DD]`, `#/stats`, `#/metrics`, `#/settings`, `#/goals/<id>`. The goals route highlights the Metrics tab.
+**Routes:** `#/today`, `#/history[/YYYY-MM-DD]`, `#/stats`, `#/compete`, `#/metrics`, `#/settings`, `#/goals/<id>`. The goals route highlights the Metrics tab.
 
 ---
 
@@ -237,7 +253,14 @@ users/{uid}/state/timer            ActiveTimer    (absent when no timer runs)
 users/{uid}/state/settings         Settings
 users/{uid}/state/timerClosed      { startedAt, closedAt }  (timer race marker, see below)
 profiles/{uid}                     Profile        (uid, email, joinedAt, lastSeenAt; owner writes, admin reads)
+invites/{code}                     Invite         (Compete: anyone signed in can get one code, never list; inviter creates/deletes)
+pairs/{code}                       Pair           (members [2 uids], names, weekStartsOn, endedAt; members read; joiner creates from a live invite)
+pairs/{code}/links/{id}            Link           (uid → metricId, type, proposedBy, acceptedAt, startDate, endedAt)
+pairs/{code}/challenges/{id}       Challenge      (linkId, kind, amount, startDate, endDate, createdBy, acceptedAt/declinedAt/cancelledAt)
+pairs/{code}/scores/{uid}          Score          (asOf, updatedAt, per-metric per-day totals; each member writes only their own)
 ```
+
+**Compete rules** (`firestore.rules`): pairing never opens anyone's `users/{uid}`. Only the two members can read a pair and its subcollections; after unlinking they can still read, but nobody can publish, link or challenge. Types are in `lib/compete.ts`.
 
 The owner can read and write everything under their `users/{uid}`; the admin account can read it too, never write. `profiles/{uid}` is written only by its owner, with only those four fields.
 
@@ -274,7 +297,8 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
     - Required pace is computed from progress through yesterday, so it holds still all day.
     - Pace is rounded **up** for display. One active goal per metric. Goals never change daily targets or streaks.
 11. **Reminders never send notifications.** There's no server; Malek chose in-app only.
-12. **Zero recurring cost:** nothing that needs the Blaze plan, no Cloud Storage, no native iOS app.
+12. **Compete scores are the one stored derived figure,** and only because the other account can't read your data. They're a published copy for the partner: your own screens never read your score doc, and results (weeks won, challenge winners) are still derived each time, never stored.
+13. **Zero recurring cost:** nothing that needs the Blaze plan, no Cloud Storage, no native iOS app.
 
 ---
 
@@ -297,8 +321,9 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (39), goals (30), review (7), importer (8), entryRows (6), dates (5)
+npm test              # unit tests: streaks (39), goals (30), compete (21), review (7), importer (8), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
+npm run test:rules    # security rules against the Firestore emulator (47 checks)
 ```
 
 **Browser tests (`e2e/`):**
@@ -324,9 +349,10 @@ npm run e2e           # browser tests; or: npm run e2e -- goals core
 | `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
 | `tours` | (emulator-only `logbook:e2e-tours` flag; tours are off in every other suite) none during first run; Today tour skips missing steps; spotlight lines up with its target; taps underneath blocked; Skip, Next, Back, Done, Escape; seen tours stay seen after reload; Settings replays Today with all 8 steps; nothing logged by the tour |
 | `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
+| `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; first to, most days (their request, accepted), finished list; call off; unlink |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
-**Only the Auth emulator is used,** because the Firestore emulator jar wouldn't download on this network (it hangs at 0 bytes). With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
+**Only the Auth emulator is used by the browser tests.** The Firestore emulator jar used to hang at 0 bytes on this network; it finally downloaded on 10 October 2026 and is used by `npm run test:rules` (`e2e/rules.mjs`, started by `e2e/run-rules.mjs`, which stops the emulator afterwards because `emulators:exec` leaves Java running on Windows). The browser tests still run with Firestore unreachable on purpose. With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
 - **Seeding never runs on its own** in e2e. Emulator builds expose `window.__e2eFirstRun()` (in `DataContext`) to put the account into the first-run state; the other suites create metrics by hand.
 - **Real sync is untested** here.
 
@@ -353,6 +379,8 @@ src/
     importer.ts (+test)   JSON backup import plan (add-only)
     admin.ts              admin uid, profiles, loading another user's data, buildDayStats
     tours.ts              tour steps per tab
+    compete.ts (+test)    Compete types, published summary, weekly race, challenge results, invite codes
+    competeRepo.ts        Compete writes: invites, joining, links, challenges, publishing
     entryRows.ts (+test)  merging a day's quick adds into one History row
     format.ts             durations, values, chips
     seed.ts               first-run metrics + settings
@@ -363,8 +391,9 @@ src/
     DataContext.tsx       the six listeners, derived maps, sync status, timer race resolution
     TimerContext.tsx      start/stop, switch prompt, abandoned-timer recovery, useElapsed, note prompt
     badge.ts              app-icon badge setting and hook
+    CompeteContext.tsx    invites, pair, links, challenges and scores listeners; publishes this account's summary
     theme.tsx             resolved theme, per-metric hue
-  screens/                Today, History, Stats, Metrics, Settings, GoalDetail, Admin, Auth, Onboarding
+  screens/                Today, History, Stats, Compete, Metrics, Settings, GoalDetail, Admin, Auth, Onboarding
   components/
     ui.tsx                Button, Sheet (native <dialog>), Segmented, Switch, DayPicker, Toast
     Chrome.tsx            SyncDot, TimerBar, TabBar, SideNav, UpdatePrompt, InstallCard
@@ -392,6 +421,7 @@ firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
 - **Two devices starting timers while both offline** (the race resolution in `DataContext`, `state/timerClosed`). The checklist covered a timer moving between online devices, not this.
 - **First-run seeding and onboarding** against the real backend (never runs in e2e).
 - **Admin access against the real rules:** Malek's account should list users and open their data; a second account must get nothing from `#/admin` (the page says it isn't available, and the rules refuse the reads).
+- **Compete with two real accounts:** creating a code, the cousin joining with it, linking, and numbers appearing on both phones. The rules are tested against the emulator, but the real flow hasn't run yet.
 - **Firebase usage** staying in the low single-digit percentages of the Spark quotas.
 
 ### Device checklist
@@ -448,6 +478,7 @@ Newest last. `git log` has the details.
 17. **Merged quick adds:** History shows a day's quick adds and manual amounts as one summed line; tapping it edits the total.
 18. **Tutorials:** a spotlight tour per tab on first open, remembered per account, replayable from Settings.
 19. **Rest days:** "Rest days a week" on any metric; one missed due day a week (marked ahead with Rest day, or just not logged) keeps the streak. For Malek's Gym: Mon–Fri, 1 rest day.
+20. **Compete** (asked for with his cousin): a Compete tab; pair by invite code; weekly race on linked metrics (higher total wins, target days break ties) with a tally; challenges (first to X, most in a period, most target days) that the other side accepts; each app publishes only a per-day summary of linked metrics. First security-rules tests, now that the Firestore emulator downloads.
 
 ---
 

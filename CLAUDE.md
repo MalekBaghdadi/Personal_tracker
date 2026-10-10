@@ -6,7 +6,8 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - Single-user offline-first PWA ("Logbook") for Malek. Live at https://personal-tracker-cec8a.web.app,
   repo https://github.com/MalekBaghdadi/Personal_tracker (main). Windows 11 machine.
 - Loop for every change: edit → `npx tsc -p .` → `npm test` → `npm run e2e` (look at `e2e/shots/` for UI)
-  → `npm run deploy` → confirm the live `index.html` references the new bundle.
+  → `npm run deploy` → confirm the live `index.html` references the new bundle. After touching
+  `firestore.rules`, also run `npm run test:rules` (Firestore emulator).
 - **Push to GitHub only when Malek asks.** `git fetch` first; he sometimes edits on GitHub, so rebase onto
   `origin/main` if it moved. Never commit `.env.local`.
 - Firebase is owned by malekbaghdadi07@gmail.com (not malek.baghdade@gmail.com). `firebase login` is
@@ -19,5 +20,7 @@ invariants, decisions, testing and known gaps. This file is just the short versi
   `dayOf` / `useData().dayOf`, never `localDateOf` directly.
 - Multi-user: each account has its own `users/{uid}`. The admin (Malek's uid) is hardcoded in both
   `src/lib/admin.ts` and `firestore.rules`; admin access is read-only and the rules enforce it.
+- Compete (pairs of accounts): neither side can read the other's `users/{uid}`; each app publishes only a
+  per-day summary of linked metrics to `pairs/{id}/scores/{uid}`. Results are derived from those, never stored.
 - New UI a new user should know about gets a `data-tour` marker and a step in `src/lib/tours.ts`.
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, CalendarDays, ListChecks, Settings as SettingsIcon, Square, SunMedium } from 'lucide-react';
+import { BarChart3, CalendarDays, ListChecks, Settings as SettingsIcon, Square, SunMedium, Trophy } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useData, type SyncState } from '../state/DataContext';
 import { useElapsed, useTimerActions } from '../state/TimerContext';
@@ -81,6 +81,7 @@ const TABS: { route: Route; label: string; icon: typeof SunMedium }[] = [
   { route: 'today', label: 'Today', icon: SunMedium },
   { route: 'history', label: 'History', icon: CalendarDays },
   { route: 'stats', label: 'Stats', icon: BarChart3 },
+  { route: 'compete', label: 'Compete', icon: Trophy },
   { route: 'metrics', label: 'Metrics', icon: ListChecks },
   { route: 'settings', label: 'Settings', icon: SettingsIcon },
 ];
