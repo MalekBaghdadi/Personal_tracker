@@ -97,7 +97,7 @@ export function TabBar({ route }: { route: Route }) {
               aria-current={route === r ? 'page' : undefined}
               className={cx('flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium', route === r ? 'text-ink' : 'text-ink-3 hover:text-ink-2')}
             >
-              <Icon size={21} strokeWidth={route === r ? 2.2 : 1.8} />
+              <Icon key={route === r ? 'on' : 'off'} size={21} strokeWidth={route === r ? 2.2 : 1.8} className={route === r ? 'hop' : undefined} />
               {label}
             </a>
           </li>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Copy, Share2, Trophy } from 'lucide-react';
+import { Copy, Crown, Frown, Share2, Trophy } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useData } from '../state/DataContext';
 import { useCompete } from '../state/CompeteContext';
@@ -8,12 +8,15 @@ import { addDays, formatLocalDate } from '../lib/dates';
 import { weekOf } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
-import { canLink, challengeResult, nameFromEmail, normalizeCode, race, type Challenge, type ChallengeKind, type ChallengeResult, type Link, type SharedMetric, type Side } from '../lib/compete';
+import { canLink, challengeResult, nameFromEmail, normalizeCode, race, type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedMetric, type Side } from '../lib/compete';
 import {
   acceptLink, answerChallenge, cancelChallenge, cancelInvite, createInvite, endLink, endPair, joinWithCode, proposeChallenge, proposeLink, renameInPair,
   type JoinError,
 } from '../lib/competeRepo';
-import { Button, FieldError, Label, Segmented, Sheet, cx, inputClass, useToast } from '../components/ui';
+import { Button, FieldError, Label, Segmented, Sheet, cx, inputClass, useBump, useToast } from '../components/ui';
+import { Confetti } from '../components/Confetti';
+import { taunt, type TauntKind } from '../lib/taunts';
+import { local } from '../lib/device';
 import { fmtDay } from '../components/Goals';
 import type { Metric } from '../lib/types';
 
@@ -160,6 +163,8 @@ function Paired() {
         {theirScore ? `${partnerName}’s numbers updated ${ago(theirScore.updatedAt)}.` : `${partnerName} hasn’t shared any numbers yet.`} Theirs update
         whenever they open the app.
       </p>
+
+      <Results />
 
       {(theirProposals.length > 0 || challengeRequests.length > 0) && (
         <section aria-label="Requests" className="flex flex-col gap-3">
@@ -343,11 +348,17 @@ function RaceCard({ link }: { link: Link }) {
   const theirs = theirId ? theirScore?.metrics[theirId] : undefined;
   const myHue = useHue(metric?.color ?? '#8590a3');
   const theirHue = useHue(theirs?.color ?? '#8590a3');
+  const current = pair && metric && link.startDate
+    ? race(mine[metric.id], theirs, link.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn).current
+    : null;
+  // Pops the verdict when the lead changes hands.
+  const verdictBump = useBump(!current || current.me.total === current.them.total ? 'level' : current.me.total > current.them.total ? 'me' : 'them');
   if (!pair || !metric || !link.startDate) return null;
   const Icon = iconFor(metric.icon);
   const r = race(mine[metric.id], theirs, link.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn);
   const { me, them } = r.current;
   const gap = me.total - them.total;
+  const top = Math.max(me.total, them.total);
   const last = r.past[0];
 
   return (
@@ -364,13 +375,14 @@ function RaceCard({ link }: { link: Link }) {
       </p>
 
       <div className="mt-3 flex flex-col gap-2.5">
-        <SideRow label="You" side={me} max={Math.max(me.total, them.total)} m={metric} hue={myHue} />
-        <SideRow label={partnerName} side={them} max={Math.max(me.total, them.total)} m={theirs ?? metric} hue={theirHue} />
+        <Contender label="You" value={formatValue(metric, me.total)} suffix={targetDays(me)} pct={top ? me.total / top : 0} hue={myHue} leader={gap > 0} />
+        <Contender label={partnerName} value={formatValue(theirs ?? metric, them.total)} suffix={targetDays(them)} pct={top ? them.total / top : 0} hue={theirHue} leader={gap < 0} />
       </div>
 
-      <p className="mt-3 text-[14px] font-medium" data-testid="race-verdict">
+      <p key={verdictBump} className={cx('mt-3 text-[14px] font-medium', verdictBump > 0 && 'bump')} data-testid="race-verdict">
         {gap === 0 ? (me.total === 0 ? 'Nothing logged yet this week' : 'Level') : gap > 0 ? `You’re ${formatValue(metric, gap)} ahead` : `${partnerName} is ${formatValue(metric, -gap)} ahead`}
       </p>
+      <Taunt kind={raceTaunt(me.total, them.total)} seed={`${link.id}:${today}`} them={partnerName} />
       <p className="mt-1 text-[13px] text-ink-2" data-testid="race-tally">
         Weeks won: you {r.wins} · {partnerName} {r.losses}
         {r.draws > 0 && ` · ${r.draws} ${r.draws === 1 ? 'draw' : 'draws'}`}
@@ -399,21 +411,154 @@ function RaceCard({ link }: { link: Link }) {
   );
 }
 
-function SideRow({ label, side, max, m, hue }: { label: string; side: Side; max: number; m: Pick<Metric, 'type' | 'unit'>; hue: string }) {
-  const pct = max > 0 ? Math.max(side.total > 0 ? 3 : 0, Math.round((side.total / max) * 100)) : 0;
+const targetDays = (side: Side) => (side.hasTarget ? `target ${side.hits}/${side.due} ${side.due === 1 ? 'day' : 'days'}` : undefined);
+
+function raceTaunt(me: number, them: number): TauntKind {
+  if (me === 0 && them === 0) return 'bothIdle';
+  if (me === 0) return 'idle';
+  return me === them ? 'level' : me > them ? 'ahead' : 'behind';
+}
+
+function Taunt({ kind, seed, them }: { kind: TauntKind; seed: string; them: string }) {
+  const line = taunt(kind, seed, them);
+  return (
+    <p key={line} className="taunt-in mt-0.5 text-[13px] text-ink-2 italic" data-testid="taunt">
+      {line}
+    </p>
+  );
+}
+
+/** One side of a race or challenge: name, figure, and a bar that grows in. The leader gets a crown and a shine. */
+function Contender({ label, value, suffix, pct, hue, leader }: { label: string; value: string; suffix?: string; pct: number; hue: string; leader: boolean }) {
+  const w = Math.min(100, Math.round(pct * 100));
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3 text-[14px]">
-        <span className="truncate font-medium">{label}</span>
+        <span className="flex min-w-0 items-center gap-1.5 font-medium">
+          <span className="truncate">{label}</span>
+          {leader && <Crown size={15} aria-label="Leading" className="crown-in shrink-0 self-center text-[#e0a03a]" fill="currentColor" />}
+        </span>
         <span className="shrink-0">
-          <span className="font-medium">{formatValue(m, side.total)}</span>
-          {side.hasTarget && <span className="ml-2 text-[13px] text-ink-3">target {side.hits}/{side.due} {side.due === 1 ? 'day' : 'days'}</span>}
+          <span className="font-medium">{value}</span>
+          {suffix && <span className="ml-2 text-[13px] text-ink-3">{suffix}</span>}
         </span>
       </div>
       <div className="mt-1 h-2 overflow-hidden rounded-full bg-s3">
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: hue }} />
+        <div className="grow-in bar-fill relative h-full overflow-hidden rounded-full" style={{ width: `${pct > 0 ? Math.max(3, w) : 0}%`, background: hue }}>
+          {leader && (
+            <span aria-hidden className="leader-shine absolute inset-y-0 w-1/2" style={{ background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)' }} />
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+// ── Results ────────────────────────────────────────────────────────────────
+
+interface Result {
+  id: string;
+  outcome: Outcome;
+  title: string;
+  score: string;
+  kind: TauntKind;
+}
+
+const SEEN_KEY = 'pt.compete.seen';
+const readSeen = (): string[] => {
+  try {
+    return JSON.parse(local.get(SEEN_KEY) ?? '[]') as string[];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Last week's result on each race and challenges settled in the past two
+ * weeks, one at a time, until dismissed on this device: confetti and a
+ * trophy for a win, a wobble for a loss.
+ */
+function Results() {
+  const { uid, today, metricById } = useData();
+  const { pair, links, challenges, mine, theirScore, partnerUid, partnerName } = useCompete();
+  const [seen, setSeen] = useState(readSeen);
+  if (!pair) return null;
+
+  const results: Result[] = [];
+  for (const l of links) {
+    const metric = metricById.get(l.metrics[uid]);
+    if (!l.acceptedAt || !l.startDate || !metric) continue;
+    const theirs = partnerUid ? theirScore?.metrics[l.metrics[partnerUid]] : undefined;
+    const last = race(mine[metric.id], theirs, l.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn).past[0];
+    if (!last?.outcome) continue;
+    results.push({
+      id: `week:${l.id}:${last.start}`,
+      outcome: last.outcome,
+      title: last.outcome === 'me' ? `You won the week on ${metric.name}` : last.outcome === 'them' ? `${partnerName} took the week on ${metric.name}` : `The week on ${metric.name} was a draw`,
+      score: `${formatValue(metric, last.me.total)} to ${formatValue(theirs ?? metric, last.them.total)}`,
+      kind: last.outcome === 'me' ? 'wonWeek' : last.outcome === 'them' ? 'lostWeek' : 'drewWeek',
+    });
+  }
+  const recent = addDays(today, -14);
+  for (const c of challenges) {
+    const link = links.find((l) => l.id === c.linkId);
+    if (!link) continue;
+    const r = resultFor(c, links, uid, partnerUid, mine, theirScore, today);
+    const decided = (c.kind === 'first_to' ? [r.reached.me, r.reached.them].filter((d): d is string => !!d).sort()[0] : undefined) ?? c.endDate;
+    if (r.status !== 'finished' || !r.winner || decided < recent) continue;
+    const m = mine[link.metrics[uid]];
+    const fmt = (v: number) => (c.kind === 'most_days' ? `${v} ${v === 1 ? 'day' : 'days'}` : m ? formatValue(m, v) : String(v));
+    const title = challengeTitle(c, links, uid, mine);
+    results.push({
+      id: `ch:${c.id}`,
+      outcome: r.winner,
+      title: r.winner === 'me' ? `You won “${title}”` : r.winner === 'them' ? `${partnerName} won “${title}”` : `“${title}” ended in a draw`,
+      score: `${fmt(r.me)} to ${fmt(r.them)}`,
+      kind: r.winner === 'me' ? 'wonChallenge' : r.winner === 'them' ? 'lostChallenge' : 'drewChallenge',
+    });
+  }
+
+  const next = results.find((r) => !seen.includes(r.id));
+  if (!next) return null;
+  const dismiss = () => {
+    const all = [...seen, next.id].slice(-200);
+    local.set(SEEN_KEY, JSON.stringify(all));
+    setSeen(all);
+  };
+  return <ResultBanner key={next.id} result={next} them={partnerName} onDismiss={dismiss} />;
+}
+
+function ResultBanner({ result, them, onDismiss }: { result: Result; them: string; onDismiss: () => void }) {
+  const [confetti, setConfetti] = useState(result.outcome === 'me');
+  const won = result.outcome === 'me';
+  const lost = result.outcome === 'them';
+  return (
+    <section
+      aria-live="polite"
+      data-testid="result-banner"
+      className={cx(
+        'rounded-xl border p-4 text-center',
+        won ? 'toast-in border-[#e0a03a]/60 bg-[#e0a03a]/10' : 'border-line bg-s1',
+        lost ? 'wobble' : !won && 'toast-in',
+      )}
+    >
+      {confetti && <Confetti origin={{ x: 0.5, y: 0.25 }} onDone={() => setConfetti(false)} />}
+      <div className="flex justify-center">
+        {won ? (
+          <Trophy size={44} className="trophy-in text-[#e0a03a]" fill="currentColor" aria-hidden />
+        ) : lost ? (
+          <Frown size={44} className="droop text-ink-3" aria-hidden />
+        ) : (
+          <Crown size={40} className="crown-in text-ink-3" aria-hidden />
+        )}
+      </div>
+      <p className="mt-2 text-[17px] font-semibold">{result.title}</p>
+      <p className="mt-0.5 text-[14px] text-ink-2">{result.score}</p>
+      <p className="taunt-in mt-1 text-[14px] text-ink-2 italic">{taunt(result.kind, result.id, them)}</p>
+      <Button className="mt-3 min-w-28" variant={won ? 'primary' : 'quiet'} onClick={onDismiss}>
+        {won ? 'Gloat' : lost ? 'Ugh, fine' : 'OK'}
+      </Button>
+    </section>
   );
 }
 
@@ -521,17 +666,32 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
     verdict = r.reached.me && r.reached.them ? 'You both got there today' : r.reached.me ? 'You got there. Settled once the day is over' : `${partnerName} got there. You have until the day is over`;
   } else verdict = r.me === r.them ? 'Level' : r.me > r.them ? `You lead by ${fmt(r.me - r.them)}` : `${partnerName} leads by ${fmt(r.them - r.me, theirs)}`;
 
+  // Finished: the winner. Running: whoever got there first, else whoever's ahead.
+  const leader: Outcome | null =
+    r.status === 'finished' ? r.winner
+    : r.status !== 'active' && r.status !== 'awaiting' ? null
+    : r.reached.me && !r.reached.them ? 'me'
+    : r.reached.them && !r.reached.me ? 'them'
+    : r.me === r.them ? null : r.me > r.them ? 'me' : 'them';
+  const tauntKind: TauntKind | null =
+    r.status === 'finished' ? (r.winner === 'me' ? 'wonChallenge' : r.winner === 'them' ? 'lostChallenge' : 'drewChallenge')
+    : r.status !== 'active' ? null
+    : ch.kind === 'first_to' && r.reached.them && !r.reached.me ? 'theyReached'
+    : ch.kind === 'first_to' && r.reached.me && !r.reached.them ? 'iReached'
+    : raceTaunt(r.me, r.them);
+
   return (
     <article className={cx('rounded-xl border p-4', theirRequest ? 'border-ink-3 bg-s1' : 'border-line bg-s1')} data-testid="challenge-card">
       <h3 className="text-[15px] font-medium">{challengeTitle(ch, links, uid, mine)}</h3>
       <p className="mt-0.5 text-[13px] text-ink-3">{when}{ch.kind === 'first_to' && ' · if nobody gets there, the higher total wins'}</p>
       {r.status !== 'pending' && r.status !== 'upcoming' && (
         <div className="mt-3 flex flex-col gap-2.5">
-          <ChallengeRow label="You" value={fmt(r.me)} pct={max > 0 ? r.me / max : 0} hue={myHue} />
-          <ChallengeRow label={partnerName} value={fmt(r.them, theirs)} pct={max > 0 ? r.them / max : 0} hue={theirHue} />
+          <Contender label="You" value={fmt(r.me)} pct={max > 0 ? r.me / max : 0} hue={myHue} leader={leader === 'me'} />
+          <Contender label={partnerName} value={fmt(r.them, theirs)} pct={max > 0 ? r.them / max : 0} hue={theirHue} leader={leader === 'them'} />
         </div>
       )}
       <p className="mt-3 text-[14px] font-medium" data-testid="challenge-verdict">{verdict}</p>
+      {tauntKind && <Taunt kind={tauntKind} seed={`${ch.id}:${today}`} them={partnerName} />}
 
       {theirRequest ? (
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -552,21 +712,6 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
         </button>
       )}
     </article>
-  );
-}
-
-function ChallengeRow({ label, value, pct, hue }: { label: string; value: string; pct: number; hue: string }) {
-  const w = Math.min(100, Math.round(pct * 100));
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3 text-[14px]">
-        <span className="truncate font-medium">{label}</span>
-        <span className="shrink-0 font-medium">{value}</span>
-      </div>
-      <div className="mt-1 h-2 overflow-hidden rounded-full bg-s3">
-        <div className="h-full rounded-full" style={{ width: `${pct > 0 ? Math.max(3, w) : 0}%`, background: hue }} />
-      </div>
-    </div>
   );
 }
 

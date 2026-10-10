@@ -16,6 +16,8 @@ for (let i = 0; i < 60; i++) {
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: true });
 const page = await browser.newPage();
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+// Headless Chrome reports reduced motion; this suite checks the animations, so turn motion on.
+await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => {
@@ -55,6 +57,7 @@ const TODAY = day(0);
 const weekStart = -((now.getDay() + 6) % 7);
 const LAST_MON = day(weekStart - 7);
 const LAST_TUE = day(weekStart - 6);
+const LAST_WED = day(weekStart - 5);
 const LAST_SUN = day(weekStart - 1);
 const H = 3600;
 const theirStudy = (days) => ({ 'their-study': { name: 'Study', type: 'duration', unit: 'h', target: H, color: '#e0a03a', icon: 'book', days } });
@@ -141,6 +144,18 @@ try {
   log('Tally counts last week for them:', (await card('race-card')).includes('Weeks won: you 0 · Cousin 1'));
   log('Last week result:', (await card('race-card')).includes('Last week: Cousin won, 0m to 1h'));
   log('Freshness line:', (await text()).includes('Cousin’s numbers updated'));
+  log('Trash talk under the race:', (await page.$eval('[data-testid="race-card"] [data-testid="taunt"]', (e) => e.textContent).catch(() => '')).length > 5);
+  log('Crown on the leader (Cousin):', await page.evaluate(() => {
+    const crown = document.querySelector('[data-testid="race-card"] [aria-label="Leading"]');
+    return !!crown && crown.closest('span')?.innerText.includes('Cousin');
+  }));
+
+  // Last week's loss shows once as a banner that wobbles.
+  log('Loss banner for last week:', await until(async () => (await card('result-banner')).includes('Cousin took the week on Studying')));
+  log('Loss banner wobbles and taunts:', await page.$eval('[data-testid="result-banner"]', (e) => e.classList.contains('wobble') && !!e.querySelector('.italic')?.textContent));
+  await shot('cp-04b-loss-banner');
+  await pressText('Ugh, fine');
+  log('Dismissed banner stays gone:', !(await text()).includes('took the week'));
   log('Fits a phone:', await fitsPhone());
   await shot('cp-04-race');
 
@@ -191,6 +206,37 @@ try {
     createdBy: '', createdAt: new Date(Date.now() - 1000).toISOString(), acceptedAt: new Date().toISOString(), declinedAt: null, cancelledAt: null,
   });
   log('Finished list shows the winner:', await until(async () => (await card('finished-challenges')).includes('Most Studying') && (await card('finished-challenges')).includes('Cousin won')));
+  log('Challenge loss banner:', await until(async () => (await card('result-banner')).includes('Cousin won “Most Studying”')));
+  await pressText('Ugh, fine');
+
+  // A win: I log 2h last Wednesday, then accept "most Studying last week" (they had 1h).
+  await page.goto('http://localhost:5173/#/today');
+  await wait(600);
+  await click('::-p-aria(Add a custom amount to Studying)');
+  await page.type('#entry-h', '2');
+  await page.$eval('#entry-date', (el, val) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, val);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, LAST_WED);
+  await click('dialog[open] button[type=submit]');
+  await wait(400);
+  await page.goto('http://localhost:5173/#/compete');
+  await wait(800);
+  await hook('proposeChallenge', {
+    id: 'C-win', linkId, kind: 'most_total', amount: null, startDate: LAST_MON, endDate: LAST_SUN,
+    createdBy: '', createdAt: new Date().toISOString(), acceptedAt: null, declinedAt: null, cancelledAt: null,
+  });
+  await until(async () => (await text()).includes('Cousin challenges you'));
+  await page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes('Cousin challenges you'));
+    [...c.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Accept').click();
+  });
+  log('Win banner with a trophy:', await until(async () => (await card('result-banner')).includes('You won')));
+  log('Confetti fires on a win:', await page.evaluate(() => !!document.querySelector('body > canvas')));
+  await wait(400);
+  await shot('cp-07b-win-banner');
+  await pressText('Gloat');
+  log('Confetti cleans up after itself:', await until(async () => page.evaluate(() => !document.querySelector('body > canvas')), 4000));
   log('Fits a phone:', await fitsPhone());
   await shot('cp-07-challenges');
 

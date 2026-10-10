@@ -78,7 +78,7 @@ export function GoalBar({ goal, r, color, tall }: { goal: Goal; r: GoalResult; c
   return (
     <div className={cx('relative', tall ? 'h-2.5' : 'h-1.5')} role="presentation">
       <div className="absolute inset-0 overflow-hidden rounded-full bg-s3">
-        <div className="h-full rounded-full" style={{ width: `${frac(r.done) * 100}%`, background: color }} />
+        <div className="bar-fill h-full rounded-full" style={{ width: `${frac(r.done) * 100}%`, background: color }} />
       </div>
       {/* The marker: where steady pace would have you by now. Bar past it = ahead. */}
       {showMarker && (

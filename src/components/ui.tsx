@@ -57,6 +57,28 @@ export function IconButton({
 
 // ── Sheet ──────────────────────────────────────────────────────────────────
 
+const CLOSE_MS = 200;
+
+export function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+
+/**
+ * A counter that goes up each time `value` changes after the first render.
+ * Use it as a key with the `bump` class so the element pops on change only.
+ */
+export function useBump(value: unknown): number {
+  const prev = useRef(value);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (prev.current !== value) {
+      prev.current = value;
+      setN((x) => x + 1);
+    }
+  }, [value]);
+  return n;
+}
+
 /** Bottom sheet on phones, centred panel on wider screens. */
 export function Sheet({
   open,
@@ -72,11 +94,30 @@ export function Sheet({
   dismissable?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const [closing, setClosing] = useState(false);
+  // Callers usually render their form only while open; keep the last content
+  // on screen while the sheet slides away.
+  const last = useRef(children);
+  if (open) last.current = children;
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
+    if (open) {
+      setClosing(false);
+      if (!d.open) d.showModal();
+      return;
+    }
+    if (!d.open) return;
+    if (prefersReducedMotion()) {
+      d.close();
+      return;
+    }
+    setClosing(true);
+    const t = window.setTimeout(() => {
+      d.close();
+      setClosing(false);
+    }, CLOSE_MS);
+    return () => window.clearTimeout(t);
   }, [open]);
 
   return (
@@ -90,12 +131,13 @@ export function Sheet({
         if (dismissable && e.target === ref.current) onClose();
       }}
       className={cx(
-        'm-0 mt-auto w-full max-w-none bg-transparent p-0 text-ink backdrop:bg-black/55',
+        'sheet m-0 mt-auto w-full max-w-none bg-transparent p-0 text-ink backdrop:bg-black/55',
         'sm:m-auto sm:max-w-md',
+        closing && 'sheet-closing',
       )}
     >
-      {open && (
-        <div className="safe-bottom max-h-[88dvh] overflow-y-auto rounded-t-2xl border border-line bg-s1 sm:rounded-2xl sm:pb-0">
+      {(open || closing) && (
+        <div className="sheet-panel safe-bottom max-h-[88dvh] overflow-y-auto rounded-t-2xl border border-line bg-s1 sm:rounded-2xl sm:pb-0">
           <div className="flex items-center justify-between gap-2 px-5 pt-4 pb-1">
             <h2 className="text-[17px] font-semibold">{title}</h2>
             {dismissable && (
@@ -104,7 +146,7 @@ export function Sheet({
               </IconButton>
             )}
           </div>
-          <div className="px-5 pb-5">{children}</div>
+          <div className="px-5 pb-5">{open ? children : last.current}</div>
         </div>
       )}
     </dialog>
@@ -144,8 +186,16 @@ export function Segmented<T extends string | number>({
   onChange: (v: T) => void;
   label: string;
 }) {
+  const index = options.findIndex((o) => o.value === value);
   return (
-    <div role="radiogroup" aria-label={label} className="flex rounded-lg bg-s2 p-1">
+    <div role="radiogroup" aria-label={label} className="relative flex rounded-lg bg-s2 p-1">
+      {index >= 0 && (
+        <span
+          aria-hidden
+          className="seg-thumb absolute top-1 bottom-1 left-1 rounded-md bg-raise shadow-sm"
+          style={{ width: `calc((100% - 0.5rem) / ${options.length})`, transform: `translateX(${index * 100}%)` }}
+        />
+      )}
       {options.map((o) => (
         <button
           key={String(o.value)}
@@ -154,8 +204,8 @@ export function Segmented<T extends string | number>({
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
           className={cx(
-            'press min-h-10 flex-1 rounded-md px-3 text-[14px] font-medium',
-            value === o.value ? 'bg-raise text-ink shadow-sm' : 'text-ink-2 hover:text-ink',
+            'press relative min-h-10 flex-1 rounded-md px-3 text-[14px] font-medium',
+            value === o.value ? 'text-ink' : 'text-ink-2 hover:text-ink',
           )}
         >
           {o.label}
@@ -176,7 +226,7 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
     >
       <span>{label}</span>
       <span className={cx('relative h-7 w-12 shrink-0 rounded-full transition-colors', checked ? 'bg-ink' : 'bg-s3')}>
-        <span className={cx('absolute top-1 size-5 rounded-full transition-[left]', checked ? 'left-6 bg-bg' : 'left-1 bg-ink-2')} />
+        <span className={cx('absolute top-1 size-5 rounded-full transition-[left] duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)]', checked ? 'left-6 bg-bg' : 'left-1 bg-ink-2')} />
       </span>
     </button>
   );
@@ -239,7 +289,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom,0px))] z-40 flex justify-center px-4 md:bottom-6">
         {msg && (
-          <div key={msg.id} className="pointer-events-auto w-full max-w-md rounded-xl border border-line bg-s3 py-1.5 pr-1.5 pl-4 text-[14px] text-ink shadow-lg sm:w-auto sm:min-w-80">
+          <div key={msg.id} className="toast-in pointer-events-auto w-full max-w-md rounded-xl border border-line bg-s3 py-1.5 pr-1.5 pl-4 text-[14px] text-ink shadow-lg sm:w-auto sm:min-w-80">
             <div className="flex min-h-9 items-center justify-between gap-3">
               <span>{msg.text}</span>
               {msg.action && (

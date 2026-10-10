@@ -14,7 +14,7 @@ import { itemSummary } from '../components/Items';
 import { GoalCard, GoalPaceLine } from '../components/Goals';
 import { StartEarlierSheet, useLongPress } from '../components/StartEarlier';
 import { YesterdaySheet } from '../components/YesterdaySheet';
-import { cx, useToast } from '../components/ui';
+import { cx, useBump, useToast } from '../components/ui';
 import type { Metric } from '../lib/types';
 
 export function Today() {
@@ -147,6 +147,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
   const running = timer?.metricId === metric.id;
   const goal = data.goals.find((g) => g.metricId === metric.id && !g.archivedAt);
   const parts = formatValueParts(metric, total);
+  const bumped = useBump(total);
 
   // UI-only guard against an accidental double tap. Two deliberate taps
   // still produce two entries; the data layer never dedupes.
@@ -198,7 +199,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
               <span className="truncate">{metric.name}</span>
             </h2>
             <p className="shrink-0 text-right">
-              <span className={cx('text-[26px] leading-none font-medium tracking-tight', total === 0 && 'text-ink-3')}>{parts.num}</span>
+              <span key={bumped} className={cx('text-[26px] leading-none font-medium tracking-tight', total === 0 && 'text-ink-3', bumped > 0 && 'bump')}>{parts.num}</span>
               {parts.unit && <span className="ml-1 text-[13px] text-ink-3">{parts.unit}</span>}
             </p>
           </div>
@@ -209,7 +210,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
                 : `${metric.targetDirection === 'at_most' ? 'Under' : 'Target'} ${formatValue(metric, metric.target)}`}
               {over && <span className="text-ink-2"> · {formatValue(metric, total - metric.target!)} over</span>}
               {/* A ceiling isn't "done" until the day is; only floors get this. */}
-              {hit && metric.targetDirection === 'at_least' && <span className="text-ink-2"> · done</span>}
+              {hit && metric.targetDirection === 'at_least' && <span className="text-ink-2"> · <span className={bumped > 0 ? 'bump' : undefined}>done</span></span>}
             </span>
             <span className="flex shrink-0 items-center gap-2">
               {canRest && (
@@ -236,7 +237,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
           {goal && <GoalPaceLine goal={goal} metric={metric} />}
           {metric.target != null && (
             <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-s3" role="presentation">
-              <div className="h-full rounded-full" style={{ width: `${progress * 100}%`, background: over ? 'var(--danger)' : hue }} />
+              <div className="bar-fill h-full rounded-full" style={{ width: `${progress * 100}%`, background: over ? 'var(--danger)' : hue }} />
             </div>
           )}
         </div>

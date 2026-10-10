@@ -7,7 +7,7 @@ import { CompeteProvider } from './state/CompeteContext';
 import { ThemeProvider } from './state/theme';
 import { useAppBadge } from './state/badge';
 import { SideNav, TabBar, TimerBar, UpdatePrompt } from './components/Chrome';
-import { ToastProvider } from './components/ui';
+import { ToastProvider, cx } from './components/ui';
 import { AuthScreen } from './screens/Auth';
 import { Onboarding } from './screens/Onboarding';
 import { Today } from './screens/Today';
@@ -97,7 +97,8 @@ function Shell() {
                 <div className="min-w-0 flex-1">
                   <TimerBar />
                   {/* The timer bar carries the status-bar inset when it's showing. */}
-                  <main className={timer ? undefined : 'safe-top'}>
+                  {/* Keyed by tab so each one fades in when opened. */}
+                  <main key={tab} className={cx('screen-in', !timer && 'safe-top')}>
                     {route === 'today' && <Today />}
                     {route === 'history' && <History openDate={day} />}
                     {route === 'stats' && <Suspense fallback={null}><Stats /></Suspense>}

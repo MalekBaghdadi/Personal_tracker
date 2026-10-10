@@ -63,7 +63,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Rest days: a metric can allow N missed due days a week without breaking its streak (e.g. Gym Mon–Fri, 1 rest day).
 - **Compete** tab: pair with one other account by invite code, race weekly on linked metrics (total, plus target days), and challenge each other (first to X, most in a period, most target days).
 
-**Verified:** type check, 116 unit tests, 17 browser test suites, and 52 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 119 unit tests, 17 browser test suites, and 52 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -121,7 +121,7 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - **Undo toast** after every log, subtract and delete.
 - **Session note prompt:** stopping a timer after more than 10 minutes (`NOTE_PROMPT_AFTER_S` in `TimerContext.tsx`) turns the Undo toast into "What did you accomplish?" with a pen and ✕. It stays until dismissed; the pen opens an inline field and Save writes the entry's `note`. Shorter sessions get the normal toast.
 - **Start earlier:** press and hold ▶ (or right-click it) to open "Start <metric> earlier": 5m–1h ago chips, or a start time (a time later than now means last night; over 12h is refused). The timer just gets an earlier `startedAt`. Holding only works while that row's timer isn't running, so a held Stop still stops.
-- **Pinned timer bar** (`components/Chrome.tsx`): visible on every tab while a timer runs. It's the only animated element in the UI.
+- **Pinned timer bar** (`components/Chrome.tsx`): visible on every tab while a timer runs. It's the only thing that moves on its own (apart from Compete).
 
 ### History (`src/screens/History.tsx`)
 - **Metric picker:** **All** (the default) or one metric.
@@ -186,6 +186,7 @@ Built for Malek and his cousin (the only other user), but nothing names either a
 - **What's shared:** each app publishes `pairs/{id}/scores/{uid}` with, for each accepted link's metric only, its name/type/unit/target/colour/icon and per-day `{ t: total, s: status }` from the link's start (`s`: h = target met, d = due and missed, r = rest day, o = not due, n = no target). No entries, notes, other metrics or settings. Days before the metric existed aren't due (same as Stats). It's republished 2 seconds after any change (`PUBLISH_DELAY_MS`) and on a new day, so the other person's numbers are as fresh as **their last app open**; the screen says when they were updated.
 - **Results only settle when both sides' data is in:** a finished week or challenge waits ("waiting for Cousin's numbers") until the other side has published a day after the deciding day (`asOf`). Your own side always uses your live data, not your published doc.
 - Results are derived each time, like streaks: backfilling an old day can change who won.
+- **The fun part** (Malek asked for "full trash talk", no swearing): every race and challenge has a taunt line under the verdict (`lib/taunts.ts`, picked by card and day so it holds still all day; each side sees their own version). The leader gets a crown and a shine on their bar; bars grow in. Last week's result and challenges settled in the past two weeks show once as a banner at the top (`Results`): a win gets a trophy and confetti (`components/Confetti.tsx`, a canvas on `body`), a loss wobbles with a frown, a draw is plain. Dismissed banners are remembered per device (`pt.compete.seen` in localStorage). Confetti and big effects stay in Compete; the rest of the app only gets the subtle motion above.
 
 ### Tours (`components/Tour.tsx`, content in `lib/tours.ts`)
 - One spotlight tour per tab (Today, History, Stats, Compete, Metrics, Settings), started by `TourHost` in the shell the first time that tab opens, after 600ms and only if no sheet is open and settings have loaded (so never during first run).
@@ -233,6 +234,8 @@ Built for Malek and his cousin (the only other user), but nothing names either a
 - "Today" is recomputed every 30 seconds and when the tab becomes visible, so midnight rollover and goal deadlines update while the app stays open.
 
 **PWA:** `vite.config.ts` uses `registerType: 'prompt'`, so it never auto-reloads. The update prompt is hidden while a timer runs, and only the app shell is precached; Firestore has its own offline cache. iOS meta tags, safe-area insets and `navigator.storage.persist()` are in place.
+
+**Motion** (`src/index.css`, the "Motion" block): quick and quiet. Buttons squeeze and spring back (`.press`), sheets slide up and back down on phones and scale in on wider screens (`Sheet` keeps its last content on screen while it closes, `CLOSE_MS` = 200), toasts rise in, each tab fades in when opened, the tab you pick hops, segmented controls slide their highlight, progress bars fill (`.bar-fill`), and a Today total pops when it changes (`useBump` in `ui.tsx`: only on a change, never on first render). **Everything is off under `prefers-reduced-motion`**, and `Sheet` then closes at once. Note that headless Chrome reports reduced motion, so the browser tests run without animation except `compete`, which turns motion on.
 
 **Theme:** CSS variables in `src/index.css`, switched by `data-theme` on `<html>`. The theme is cached in localStorage and applied before first paint (inline script in `index.html`). Each metric's colour comes from a palette checked for contrast and colour-blind separation in both themes (`src/lib/palette.ts`); the light theme maps each stored dark hex to its pair.
 
@@ -321,7 +324,7 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (39), goals (30), compete (21), review (7), importer (8), entryRows (6), dates (5)
+npm test              # unit tests: streaks (39), goals (30), compete (21), taunts (3), review (7), importer (8), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
 npm run test:rules    # security rules against the Firestore emulator (52 checks)
 ```
@@ -349,7 +352,7 @@ npm run test:rules    # security rules against the Firestore emulator (52 checks
 | `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
 | `tours` | (emulator-only `logbook:e2e-tours` flag; tours are off in every other suite) none during first run; Today tour skips missing steps; spotlight lines up with its target; taps underneath blocked; Skip, Next, Back, Done, Escape; seen tours stay seen after reload; Settings replays Today with all 8 steps; nothing logged by the tour |
 | `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
-| `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; first to, most days (their request, accepted), finished list; call off; change my name (empty refused); unlink |
+| `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; first to, most days (their request, accepted), finished list; call off; change my name (empty refused); unlink. Runs **with motion on**: taunts, crown on the leader, loss banner wobbles, win banner with confetti that cleans itself up |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used by the browser tests.** The Firestore emulator jar used to hang at 0 bytes on this network; it finally downloaded on 10 October 2026 and is used by `npm run test:rules` (`e2e/rules.mjs`, started by `e2e/run-rules.mjs`, which stops the emulator afterwards because `emulators:exec` leaves Java running on Windows). The browser tests still run with Firestore unreachable on purpose. With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
@@ -479,6 +482,7 @@ Newest last. `git log` has the details.
 18. **Tutorials:** a spotlight tour per tab on first open, remembered per account, replayable from Settings.
 19. **Rest days:** "Rest days a week" on any metric; one missed due day a week (marked ahead with Rest day, or just not logged) keeps the streak. For Malek's Gym: Mon–Fri, 1 rest day.
 20. **Compete** (asked for with his cousin): a Compete tab; pair by invite code; weekly race on linked metrics (higher total wins, target days break ties) with a tally; challenges (first to X, most in a period, most target days) that the other side accepts; each app publishes only a per-day summary of linked metrics. First security-rules tests, now that the Firestore emulator downloads.
+21. **Polish and trash talk:** springier taps, sliding sheets, rising toasts, tab fades, filling bars and pops on change across the app (all off with reduced motion). Compete got taunts, a crown for the leader, and result banners with confetti for wins and a wobble for losses. Names can be changed in Compete.
 
 ---
 

@@ -80,12 +80,112 @@ button {
   touch-action: manipulation;
 }
 
-/* Tap feedback is the only motion outside the timer. */
+/*
+ * Motion. Quick and quiet: things respond to a tap, arrive, and settle. The
+ * running timer is the only thing that moves on its own (outside Compete's
+ * results). Everything here is switched off under prefers-reduced-motion.
+ */
+:root {
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Tap feedback: a quick squeeze that springs back. */
 .press {
-  transition: transform 80ms ease-out, background-color 120ms ease-out;
+  transition: transform 160ms var(--ease-spring), background-color 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
 }
 .press:active {
-  transform: scale(0.96);
+  transform: scale(0.95);
+  transition-duration: 60ms;
+}
+
+/* Progress bars fill instead of jumping. */
+.bar-fill {
+  transition: width 600ms var(--ease-out), background-color 300ms ease-out;
+}
+
+/* A tab's content arriving. */
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+.screen-in {
+  animation: screen-in 220ms var(--ease-out) backwards;
+}
+
+/* A number or label that just changed. */
+@keyframes bump {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.14); }
+  100% { transform: scale(1); }
+}
+.bump {
+  display: inline-block;
+  animation: bump 420ms var(--ease-spring);
+}
+
+/* Toasts rise in. */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+}
+.toast-in {
+  animation: toast-in 280ms var(--ease-spring) both;
+}
+
+/* Sheets: slide up on phones, scale in on wider screens; reverse on close. */
+@keyframes sheet-up {
+  from { transform: translateY(100%); }
+}
+@keyframes sheet-down {
+  to { transform: translateY(100%); }
+}
+@keyframes sheet-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+@keyframes sheet-out {
+  to { opacity: 0; transform: translateY(8px) scale(0.97); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes fade-out {
+  to { opacity: 0; }
+}
+.sheet-panel {
+  animation: sheet-up 300ms var(--ease-out) both;
+}
+.sheet-closing .sheet-panel {
+  animation: sheet-down 200ms ease-in both;
+}
+dialog.sheet::backdrop {
+  animation: fade-in 220ms ease-out both;
+}
+dialog.sheet-closing::backdrop {
+  animation: fade-out 200ms ease-in both;
+}
+@media (min-width: 640px) {
+  .sheet-panel {
+    animation-name: sheet-pop;
+    animation-duration: 220ms;
+  }
+  .sheet-closing .sheet-panel {
+    animation-name: sheet-out;
+    animation-duration: 160ms;
+  }
+}
+
+/* The tab you just picked gives a little hop. */
+@keyframes hop {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(-3px) scale(1.08); }
+  100% { transform: translateY(0); }
+}
+.hop {
+  animation: hop 340ms var(--ease-spring);
+}
+
+/* Segmented control: the highlight slides between options. */
+.seg-thumb {
+  transition: transform 260ms var(--ease-spring);
 }
 
 /* The running timer: the one live thing in the interface. */
@@ -104,15 +204,92 @@ button {
   animation: sweep 3s linear infinite;
 }
 
+/* ── Compete: allowed to have some fun ── */
+@keyframes grow-in {
+  from { transform: scaleX(0); }
+}
+.grow-in {
+  transform-origin: left;
+  animation: grow-in 700ms var(--ease-out) both;
+}
+@keyframes shine {
+  0% { transform: translateX(-100%); }
+  60%, 100% { transform: translateX(300%); }
+}
+.leader-shine {
+  animation: shine 2.8s ease-in-out infinite;
+}
+@keyframes crown-in {
+  0% { opacity: 0; transform: translateY(-8px) rotate(-25deg) scale(0.4); }
+  60% { opacity: 1; transform: translateY(1px) rotate(8deg) scale(1.15); }
+  100% { transform: none; }
+}
+.crown-in {
+  animation: crown-in 520ms var(--ease-spring) both;
+}
+@keyframes trophy-in {
+  0% { opacity: 0; transform: scale(0.2) rotate(-30deg); }
+  55% { opacity: 1; transform: scale(1.25) rotate(10deg); }
+  75% { transform: scale(0.95) rotate(-4deg); }
+  100% { transform: none; }
+}
+.trophy-in {
+  animation: trophy-in 700ms var(--ease-spring) both;
+}
+@keyframes wobble {
+  0%, 100% { transform: none; }
+  15% { transform: translateX(-6px) rotate(-1.5deg); }
+  30% { transform: translateX(5px) rotate(1.2deg); }
+  45% { transform: translateX(-4px) rotate(-0.8deg); }
+  60% { transform: translateX(3px) rotate(0.5deg); }
+  75% { transform: translateX(-1px); }
+}
+.wobble {
+  animation: wobble 650ms ease-in-out both;
+}
+@keyframes droop {
+  0% { transform: none; }
+  50% { transform: translateY(3px) rotate(-8deg); }
+  100% { transform: translateY(2px) rotate(-6deg); }
+}
+.droop {
+  animation: droop 900ms ease-in-out 300ms both;
+}
+@keyframes taunt-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
+.taunt-in {
+  animation: taunt-in 400ms var(--ease-out) 250ms both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .timer-dot,
-  .timer-sweep {
+  .timer-sweep,
+  .screen-in,
+  .bump,
+  .toast-in,
+  .sheet-panel,
+  .sheet-closing .sheet-panel,
+  dialog.sheet::backdrop,
+  dialog.sheet-closing::backdrop,
+  .hop,
+  .grow-in,
+  .leader-shine,
+  .crown-in,
+  .trophy-in,
+  .wobble,
+  .droop,
+  .taunt-in {
     animation: none;
   }
   .press,
   .press:active {
     transition: none;
     transform: none;
+  }
+  .bar-fill,
+  .seg-thumb {
+    transition: none;
   }
 }
 
