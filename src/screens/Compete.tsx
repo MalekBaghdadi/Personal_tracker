@@ -1,19 +1,19 @@
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy, Crown, Frown, Share2, Timer, Trophy } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Crown, Frown, Gift, Share2, Timer, Trophy } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useData } from '../state/DataContext';
 import { useCompete } from '../state/CompeteContext';
 import { useHue } from '../state/theme';
-import { addDays, formatLocalDate, formatTimeIn } from '../lib/dates';
+import { addDays, formatLocalDate, formatTimeIn, instantAt, localDateOf } from '../lib/dates';
 import { weekOf } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
-import { canLink, challengeResult, nameFromEmail, normalizeCode, race, type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side } from '../lib/compete';
+import { canLink, challengeResult, challengeSpan, isTimed, logInWindow, nameFromEmail, normalizeCode, race, type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side } from '../lib/compete';
 import {
   acceptLink, answerChallenge, cancelChallenge, cancelInvite, createInvite, endLink, endPair, joinWithCode, proposeChallenge, proposeLink, renameInPair,
   type JoinError,
 } from '../lib/competeRepo';
-import { Button, FieldError, Label, Segmented, Sheet, cx, inputClass, useBump, useToast } from '../components/ui';
+import { Button, FieldError, Label, Segmented, Sheet, Switch, cx, inputClass, useBump, useToast } from '../components/ui';
 import { Confetti } from '../components/Confetti';
 import { taunt, type TauntFacts, type TauntKind } from '../lib/taunts';
 import { local } from '../lib/device';
@@ -527,6 +527,8 @@ interface Result {
   facts: TauntFacts;
   myColor: string;
   theirColor: string;
+  /** A challenge's prize: who collects it. */
+  stake?: string;
 }
 
 const SEEN_KEY = 'pt.compete.seen';
@@ -544,8 +546,8 @@ const readSeen = (): string[] => {
  * trophy for a win, a wobble for a loss.
  */
 function Results() {
-  const { uid, today, metricById } = useData();
-  const { pair, links, challenges, mine, theirScore, partnerUid, partnerName, myName } = useCompete();
+  const { uid, today, metricById, dayOf } = useData();
+  const { pair, links, challenges, mine, theirScore, partnerUid, partnerName, myName, now } = useCompete();
   const [seen, setSeen] = useState(readSeen);
   if (!pair) return null;
 
@@ -576,8 +578,9 @@ function Results() {
   for (const c of challenges) {
     const link = links.find((l) => l.id === c.linkId);
     if (!link) continue;
-    const r = resultFor(c, links, uid, partnerUid, mine, theirScore, today);
-    const decided = (c.kind === 'first_to' ? [r.reached.me, r.reached.them].filter((d): d is string => !!d).sort()[0] : undefined) ?? c.endDate;
+    const r = resultFor(c, links, uid, partnerUid, mine, theirScore, today, now);
+    const first = c.kind === 'first_to' ? [r.reached.me, r.reached.them].filter((d): d is string => !!d).sort()[0] : undefined;
+    const decided = first ? (isTimed(c) ? dayOf(first) : first) : challengeSpan(c, dayOf).end;
     if (r.status !== 'finished' || !r.winner || decided < recent) continue;
     const m = mine[link.metrics[uid]];
     const theirs = partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
@@ -592,6 +595,9 @@ function Results() {
       facts: { me: myName, them: partnerName, metric: m?.name, gap: r.me !== r.them ? fmt(Math.abs(r.me - r.them)) : undefined },
       myColor: m?.color ?? '#8590a3',
       theirColor: theirs?.color ?? '#8590a3',
+      stake: c.stake
+        ? r.winner === 'me' ? `You get ${c.stake}` : r.winner === 'them' ? `${partnerName} gets ${c.stake}` : `Nobody gets ${c.stake}`
+        : undefined,
     });
   }
 
@@ -633,6 +639,11 @@ function ResultBanner({ result, onDismiss }: { result: Result; onDismiss: () => 
       </div>
       <p className="mt-2 text-[17px] font-semibold">{result.title}</p>
       <p className="mt-0.5 text-[14px] text-ink-2">{result.score}</p>
+      {result.stake && (
+        <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[#e0a03a]/15 px-3 py-1 text-[14px] font-medium" data-testid="result-stake">
+          <Gift size={15} aria-hidden className="text-[#e0a03a]" /> {result.stake}
+        </p>
+      )}
       <Bubble kind={result.kind} seed={result.id} facts={result.facts} myHue={myHue} theirHue={theirHue} className="text-left" />
       <Button className="mt-3 min-w-28" variant={won ? 'primary' : 'quiet'} onClick={onDismiss}>
         {won ? 'Gloat' : lost ? 'Ugh, fine' : 'OK'}
@@ -647,11 +658,11 @@ const LIVE: ChallengeResult['status'][] = ['active', 'upcoming', 'awaiting', 'pe
 
 function Challenges({ onNew, canCreate }: { onNew: () => void; canCreate: boolean }) {
   const { uid, today } = useData();
-  const { challenges, links, mine, theirScore, partnerUid, partnerName } = useCompete();
+  const { challenges, links, mine, theirScore, partnerUid, partnerName, now } = useCompete();
   const [showAll, setShowAll] = useState(false);
   const withResult = challenges
     .filter((c) => links.some((l) => l.id === c.linkId))
-    .map((c) => ({ c, r: resultFor(c, links, uid, partnerUid, mine, theirScore, today) }));
+    .map((c) => ({ c, r: resultFor(c, links, uid, partnerUid, mine, theirScore, today, now) }));
   // Their open requests are shown at the top of the page instead.
   const live = withResult.filter(({ c, r }) => LIVE.includes(r.status) && !(r.status === 'pending' && c.createdBy !== uid));
   const done = withResult.filter(({ r }) => r.status === 'finished').reverse();
@@ -698,11 +709,12 @@ function resultFor(
   mine: Record<string, SharedMetric>,
   theirScore: ReturnType<typeof useCompete>['theirScore'],
   today: string,
+  now: string,
 ): ChallengeResult {
   const link = links.find((l) => l.id === c.linkId);
   const myId = link?.metrics[uid];
   const theirId = link && partnerUid ? link.metrics[partnerUid] : undefined;
-  return challengeResult(c, myId ? mine[myId] : undefined, theirId ? theirScore?.metrics[theirId] : undefined, today, theirScore?.asOf ?? null);
+  return challengeResult(c, myId ? mine[myId] : undefined, theirId ? theirScore?.metrics[theirId] : undefined, today, theirScore?.asOf ?? null, now, theirScore?.updatedAt ?? null);
 }
 
 function challengeTitle(c: Challenge, links: Link[], uid: string, mine: Record<string, SharedMetric>): string {
@@ -714,9 +726,17 @@ function challengeTitle(c: Challenge, links: Link[], uid: string, mine: Record<s
   return `Most ${name} target days`;
 }
 
+/** A calendar day and time: "Today 18:00", "Sat 18 Oct 09:30". */
+function fmtAt(iso: string, tz: string, now: string): string {
+  const d = localDateOf(iso, tz);
+  const calToday = localDateOf(now, tz);
+  const day = d === calToday ? 'Today' : d === addDays(calToday, 1) ? 'Tomorrow' : formatLocalDate(d, d.slice(0, 4) === calToday.slice(0, 4) ? 'EEE d MMM' : 'd MMM yyyy');
+  return `${day} ${formatTimeIn(iso, tz)}`;
+}
+
 function ChallengeCard({ ch }: { ch: Challenge }) {
-  const { uid, today, metricById } = useData();
-  const { pair, links, mine, theirScore, partnerUid, partnerName, myName } = useCompete();
+  const { uid, today, metricById, tz } = useData();
+  const { pair, links, mine, theirScore, partnerUid, partnerName, myName, now } = useCompete();
   const toast = useToast();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const link = links.find((l) => l.id === ch.linkId);
@@ -725,13 +745,16 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
   const myHue = useHue(metric?.color ?? '#8590a3');
   const theirHue = useHue(theirs?.color ?? '#8590a3');
   if (!pair || !link) return null;
-  const r = resultFor(ch, links, uid, partnerUid, mine, theirScore, today);
+  const r = resultFor(ch, links, uid, partnerUid, mine, theirScore, today, now);
   const fmt = (v: number, m?: Pick<Metric, 'type' | 'unit'>) => (ch.kind === 'most_days' ? `${v} ${v === 1 ? 'day' : 'days'}` : formatValue(m ?? metric ?? { type: link.type, unit: '' }, v));
   const max = ch.kind === 'first_to' && ch.amount ? ch.amount : Math.max(r.me, r.them);
   const theirRequest = r.status === 'pending' && ch.createdBy !== uid;
 
-  const when =
-    r.status === 'upcoming' ? `Starts ${fmtDay(ch.startDate, today)}`
+  const when = isTimed(ch)
+    ? r.status === 'upcoming' ? `Starts ${fmtAt(ch.startAt, tz, now)}`
+      : r.status === 'active' || r.status === 'pending' ? `${fmtAt(ch.startAt, tz, now)} – ${fmtAt(ch.endAt, tz, now)}`
+      : `Ended ${fmtAt(ch.endAt, tz, now)}`
+    : r.status === 'upcoming' ? `Starts ${fmtDay(ch.startDate, today)}`
     : r.status === 'active' || r.status === 'pending'
       ? ch.endDate === today ? 'Ends today' : `${fmtDay(ch.startDate, today)} – ${fmtDay(ch.endDate, today)}`
       : `Ended ${fmtDay(ch.endDate, today)}`;
@@ -741,6 +764,7 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
   else if (r.status === 'upcoming') verdict = 'Not started yet';
   else if (r.status === 'awaiting') verdict = `Waiting for ${partnerName}’s numbers to settle it`;
   else if (r.status === 'finished') verdict = r.winner === 'me' ? 'You won' : r.winner === 'them' ? `${partnerName} won` : 'A draw';
+  else if (isTimed(ch) && r.reached.me) verdict = `You got there at ${formatTimeIn(r.reached.me, tz)}. Settled once ${partnerName}’s app catches up`;
   else if (ch.kind === 'first_to' && (r.reached.me || r.reached.them)) {
     verdict = r.reached.me && r.reached.them ? 'You both got there today' : r.reached.me ? 'You got there. Settled once the day is over' : `${partnerName} got there. You have until the day is over`;
   } else verdict = r.me === r.them ? 'Level' : r.me > r.them ? `You lead by ${fmt(r.me - r.them)}` : `${partnerName} leads by ${fmt(r.them - r.me, theirs)}`;
@@ -762,7 +786,13 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
   return (
     <article className={cx('rounded-xl border p-4', theirRequest ? 'border-ink-3 bg-s1' : 'border-line bg-s1')} data-testid="challenge-card">
       <h3 className="text-[15px] font-medium">{challengeTitle(ch, links, uid, mine)}</h3>
-      <p className="mt-0.5 text-[13px] text-ink-3">{when}{ch.kind === 'first_to' && ' · if nobody gets there, the higher total wins'}</p>
+      <p className="mt-0.5 text-[13px] text-ink-3" data-testid="challenge-when">{when}{ch.kind === 'first_to' && ' · if nobody gets there, the higher total wins'}</p>
+      {ch.stake && (
+        <p className="mt-2 flex items-start gap-1.5 text-[14px]" data-testid="challenge-stake">
+          <Gift size={16} aria-hidden className="mt-0.5 shrink-0 text-[#e0a03a]" />
+          <span><span className="text-ink-2">Winner gets</span> <span className="font-medium break-words">{ch.stake}</span></span>
+        </p>
+      )}
       {r.status !== 'pending' && r.status !== 'upcoming' && (
         <div className="mt-3 flex flex-col gap-2.5">
           <Contender label="You" value={fmt(r.me)} pct={max > 0 ? r.me / max : 0} hue={myHue} leader={leader === 'me'} />
@@ -815,13 +845,17 @@ const SRC_LABEL: Record<SharedLog['src'], string> = { t: 'timer', m: 'added', q:
 function ChallengeLogs({ ch, metric, theirs, myHue, theirHue }: {
   ch: Challenge; metric: Metric; theirs: SharedMetric | undefined; myHue: string; theirHue: string;
 }) {
-  const { today } = useData();
+  const { today, dayOf } = useData();
   const { mine, partnerName, theirScore } = useCompete();
-  const last = ch.endDate < today ? ch.endDate : today;
+  const span = challengeSpan(ch, dayOf);
+  const last = span.end < today ? span.end : today;
   const [day, setDay] = useState(last);
-  const shown = day > last ? last : day;
+  const shown = day > last ? last : day < span.start ? span.start : day;
   const label = shown === today ? 'Today' : shown === addDays(today, -1) ? 'Yesterday' : formatLocalDate(shown, 'EEE d MMM');
-  const theirLogs = theirs?.logs?.[shown];
+  // With times, only what's inside the window, and a timer only for its part inside.
+  const counted = isTimed(ch) ? (l: SharedLog) => logInWindow(l, ch.startAt, ch.endAt) : (l: SharedLog) => l.v;
+  const inside = (logs: SharedLog[] | undefined) => logs?.filter((l) => counted(l) > 0);
+  const theirLogs = inside(theirs?.logs?.[shown]);
 
   let theirNote: string | null = null;
   if (!theirs?.logs) theirNote = `${partnerName}’s logs show up once they open the latest version of the app.`;
@@ -835,7 +869,7 @@ function ChallengeLogs({ ch, metric, theirs, myHue, theirHue }: {
           <button
             type="button"
             aria-label="Previous day"
-            disabled={shown <= ch.startDate}
+            disabled={shown <= span.start}
             onClick={() => setDay(addDays(shown, -1))}
             className="press grid size-9 place-items-center rounded-lg text-ink-2 hover:bg-s2 disabled:opacity-30"
           >
@@ -853,18 +887,18 @@ function ChallengeLogs({ ch, metric, theirs, myHue, theirHue }: {
           </button>
         </div>
       </div>
-      <LogList who="You" logs={mine[metric.id]?.logs?.[shown] ?? []} metric={metric} hue={myHue} />
-      <LogList who={partnerName} logs={theirLogs ?? []} metric={theirs ?? metric} hue={theirHue} empty={theirNote} />
+      <LogList who="You" logs={inside(mine[metric.id]?.logs?.[shown]) ?? []} counted={counted} metric={metric} hue={myHue} />
+      <LogList who={partnerName} logs={theirLogs ?? []} counted={counted} metric={theirs ?? metric} hue={theirHue} empty={theirNote} />
     </section>
   );
 }
 
 /** One side's logs for a day: time (a timer's span), how it was logged, amount, and the note. */
-function LogList({ who, logs, metric, hue, empty }: {
-  who: string; logs: SharedLog[]; metric: Pick<Metric, 'type' | 'unit'>; hue: string; empty?: string | null;
+function LogList({ who, logs, counted, metric, hue, empty }: {
+  who: string; logs: SharedLog[]; counted: (l: SharedLog) => number; metric: Pick<Metric, 'type' | 'unit'>; hue: string; empty?: string | null;
 }) {
   const { tz } = useData();
-  const total = logs.reduce((s, l) => s + l.v, 0);
+  const total = logs.reduce((s, l) => s + counted(l), 0);
   return (
     <div className="mt-2" data-testid="log-list">
       <p className="flex items-baseline justify-between gap-3 text-[14px]">
@@ -890,7 +924,10 @@ function LogList({ who, logs, metric, hue, empty }: {
                   {l.src === 't' ? `${formatTimeIn(l.at, tz)}–${formatTimeIn(new Date(Date.parse(l.at) + l.v * 1000).toISOString(), tz)}` : formatTimeIn(l.at, tz)}
                   <span className="text-[12px] text-ink-3">{SRC_LABEL[l.src]}</span>
                 </span>
-                <span className="shrink-0 font-medium">+{formatValue(metric, l.v)}</span>
+                <span className="shrink-0 font-medium">
+                  +{formatValue(metric, counted(l))}
+                  {counted(l) < l.v && <span className="ml-1 text-[12px] font-normal text-ink-3">of {formatValue(metric, l.v)}</span>}
+                </span>
               </div>
               {l.note && <p className="mt-0.5 text-[13px] break-words text-ink">“{l.note}”</p>}
             </li>
@@ -916,9 +953,17 @@ const KINDS: { value: ChallengeKind; label: string; help: string }[] = [
   { value: 'most_days', label: 'Most days', help: 'More days hitting your own daily target wins. Rest days don’t count against you.' },
 ];
 
+/** The next full hour, "HH:00", as the default start time. */
+function nextHour(now: string, tz: string): string {
+  const h = (Number(formatTimeIn(now, tz).slice(0, 2)) + 1) % 24;
+  return `${String(h).padStart(2, '0')}:00`;
+}
+
+const STAKE_MAX = 60;
+
 function ChallengeForm({ onDone }: { onDone: () => void }) {
-  const { uid, today, metricById } = useData();
-  const { pair, links, partnerUid, partnerName, theirScore } = useCompete();
+  const { uid, today, metricById, tz, dayOf } = useData();
+  const { pair, links, partnerUid, partnerName, theirScore, now } = useCompete();
   const toast = useToast();
   const accepted = links.filter((l) => l.acceptedAt && l.startDate && metricById.has(l.metrics[uid]));
   const [linkId, setLinkId] = useState(accepted[0]?.id ?? '');
@@ -926,6 +971,10 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
   const [amountText, setAmountText] = useState('');
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(addDays(today, 6));
+  const [withTimes, setWithTimes] = useState(false);
+  const [startTime, setStartTime] = useState(() => nextHour(now, tz));
+  const [endTime, setEndTime] = useState(() => nextHour(now, tz));
+  const [stake, setStake] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   if (!pair) return null;
 
@@ -934,6 +983,8 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
   const theirs = link && partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
   // Target days need a target on both sides (theirs is only known once they've published).
   const noTargets = metric?.target == null || (theirs !== undefined && theirs.target == null);
+  // Target days are whole days, so times don't apply to them.
+  const timed = withTimes && kind !== 'most_days';
 
   const save = () => {
     const errs: Record<string, string> = {};
@@ -941,14 +992,38 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
     const amount = kind === 'first_to' && metric ? parseAmount(metric.type, amountText) : null;
     if (kind === 'first_to' && !(amount && amount > 0)) errs.amount = metric?.type === 'count' ? `Enter a whole number of ${metric.unit}.` : 'Enter an amount in hours.';
     if (kind === 'most_days' && noTargets) errs.kind = 'Both metrics need a daily target for this one.';
-    if (!startDate) errs.start = 'Choose a start date.';
-    else if (link?.startDate && startDate < link.startDate) errs.start = `Pick ${formatLocalDate(link.startDate, 'd MMM')} or later, when this race started.`;
-    if (!endDate) errs.end = 'Choose an end date.';
-    else if (endDate < startDate) errs.end = 'The end can’t be before the start.';
-    else if (endDate < today) errs.end = 'The end has to be today or later.';
+    const raceStart = link?.startDate ? `Pick ${formatLocalDate(link.startDate, 'd MMM')} or later, when this race started.` : '';
+    let times: { startAt: string; endAt: string; startDate: string; endDate: string } | null = null;
+    if (timed) {
+      if (!startDate || !startTime) errs.start = 'Choose a start date and time.';
+      if (!endDate || !endTime) errs.end = 'Choose an end date and time.';
+      if (!errs.start && !errs.end) {
+        const startAt = instantAt(startDate, startTime, tz).toISOString();
+        const endAt = instantAt(endDate, endTime, tz).toISOString();
+        times = { startAt, endAt, startDate: dayOf(startAt), endDate: dayOf(endAt) };
+        if (link?.startDate && times.startDate < link.startDate) errs.start = raceStart;
+        if (endAt <= startAt) errs.end = 'The end has to be after the start.';
+        else if (endAt <= now) errs.end = 'The end has to be in the future.';
+      }
+    } else {
+      if (!startDate) errs.start = 'Choose a start date.';
+      else if (link?.startDate && startDate < link.startDate) errs.start = raceStart;
+      if (!endDate) errs.end = 'Choose an end date.';
+      else if (endDate < startDate) errs.end = 'The end can’t be before the start.';
+      else if (endDate < today) errs.end = 'The end has to be today or later.';
+    }
     setErrors(errs);
     if (Object.keys(errs).length || !link) return;
-    proposeChallenge(pair.id, uid, { linkId: link.id, kind, amount, startDate, endDate });
+    proposeChallenge(pair.id, uid, {
+      linkId: link.id,
+      kind,
+      amount,
+      startDate: times?.startDate ?? startDate,
+      endDate: times?.endDate ?? endDate,
+      startAt: times?.startAt ?? null,
+      endAt: times?.endAt ?? null,
+      stake: stake.trim().slice(0, STAKE_MAX) || null,
+    });
     toast(`Challenge sent to ${partnerName}`);
     onDone();
   };
@@ -977,19 +1052,32 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
           <FieldError>{errors.amount}</FieldError>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="ch-start">From</Label>
-          <input id="ch-start" type="date" className={inputClass} value={startDate} min={link?.startDate ?? undefined} onChange={(e) => setStartDate(e.target.value)} />
-          <FieldError>{errors.start}</FieldError>
+      <div>
+        {kind !== 'most_days' && <Switch checked={withTimes} onChange={setWithTimes} label="Set start and end times" />}
+        <div className="mt-1 grid grid-cols-2 gap-3">
+          <div>
+            <Label htmlFor="ch-start">From</Label>
+            <input id="ch-start" type="date" className={inputClass} value={startDate} min={link?.startDate ?? undefined} onChange={(e) => setStartDate(e.target.value)} />
+            {timed && <input id="ch-start-time" aria-label="Start time" type="time" className={cx(inputClass, 'mt-2')} value={startTime} onChange={(e) => setStartTime(e.target.value)} />}
+            <FieldError>{errors.start}</FieldError>
+          </div>
+          <div>
+            <Label htmlFor="ch-end">To</Label>
+            <input id="ch-end" type="date" className={inputClass} value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} />
+            {timed && <input id="ch-end-time" aria-label="End time" type="time" className={cx(inputClass, 'mt-2')} value={endTime} onChange={(e) => setEndTime(e.target.value)} />}
+            <FieldError>{errors.end}</FieldError>
+          </div>
         </div>
-        <div>
-          <Label htmlFor="ch-end">To</Label>
-          <input id="ch-end" type="date" className={inputClass} value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} />
-          <FieldError>{errors.end}</FieldError>
-        </div>
+        <p className="mt-1.5 text-[13px] text-ink-3">
+          {timed ? 'Only what’s logged between those times counts; a timer counts for the part inside.' : 'Both days count.'}{' '}
+          {partnerName} has to accept before it’s on. Once it is, you both see each other’s logs for those days, notes included.
+        </p>
       </div>
-      <p className="-mt-3 text-[13px] text-ink-3">Both days count. {partnerName} has to accept before it’s on. Once it is, you both see each other’s logs for those days, notes included.</p>
+      <div>
+        <Label htmlFor="ch-stake">Winner gets (optional)</Label>
+        <input id="ch-stake" className={inputClass} maxLength={STAKE_MAX} placeholder="e.g. dinner on the loser" value={stake} onChange={(e) => setStake(e.target.value)} />
+        <p className="mt-1.5 text-[13px] text-ink-3">Something at stake. {partnerName} sees it before accepting.</p>
+      </div>
       <Button type="submit" variant="primary"><Trophy size={17} /> Send challenge</Button>
     </form>
   );

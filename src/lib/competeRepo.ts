@@ -131,6 +131,9 @@ export interface NewChallenge {
   amount: number | null;
   startDate: string;
   endDate: string;
+  startAt: string | null;
+  endAt: string | null;
+  stake: string | null;
 }
 
 export function proposeChallenge(pairId: string, uid: string, input: NewChallenge): void {

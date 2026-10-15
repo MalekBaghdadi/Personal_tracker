@@ -3,7 +3,7 @@ import { getDocFromCache, getDocsFromCache, onSnapshot, query, setDoc, updateDoc
 import { useData } from './DataContext';
 import { nowIso } from '../lib/dates';
 import { competePaths, publishScore } from '../lib/competeRepo';
-import { challengeDays, shareLogs, shareMetric, type Challenge, type Invite, type Link, type Pair, type Score, type SharedMetric } from '../lib/compete';
+import { challengeDays, isTimed, sharesLogs, shareLogs, shareMetric, type Challenge, type Invite, type Link, type Pair, type Score, type SharedMetric } from '../lib/compete';
 
 interface Compete {
   /** All listeners have answered at least once (from cache or server). */
@@ -22,6 +22,8 @@ interface Compete {
   theirScore: Score | null;
   /** My linked metrics as they'd be published, from live data (fresher than my own score doc). */
   mine: Record<string, SharedMetric>;
+  /** The current instant, updated every 30 seconds: timed challenges start and end by it. */
+  now: string;
   /** The partner's name if a log on this metric and day is shared with them (a challenge day), else null. */
   sharedWith: (metricId: string, localDate: string) => string | null;
 }
@@ -99,11 +101,11 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
     for (const l of links) {
       const metricId = l.metrics[uid];
       if (!l.acceptedAt || !metricId) continue;
-      const days = challengeDays(challenges, l.id, today);
+      const days = challengeDays(challenges, l.id, today, dayOf);
       if (days.size) out.set(metricId, days);
     }
     return out;
-  }, [links, challenges, uid, today]);
+  }, [links, challenges, uid, today, dayOf]);
 
   // What this account publishes: each accepted link's metric, from the week it
   // started, plus its logs on challenge days.
@@ -124,18 +126,29 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
     return out;
   }, [links, uid, metricById, dayStats, entries, logDays, today, weekStartsOn, dayOf]);
 
+  // Timed challenges start and end mid-day, so the screen needs a clock finer than `today`.
+  const [now, setNow] = useState(nowIso);
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(nowIso()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Publish when it differs from what's on record, a moment after the last
-  // change so a burst of quick adds is one write. Never awaited.
+  // change so a burst of quick adds is one write. Never awaited. Also once a
+  // timed challenge has ended since the last publish: the partner's app
+  // settles it when my updatedAt is past its end.
   const myScore = scores.get(uid);
+  const endedSincePublish = !!myScore && challenges.some(
+    (c) => isTimed(c) && sharesLogs(c) && myScore.updatedAt < c.endAt && c.endAt <= now,
+  );
   useEffect(() => {
     if (!pairId || Object.keys(mine).length === 0) return;
-    if (myScore && myScore.asOf === today && JSON.stringify(myScore.metrics) === JSON.stringify(mine)) return;
+    if (myScore && myScore.asOf === today && !endedSincePublish && JSON.stringify(myScore.metrics) === JSON.stringify(mine)) return;
     const id = window.setTimeout(() => publishScore(pairId, { uid, asOf: today, updatedAt: nowIso(), metrics: mine }), PUBLISH_DELAY_MS);
     return () => window.clearTimeout(id);
-  }, [pairId, mine, myScore, uid, today]);
+  }, [pairId, mine, myScore, uid, today, endedSincePublish]);
 
   const partnerUid = pair?.members.find((m) => m !== uid) ?? null;
-  const now = nowIso();
   const invite = (invites ?? []).filter((i) => i.expiresAt > now).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 
   const value: Compete = {
@@ -149,6 +162,7 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
     challenges,
     theirScore: partnerUid ? scores.get(partnerUid) ?? null : null,
     mine,
+    now,
     sharedWith: (metricId, localDate) =>
       logDays.get(metricId)?.has(localDate) ? (partnerUid && pair?.names[partnerUid]) || 'Them' : null,
   };

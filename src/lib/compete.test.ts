@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { challengeDays, challengeResult, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type SharedDay, type SharedMetric } from './compete';
+import { challengeDays, challengeResult, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type SharedDay, type SharedLog, type SharedMetric } from './compete';
 import type { DayStats, Entry, Metric } from './types';
 
 // 2026-10-05 is a Monday.
@@ -175,6 +175,75 @@ describe('challengeResult', () => {
   });
 });
 
+describe('timed challenges', () => {
+  // Saturday 18:00 to Sunday 22:00 UTC; tracking days by UTC date for simplicity.
+  const timed = (over: Partial<Challenge> = {}) => challenge({
+    startDate: '2026-10-10', endDate: '2026-10-11', startAt: '2026-10-10T18:00:00.000Z', endAt: '2026-10-11T22:00:00.000Z', ...over,
+  });
+  const withLogs = (logs: Record<string, SharedLog[]>): SharedMetric => ({ ...shared({}), logs });
+  const timer = (at: string, v: number): SharedLog => ({ v, at, src: 't' });
+  const manual = (at: string, v: number): SharedLog => ({ v, at, src: 'm' });
+
+  it('counts a timer only for its part inside the window, anything else if logged inside it', () => {
+    const [s, e] = ['2026-10-10T18:00:00.000Z', '2026-10-11T22:00:00.000Z'];
+    expect(logInWindow(timer('2026-10-10T17:00:00.000Z', 2 * H), s, e)).toBe(H);
+    expect(logInWindow(timer('2026-10-11T21:30:00.000Z', H), s, e)).toBe(H / 2);
+    expect(logInWindow(manual('2026-10-10T17:59:00.000Z', H), s, e)).toBe(0);
+    expect(logInWindow(manual('2026-10-11T21:59:00.000Z', H), s, e)).toBe(H);
+    expect(logInWindow(manual('2026-10-11T22:00:00.000Z', H), s, e)).toBe(0);
+  });
+
+  it('most: totals inside the window; upcoming before the start time, settled once they publish past the end', () => {
+    const mine = withLogs({ '2026-10-10': [manual('2026-10-10T10:00:00.000Z', 5 * H), timer('2026-10-10T17:00:00.000Z', 2 * H)] });
+    const theirs = withLogs({ '2026-10-11': [manual('2026-10-11T12:00:00.000Z', 90 * 60)] });
+    const ch = timed();
+    expect(challengeResult(ch, mine, theirs, '2026-10-10', '2026-10-10', '2026-10-10T17:59:00.000Z').status).toBe('upcoming');
+    const live = challengeResult(ch, mine, theirs, '2026-10-11', '2026-10-11', '2026-10-11T12:00:00.000Z', '2026-10-11T12:00:00.000Z');
+    expect([live.status, live.me, live.them]).toEqual(['active', H, 90 * 60]);
+    expect(challengeResult(ch, mine, theirs, '2026-10-11', '2026-10-11', '2026-10-11T22:30:00.000Z', '2026-10-11T21:00:00.000Z').status).toBe('awaiting');
+    const done = challengeResult(ch, mine, theirs, '2026-10-11', '2026-10-11', '2026-10-11T22:30:00.000Z', '2026-10-11T22:10:00.000Z');
+    expect([done.status, done.winner]).toEqual(['finished', 'them']);
+    // Or once their day has moved past the last day.
+    expect(challengeResult(ch, mine, theirs, '2026-10-12', '2026-10-12', '2026-10-12T09:00:00.000Z', '2026-10-11T21:00:00.000Z').status).toBe('finished');
+  });
+
+  it('can’t settle until the other side shares logs', () => {
+    const r = challengeResult(timed(), withLogs({}), shared({ '2026-10-11': H }), '2026-10-13', '2026-10-13', '2026-10-13T09:00:00.000Z', '2026-10-13T09:00:00.000Z');
+    expect(r.status).toBe('awaiting');
+  });
+
+  it('first to: the earlier instant wins, reached partway through a timer', () => {
+    const ch = timed({ kind: 'first_to', amount: 2 * H });
+    // Mine: a 3h timer from 19:00 reaches 2h at 21:00. Theirs: 2h logged by hand at 20:30.
+    const mine = withLogs({ '2026-10-10': [timer('2026-10-10T19:00:00.000Z', 3 * H)] });
+    const theirs = withLogs({ '2026-10-10': [manual('2026-10-10T20:30:00.000Z', 2 * H)] });
+    const r = challengeResult(ch, mine, theirs, '2026-10-10', '2026-10-10', '2026-10-10T23:00:00.000Z', '2026-10-10T20:31:00.000Z');
+    expect(r.reached).toEqual({ me: '2026-10-10T21:00:00.000Z', them: '2026-10-10T20:30:00.000Z' });
+    expect([r.status, r.winner]).toEqual(['finished', 'them']);
+  });
+
+  it('first to: my reaching it first settles once they have published after that moment', () => {
+    const ch = timed({ kind: 'first_to', amount: 2 * H });
+    const mine = withLogs({ '2026-10-10': [manual('2026-10-10T19:00:00.000Z', 2 * H)] });
+    const theirs = withLogs({ '2026-10-10': [] });
+    expect(challengeResult(ch, mine, theirs, '2026-10-10', '2026-10-10', '2026-10-10T20:00:00.000Z', '2026-10-10T18:30:00.000Z').status).toBe('active');
+    const r = challengeResult(ch, mine, theirs, '2026-10-10', '2026-10-10', '2026-10-10T20:00:00.000Z', '2026-10-10T19:30:00.000Z');
+    expect([r.status, r.winner]).toEqual(['finished', 'me']);
+  });
+
+  it('most days ignores times and counts whole days', () => {
+    const ch = timed({ kind: 'most_days' });
+    const r = challengeResult(ch, shared({ '2026-10-10': H, '2026-10-11': H }), shared({ '2026-10-10': H }), '2026-10-13', '2026-10-13');
+    expect([r.me, r.them, r.winner]).toEqual([2, 1, 'me']);
+  });
+
+  it('share logs for the tracking days the start and end fall on', () => {
+    const dayOf = (iso: string) => iso.slice(0, 10);
+    const days = challengeDays([timed({ startAt: '2026-10-09T23:00:00.000Z' })], 'l1', '2026-10-20', dayOf);
+    expect([...days].sort()).toEqual(['2026-10-09', '2026-10-10', '2026-10-11']);
+  });
+});
+
 describe('invite codes', () => {
   it('are six unambiguous characters', () => {
     for (let i = 0; i < 50; i++) expect(newInviteCode()).toMatch(/^[A-HJKMNP-Z2-9]{6}$/);
@@ -193,7 +262,7 @@ describe('shared logs', () => {
       challenge({ id: 'c3', linkId: 'other', startDate: '2026-09-01', endDate: '2026-09-02' }),
       challenge({ id: 'c4', startDate: '2026-09-20', endDate: '2026-09-21', acceptedAt: null }),
       challenge({ id: 'c5', startDate: '2026-09-22', endDate: '2026-09-23', cancelledAt: 'x' }),
-    ], 'l1', '2026-10-07');
+    ], 'l1', '2026-10-07', () => 'unused');
     expect([...days].sort()).toEqual(['2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07']);
   });
 

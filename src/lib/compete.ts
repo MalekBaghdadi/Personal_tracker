@@ -63,9 +63,18 @@ export interface Challenge {
   kind: ChallengeKind;
   /** Base unit; first_to only. */
   amount: number | null;
-  /** Both inclusive. */
+  /** Both inclusive. With times, the tracking days startAt and endAt fall on. */
   startDate: string;
   endDate: string;
+  /**
+   * Exact start and end instants when the challenge has times; then only what
+   * happened between them counts (a timer only for its part inside). Absent
+   * or null: whole days. Never on most_days, which counts whole days.
+   */
+  startAt?: string | null;
+  endAt?: string | null;
+  /** What the winner gets, if they put something at stake. */
+  stake?: string | null;
   createdBy: string;
   createdAt: string;
   acceptedAt: string | null;
@@ -144,15 +153,53 @@ export function shareMetric(metric: Metric, stats: DayStats, from: string, today
 /** A challenge both sides agreed to and nobody called off: its days share logs. */
 export const sharesLogs = (c: Challenge): boolean => !!c.acceptedAt && !c.declinedAt && !c.cancelledAt;
 
+/** A challenge with an exact start and end time rather than whole days. */
+export const isTimed = (c: Challenge): c is Challenge & { startAt: string; endAt: string } =>
+  !!c.startAt && !!c.endAt && c.kind !== 'most_days';
+
+/**
+ * A challenge's tracking days by this account's own day boundary: with times,
+ * the days its start and end instants fall on (so every entry inside the
+ * window is on one of them); else its dates.
+ */
+export function challengeSpan(c: Challenge, dayOf: (instant: string) => string): { start: string; end: string } {
+  return isTimed(c) ? { start: dayOf(c.startAt), end: dayOf(c.endAt) } : { start: c.startDate, end: c.endDate };
+}
+
 /** The days of a link whose logs are shared: every day of its live challenges, through today. */
-export function challengeDays(challenges: Challenge[], linkId: string, today: string): Set<string> {
+export function challengeDays(challenges: Challenge[], linkId: string, today: string, dayOf: (instant: string) => string): Set<string> {
   const out = new Set<string>();
   for (const c of challenges) {
     if (c.linkId !== linkId || !sharesLogs(c)) continue;
-    const end = c.endDate < today ? c.endDate : today;
-    for (let d = c.startDate; d <= end; d = addDays(d, 1)) out.add(d);
+    const span = challengeSpan(c, dayOf);
+    const end = span.end < today ? span.end : today;
+    for (let d = span.start; d <= end; d = addDays(d, 1)) out.add(d);
   }
   return out;
+}
+
+/**
+ * How much of a log falls inside [startAt, endAt): a timer's overlap with the
+ * window (in seconds), anything else whole if it was logged inside it.
+ */
+export function logInWindow(l: SharedLog, startAt: string, endAt: string): number {
+  const s = Date.parse(startAt);
+  const e = Date.parse(endAt);
+  const at = Date.parse(l.at);
+  if (l.src !== 't') return at >= s && at < e ? l.v : 0;
+  return Math.round(Math.max(0, Math.min(at + l.v * 1000, e) - Math.max(at, s)) / 1000);
+}
+
+/** A metric's logs that count toward a timed challenge, oldest first, each with its amount inside the window. */
+export function windowLogs(m: SharedMetric | undefined, startAt: string, endAt: string): { log: SharedLog; counted: number }[] {
+  const out: { log: SharedLog; counted: number }[] = [];
+  for (const day of Object.values(m?.logs ?? {})) {
+    for (const log of day) {
+      const counted = logInWindow(log, startAt, endAt);
+      if (counted > 0) out.push({ log, counted });
+    }
+  }
+  return out.sort((a, b) => a.log.at.localeCompare(b.log.at));
 }
 
 const SRC: Record<Entry['source'], SharedLog['src']> = { timer: 't', manual: 'm', quick_add: 'q' };
@@ -276,7 +323,7 @@ export interface ChallengeResult {
   them: number;
   meSide: Side;
   themSide: Side;
-  /** first_to: the day each side reached the amount, if they have. */
+  /** first_to: the day each side reached the amount, if they have; with times, the instant. */
   reached: { me: string | null; them: string | null };
   /** Set when finished. */
   winner: Outcome | null;
@@ -309,7 +356,10 @@ export function challengeResult(
   theirs: SharedMetric | undefined,
   today: string,
   theirAsOf: string | null,
+  now: string = new Date().toISOString(),
+  theirUpdatedAt: string | null = null,
 ): ChallengeResult {
+  if (isTimed(ch)) return timedResult(ch, mine, theirs, theirAsOf, now, theirUpdatedAt);
   const to = today < ch.endDate ? today : ch.endDate;
   const meSide = sideFor(mine, ch.startDate, to, today);
   const themSide = sideFor(theirs, ch.startDate, to, theirAsOf ?? ch.startDate);
@@ -352,6 +402,82 @@ export function challengeResult(
 
   if (today <= ch.endDate) return { ...base, status: 'active' };
   if (!theyPast(ch.endDate)) return { ...base, status: 'awaiting' };
+  return { ...base, status: 'finished', winner: higher(base.me, base.them) };
+}
+
+/** First instant the running amount inside the window reaches `amount` (partway through a timer, for a timer). */
+function reachedAt(logs: { log: SharedLog; counted: number }[], startAt: string, amount: number): string | null {
+  let sum = 0;
+  for (const { log, counted } of logs) {
+    if (sum + counted >= amount) {
+      if (log.src !== 't') return log.at;
+      const from = Math.max(Date.parse(log.at), Date.parse(startAt));
+      return new Date(from + (amount - sum) * 1000).toISOString();
+    }
+    sum += counted;
+  }
+  return null;
+}
+
+/**
+ * A challenge with times, worked out from both sides' shared logs. The other
+ * side's figures are complete up to when they last published (their
+ * updatedAt), or through the end once their day has moved past its last day.
+ * Until they share logs at all, it can't settle.
+ *  - first_to: the earlier instant to reach the amount wins; if nobody does
+ *    by the end, the higher total.
+ *  - most_total: the higher total inside the window.
+ */
+function timedResult(
+  ch: Challenge & { startAt: string; endAt: string },
+  mine: SharedMetric | undefined,
+  theirs: SharedMetric | undefined,
+  theirAsOf: string | null,
+  now: string,
+  theirUpdatedAt: string | null,
+): ChallengeResult {
+  const meLogs = windowLogs(mine, ch.startAt, ch.endAt);
+  const themLogs = windowLogs(theirs, ch.startAt, ch.endAt);
+  const sum = (logs: { counted: number }[]) => logs.reduce((s, x) => s + x.counted, 0);
+  const meSide: Side = { total: sum(meLogs), hits: 0, due: 0, hasTarget: mine?.target != null };
+  const themSide: Side = { total: sum(themLogs), hits: 0, due: 0, hasTarget: theirs?.target != null };
+  const base = {
+    me: meSide.total,
+    them: themSide.total,
+    meSide,
+    themSide,
+    reached: { me: null as string | null, them: null as string | null },
+    winner: null as Outcome | null,
+  };
+  if (ch.cancelledAt) return { ...base, status: 'cancelled' };
+  if (ch.declinedAt) return { ...base, status: 'declined' };
+  if (!ch.acceptedAt) return { ...base, status: 'pending' };
+  const t = (iso: string) => Date.parse(iso);
+  if (t(now) < t(ch.startAt)) return { ...base, status: 'upcoming' };
+
+  const ended = t(now) >= t(ch.endAt);
+  // Their side is known through `at` once they've published after it.
+  const theyPast = (at: string) =>
+    !!theirs?.logs && ((theirUpdatedAt !== null && t(theirUpdatedAt) > t(at)) || (theirAsOf !== null && theirAsOf > ch.endDate));
+  const higher = (a: number, b: number): Outcome => (a === b ? 'draw' : a > b ? 'me' : 'them');
+
+  if (ch.kind === 'first_to' && ch.amount != null) {
+    const reached = { me: reachedAt(meLogs, ch.startAt, ch.amount), them: reachedAt(themLogs, ch.startAt, ch.amount) };
+    const { me, them } = reached;
+    // They got there first. My side is live, so I can't turn out to have been earlier.
+    if (them && (!me || t(them) < t(me))) return { ...base, reached, status: 'finished', winner: 'them' };
+    if (me) {
+      if (them && t(them) === t(me)) return { ...base, reached, status: 'finished', winner: 'draw' };
+      if (theyPast(me)) return { ...base, reached, status: 'finished', winner: 'me' };
+      return { ...base, reached, status: ended ? 'awaiting' : 'active' };
+    }
+    if (!ended) return { ...base, reached, status: 'active' };
+    if (!theyPast(ch.endAt)) return { ...base, reached, status: 'awaiting' };
+    return { ...base, reached, status: 'finished', winner: higher(meSide.total, themSide.total) };
+  }
+
+  if (!ended) return { ...base, status: 'active' };
+  if (!theyPast(ch.endAt)) return { ...base, status: 'awaiting' };
   return { ...base, status: 'finished', winner: higher(base.me, base.them) };
 }
 

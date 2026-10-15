@@ -178,6 +178,8 @@ try {
   log('Bad amount refused:', (await text()).includes('Enter an amount in hours'));
   await page.$eval('#ch-amount', (e) => { e.select(); });
   await page.type('#ch-amount', '5');
+  log('Times are off by default (no time fields):', !(await page.$('#ch-start-time')));
+  await page.type('#ch-stake', 'a shawarma');
   await shot('cp-05-challenge-form');
   await pressText('Send challenge', 'dialog[open]');
   log('Mine waits for them:', await until(async () => (await card('challenge-card')).includes('Waiting for Cousin to accept')));
@@ -186,6 +188,7 @@ try {
     const c = await card('challenge-card');
     return c.includes('First to 5h of Studying') && c.includes('Cousin leads by 1h');
   }));
+  log('Stake shown on the card:', (await card('challenge-stake')).includes('Winner gets a shawarma'));
 
   // ── Logs on a challenge day ──
   const logs = () => card('challenge-logs');
@@ -281,6 +284,43 @@ try {
   log('Confetti cleans up after itself:', await until(async () => page.evaluate(() => !document.querySelector('body > canvas')), 4000));
   log('Fits a phone:', await fitsPhone());
   await shot('cp-07-challenges');
+
+  // ── A challenge with times: the last 3 hours to 2 hours from now, most total ──
+  const setField = (sel, val) => page.$eval(sel, (el, v) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, val);
+  const hm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  await pressText('New challenge');
+  await pressText('Most', 'dialog[open]');
+  await pressText('Set start and end times', 'dialog[open]');
+  log('Time fields appear:', !!(await page.$('#ch-start-time')) && !!(await page.$('#ch-end-time')));
+  const winStart = new Date(Date.now() - 3 * 3600000);
+  const winEnd = new Date(Date.now() + 2 * 3600000);
+  // End before the start is refused.
+  await setField('#ch-start', ymd(winStart));
+  await setField('#ch-start-time', hm(winStart));
+  await setField('#ch-end', ymd(winStart));
+  await setField('#ch-end-time', hm(new Date(winStart.getTime() - 60000)));
+  await pressText('Send challenge', 'dialog[open]');
+  log('End before start refused:', (await text()).includes('The end has to be after the start.'));
+  await setField('#ch-end', ymd(winEnd));
+  await setField('#ch-end-time', hm(winEnd));
+  await shot('cp-05c-timed-form');
+  await pressText('Send challenge', 'dialog[open]');
+  await hook('acceptMyChallenges');
+  const timedCard = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="challenge-card"]')]
+    .find((e) => /\d\d:\d\d – /.test(e.querySelector('[data-testid="challenge-when"]')?.innerText ?? ''))?.innerText ?? '');
+  // Mine: 2h + 30m, both logged in the last few minutes. Theirs: a 2h timer from 4h ago (1h inside) and a 1h quick add.
+  log('Timed card counts only inside the window (2h 30m vs 2h):', await until(async () => {
+    const c = await timedCard();
+    // The time field takes whole minutes, so their part-inside timer can be a few seconds under 1h.
+    return c.includes('Most Studying') && /You\s*2h 30m/.test(c) && /Cousin\s*(2h|1h 59m)/.test(c) && /You lead by (30|29)m/.test(c);
+  }));
+  log('Partly-inside timer shows the part that counts:', (await timedCard()).includes('+1h') && (await timedCard()).includes('of 2h'));
+  log('Fits a phone:', await fitsPhone());
+  await page.evaluate(() => [...document.querySelectorAll('[data-testid="challenge-card"]')].at(-1).scrollIntoView({ block: 'center' }));
+  await shot('cp-05d-timed-card');
 
   // Calling one off.
   await page.evaluate(() => {
