@@ -84,8 +84,8 @@ function Shell() {
   return (
     <ThemeProvider pref={settings?.theme}>
       <ToastProvider>
-        <TimerProvider>
-          <CompeteProvider>
+        <CompeteProvider>
+          <TimerProvider>
             {!ready ? (
               // The local cache answers in milliseconds; this is never a network wait.
               <div className="min-h-dvh bg-bg" />
@@ -114,8 +114,8 @@ function Shell() {
               </div>
             )}
             <UpdatePrompt />
-          </CompeteProvider>
-        </TimerProvider>
+          </TimerProvider>
+        </CompeteProvider>
       </ToastProvider>
     </ThemeProvider>
   );

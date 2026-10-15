@@ -38,7 +38,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 | **Repo** | https://github.com/MalekBaghdadi/Personal_tracker (branch `main`) |
 | **Firebase project** | `personal-tracker-cec8a` (Spark plan) |
 | **Local checkout** | `C:\Users\Malek Baghdadi\personal-tracker` (Windows 11) |
-| **Last updated** | 10 October 2026 |
+| **Last updated** | 11 October 2026 |
 
 **Built and deployed:**
 - The original MVP: Today, History, Stats, Metrics and Settings screens; timers; quick-add and manual entry; targets and streaks; PWA install and offline support; JSON/CSV export; first-run onboarding.
@@ -62,8 +62,10 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - A spotlight tour on each tab the first time it opens, replayable from Settings → Tutorials.
 - Rest days: a metric can allow N missed due days a week without breaking its streak (e.g. Gym Mon–Fri, 1 rest day).
 - **Compete** tab: pair with one other account by invite code, race weekly on linked metrics (total, plus target days), and challenge each other (first to X, most in a period, most target days).
+- Challenge logs: during a challenge both sides see each other's individual logs on that metric (time, amount, how, note), day by day.
+- Trash talk as a speech bubble from whoever is winning, using real names, margins and today's numbers.
 
-**Verified:** type check, 119 unit tests, 17 browser test suites, and 52 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 125 unit tests, 17 browser test suites, and 52 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -183,10 +185,11 @@ Built for Malek and his cousin (the only other user), but nothing names either a
   - **Most:** the higher total between the two dates.
   - **Most days:** more days with your own target met. Needs a target on both sides.
   - The start can't be before the link started; the end must be today or later. Finished challenges are listed with the winner (5, then "Show all").
-- **What's shared:** each app publishes `pairs/{id}/scores/{uid}` with, for each accepted link's metric only, its name/type/unit/target/colour/icon and per-day `{ t: total, s: status }` from the link's start (`s`: h = target met, d = due and missed, r = rest day, o = not due, n = no target). No entries, notes, other metrics or settings. Days before the metric existed aren't due (same as Stats). It's republished 2 seconds after any change (`PUBLISH_DELAY_MS`) and on a new day, so the other person's numbers are as fresh as **their last app open**; the screen says when they were updated.
+- **What's shared:** each app publishes `pairs/{id}/scores/{uid}` with, for each accepted link's metric only, its name/type/unit/target/colour/icon and per-day `{ t: total, s: status }` from the link's start (`s`: h = target met, d = due and missed, r = rest day, o = not due, n = no target). **On challenge days only** (every day of an accepted, not called-off challenge on that link, through today; `challengeDays`), it also carries `logs[date]`: each entry as `{ v, at, src, note? }` (value, `occurredAt`, t/m/q for timer/manual/quick add, the note). No other entries or notes, no other metrics, no settings. Malek asked for this ("make challenges more transparent"); the setup screen, link form and challenge form all say notes are shared during a challenge, and the entry sheet and the timer's note prompt say "Cousin sees this" on a challenge day (`sharedWith` in `CompeteContext`). Days before the metric existed aren't due (same as Stats). It's republished 2 seconds after any change (`PUBLISH_DELAY_MS`) and on a new day, so the other person's numbers are as fresh as **their last app open**; the screen says when they were updated.
+- **Logs on a challenge** (`ChallengeLogs` in `Compete.tsx`): each active or awaiting challenge card lists both sides' logs for a day: time (a timer's start–end), how it was logged, amount and note, with the day's total and count. A day picker steps through the challenge so far (default today). Mine come from live data; theirs from their last publish. Before the partner has a version that publishes logs, it says their logs show once they update.
 - **Results only settle when both sides' data is in:** a finished week or challenge waits ("waiting for Cousin's numbers") until the other side has published a day after the deciding day (`asOf`). Your own side always uses your live data, not your published doc.
 - Results are derived each time, like streaks: backfilling an old day can change who won.
-- **The fun part** (Malek asked for "full trash talk", no swearing): every race and challenge has a taunt line under the verdict (`lib/taunts.ts`, picked by card and day so it holds still all day; each side sees their own version). The leader gets a crown and a shine on their bar; bars grow in. Last week's result and challenges settled in the past two weeks show once as a banner at the top (`Results`): a win gets a trophy and confetti (`components/Confetti.tsx`, a canvas on `body`), a loss wobbles with a frown, a draw is plain. Dismissed banners are remembered per device (`pt.compete.seen` in localStorage). Confetti and big effects stay in Compete; the rest of the app only gets the subtle motion above.
+- **The fun part** (Malek asked for "full trash talk", no swearing, then for it to be "more prominent and more directed"): every race and challenge has a **speech bubble** between the bars and the verdict (`Bubble` in `Compete.tsx`, lines in `lib/taunts.ts`). The winner talks to the loser: when I'm ahead it's my bubble (right, my colour) aimed at them; when I'm behind it's theirs (left, their colour) aimed at me; a tie goes to "the ref" (centre, neutral). Lines use `{me}`, `{them}`, `{metric}`, `{gap}`, and today's totals and log counts, which are only filled in when the speaker is also ahead today; a line is only picked when all its placeholders are known. Picked by card and day so it holds still all day; each side sees their own version. Result banners use the same bubble. The leader gets a crown and a shine on their bar; bars grow in. Last week's result and challenges settled in the past two weeks show once as a banner at the top (`Results`): a win gets a trophy and confetti (`components/Confetti.tsx`, a canvas on `body`), a loss wobbles with a frown, a draw is plain. Dismissed banners are remembered per device (`pt.compete.seen` in localStorage). Confetti and big effects stay in Compete; the rest of the app only gets the subtle motion above.
 
 ### Tours (`components/Tour.tsx`, content in `lib/tours.ts`)
 - One spotlight tour per tab (Today, History, Stats, Compete, Metrics, Settings), started by `TourHost` in the shell the first time that tab opens, after 600ms and only if no sheet is open and settings have loaded (so never during first run).
@@ -235,7 +238,7 @@ Built for Malek and his cousin (the only other user), but nothing names either a
 
 **PWA:** `vite.config.ts` uses `registerType: 'prompt'`, so it never auto-reloads. The update prompt is hidden while a timer runs, and only the app shell is precached; Firestore has its own offline cache. iOS meta tags, safe-area insets and `navigator.storage.persist()` are in place.
 
-**Motion** (`src/index.css`, the "Motion" block): quick and quiet. Buttons squeeze and spring back (`.press`), sheets slide up and back down on phones and scale in on wider screens (`Sheet` keeps its last content on screen while it closes, `CLOSE_MS` = 200), toasts rise in, each tab fades in when opened, the tab you pick hops, segmented controls slide their highlight, progress bars fill (`.bar-fill`), and a Today total pops when it changes (`useBump` in `ui.tsx`: only on a change, never on first render). **Everything is off under `prefers-reduced-motion`**, and `Sheet` then closes at once. Note that headless Chrome reports reduced motion, so the browser tests run without animation except `compete`, which turns motion on.
+**Motion** (`src/index.css`, the "Motion" block): quick and quiet. Buttons squeeze and spring back (`.press`), sheets slide up and back down on phones and scale in on wider screens (`Sheet` keeps its last content on screen while it closes, `CLOSE_MS` = 200). Malek asked for "a bit more and a bit bigger, nothing too crazy" on 11 October, so the press squeeze, pops, hops, toasts, tab fade and sheet entrance are a notch stronger than the first pass, and sheets settle with a small overshoot (`--ease-settle`), toasts rise in, each tab fades in when opened, the tab you pick hops, segmented controls slide their highlight, progress bars fill (`.bar-fill`), and a Today total pops when it changes (`useBump` in `ui.tsx`: only on a change, never on first render). **Everything is off under `prefers-reduced-motion`**, and `Sheet` then closes at once. Note that headless Chrome reports reduced motion, so the browser tests run without animation except `compete`, which turns motion on.
 
 **Theme:** CSS variables in `src/index.css`, switched by `data-theme` on `<html>`. The theme is cached in localStorage and applied before first paint (inline script in `index.html`). Each metric's colour comes from a palette checked for contrast and colour-blind separation in both themes (`src/lib/palette.ts`); the light theme maps each stored dark hex to its pair.
 
@@ -300,7 +303,7 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
     - Required pace is computed from progress through yesterday, so it holds still all day.
     - Pace is rounded **up** for display. One active goal per metric. Goals never change daily targets or streaks.
 11. **Reminders never send notifications.** There's no server; Malek chose in-app only.
-12. **Compete scores are the one stored derived figure,** and only because the other account can't read your data. They're a published copy for the partner: your own screens never read your score doc, and results (weeks won, challenge winners) are still derived each time, never stored.
+12. **Compete scores are the one stored derived figure,** and only because the other account can't read your data. Their `logs` (challenge days only) are a copy of entries for the partner, never read back by your own screens. They're a published copy for the partner: your own screens never read your score doc, and results (weeks won, challenge winners) are still derived each time, never stored.
 13. **Zero recurring cost:** nothing that needs the Blaze plan, no Cloud Storage, no native iOS app.
 
 ---
@@ -324,7 +327,7 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (39), goals (30), compete (21), taunts (3), review (7), importer (8), entryRows (6), dates (5)
+npm test              # unit tests: streaks (39), goals (30), compete (23), taunts (7), review (7), importer (8), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
 npm run test:rules    # security rules against the Firestore emulator (52 checks)
 ```
@@ -352,7 +355,7 @@ npm run test:rules    # security rules against the Firestore emulator (52 checks
 | `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
 | `tours` | (emulator-only `logbook:e2e-tours` flag; tours are off in every other suite) none during first run; Today tour skips missing steps; spotlight lines up with its target; taps underneath blocked; Skip, Next, Back, Done, Escape; seen tours stay seen after reload; Settings replays Today with all 8 steps; nothing logged by the tour |
 | `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
-| `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; first to, most days (their request, accepted), finished list; call off; change my name (empty refused); unlink. Runs **with motion on**: taunts, crown on the leader, loss banner wobbles, win banner with confetti that cleans itself up |
+| `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared (notes during challenges); taunt is a 16px+ bubble from the leader; challenge logs: mine listed, theirs wait for their update, then show with times, timer span and note, day picker can't go before the start, mine published with notes only on challenge days, entry sheet says Cousin sees the note; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; first to, most days (their request, accepted), finished list; call off; change my name (empty refused); unlink. Runs **with motion on**: taunts, crown on the leader, loss banner wobbles, win banner with confetti that cleans itself up |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 
 **Only the Auth emulator is used by the browser tests.** The Firestore emulator jar used to hang at 0 bytes on this network; it finally downloaded on 10 October 2026 and is used by `npm run test:rules` (`e2e/rules.mjs`, started by `e2e/run-rules.mjs`, which stops the emulator afterwards because `emulators:exec` leaves Java running on Windows). The browser tests still run with Firestore unreachable on purpose. With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
@@ -424,7 +427,7 @@ firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
 - **Two devices starting timers while both offline** (the race resolution in `DataContext`, `state/timerClosed`). The checklist covered a timer moving between online devices, not this.
 - **First-run seeding and onboarding** against the real backend (never runs in e2e).
 - **Admin access against the real rules:** Malek's account should list users and open their data; a second account must get nothing from `#/admin` (the page says it isn't available, and the rules refuse the reads).
-- **Compete with two real accounts:** creating a code, the cousin joining with it, linking, and numbers appearing on both phones. The rules are tested against the emulator, but the real flow hasn't run yet.
+- **Compete with two real accounts:** Malek and his cousin paired for real on 11 October 2026 and it worked. Challenge logs and notes between two real phones haven't been seen yet.
 - **Firebase usage** staying in the low single-digit percentages of the Spark quotas.
 
 ### Device checklist
@@ -483,6 +486,7 @@ Newest last. `git log` has the details.
 19. **Rest days:** "Rest days a week" on any metric; one missed due day a week (marked ahead with Rest day, or just not logged) keeps the streak. For Malek's Gym: Mon–Fri, 1 rest day.
 20. **Compete** (asked for with his cousin): a Compete tab; pair by invite code; weekly race on linked metrics (higher total wins, target days break ties) with a tally; challenges (first to X, most in a period, most target days) that the other side accepts; each app publishes only a per-day summary of linked metrics. First security-rules tests, now that the Firestore emulator downloads.
 21. **Polish and trash talk:** springier taps, sliding sheets, rising toasts, tab fades, filling bars and pops on change across the app (all off with reduced motion). Compete got taunts, a crown for the leader, and result banners with confetti for wins and a wobble for losses. Names can be changed in Compete.
+22. **Challenge logs, louder trash talk, a bit more motion:** during a challenge both sides see each other's logs (amount, time, how, note) day by day on the challenge card; taunts became speech bubbles from whoever's winning, using real names, gaps and today's numbers; animations a notch bigger.
 
 ---
 

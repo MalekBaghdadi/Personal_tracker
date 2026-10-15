@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { challengeResult, newInviteCode, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type SharedDay, type SharedMetric } from './compete';
-import type { DayStats, Metric } from './types';
+import { challengeDays, challengeResult, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type SharedDay, type SharedMetric } from './compete';
+import type { DayStats, Entry, Metric } from './types';
 
 // 2026-10-05 is a Monday.
 const H = 3600;
@@ -182,5 +182,41 @@ describe('invite codes', () => {
   it('normalise what people type', () => {
     expect(normalizeCode(' abc-d23 ')).toBe('ABCD23');
     expect(normalizeCode('abc')).toBeNull();
+  });
+});
+
+describe('shared logs', () => {
+  it('cover the days of accepted challenges on that link, through today', () => {
+    const days = challengeDays([
+      challenge({ startDate: '2026-10-05', endDate: '2026-10-20' }),
+      challenge({ id: 'c2', startDate: '2026-10-01', endDate: '2026-10-02' }),
+      challenge({ id: 'c3', linkId: 'other', startDate: '2026-09-01', endDate: '2026-09-02' }),
+      challenge({ id: 'c4', startDate: '2026-09-20', endDate: '2026-09-21', acceptedAt: null }),
+      challenge({ id: 'c5', startDate: '2026-09-22', endDate: '2026-09-23', cancelledAt: 'x' }),
+    ], 'l1', '2026-10-07');
+    expect([...days].sort()).toEqual(['2026-10-01', '2026-10-02', '2026-10-05', '2026-10-06', '2026-10-07']);
+  });
+
+  it('list each entry with value, time, source and note, oldest first; empty days stay empty', () => {
+    const e = (over: Partial<Entry>): Entry => ({
+      id: 'e', metricId: 'm1', localDate: '2026-10-06', value: 600, source: 'manual', note: null,
+      occurredAt: '2026-10-06T10:00:00Z', createdAt: '', updatedAt: '', deletedAt: null, ...over,
+    });
+    const logs = shareLogs([
+      e({ occurredAt: '2026-10-06T15:00:00Z', source: 'quick_add', value: 900 }),
+      e({ source: 'timer', value: 3000, note: 'Subnetting, chapter 3' }),
+      e({ localDate: '2026-10-04' }),
+      e({ deletedAt: 'x' }),
+    ], new Set(['2026-10-06', '2026-10-07']));
+    expect(logs).toEqual({
+      '2026-10-06': [
+        { v: 3000, at: '2026-10-06T10:00:00Z', src: 't', note: 'Subnetting, chapter 3' },
+        { v: 900, at: '2026-10-06T15:00:00Z', src: 'q' },
+      ],
+      '2026-10-07': [],
+    });
+    // No undefined fields: Firestore refuses them.
+    expect(JSON.stringify(logs)).not.toContain('undefined');
+    expect('note' in logs['2026-10-06'][1]).toBe(false);
   });
 });

@@ -90,7 +90,7 @@ try {
   log('Tab bar has Compete after Stats:', tabs.join(',') === 'Today,History,Stats,Compete,Metrics,Settings');
   await click('nav.fixed a[href="#/compete"]');
   await wait(600);
-  log('Explains what is shared:', (await text()).includes('never your notes'));
+  log('Explains what is shared, notes during challenges:', (await text()).includes('notes included'));
   log('Name defaults to the email name:', (await page.$eval('#c-name', (e) => e.value)) === 'e2e');
   log('Fits a phone:', await fitsPhone());
   await shot('cp-01-setup');
@@ -135,7 +135,7 @@ try {
   const m = score && Object.values(score.metrics)[0];
   log('Published after a moment:', published);
   log('Published today’s total and a hit:', !!m && m.days[TODAY]?.t === 2 * H && m.days[TODAY]?.s === 'h');
-  log('Published nothing but the summary:', !!score && Object.keys(score).sort().join(',') === 'asOf,metrics,uid,updatedAt' && Object.keys(score.metrics).length === 1 && !JSON.stringify(score).includes('note'));
+  log('Published nothing but the summary (no logs without a challenge):', !!score && Object.keys(score).sort().join(',') === 'asOf,metrics,uid,updatedAt' && Object.keys(score.metrics).length === 1 && !m.logs);
 
   // Their numbers: 3h today, and 1h last week (when I had nothing).
   await hook('score', TODAY, theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } }));
@@ -144,7 +144,12 @@ try {
   log('Tally counts last week for them:', (await card('race-card')).includes('Weeks won: you 0 · Cousin 1'));
   log('Last week result:', (await card('race-card')).includes('Last week: Cousin won, 0m to 1h'));
   log('Freshness line:', (await text()).includes('Cousin’s numbers updated'));
-  log('Trash talk under the race:', (await page.$eval('[data-testid="race-card"] [data-testid="taunt"]', (e) => e.textContent).catch(() => '')).length > 5);
+  const bubble = await page.$eval('[data-testid="race-card"] [data-testid="taunt"]', (e) => ({
+    speaker: e.dataset.speaker, text: e.innerText, size: parseFloat(getComputedStyle(e.querySelector('blockquote')).fontSize),
+  })).catch(() => null);
+  log('Trash talk is a bubble from the leader (Cousin):', bubble?.speaker === 'them' && bubble.text.includes('— Cousin'));
+  log('Bubble text is big (16px+):', (bubble?.size ?? 0) >= 16);
+  log('Bubble names no placeholders:', !!bubble && !/[{}]/.test(bubble.text));
   log('Crown on the leader (Cousin):', await page.evaluate(() => {
     const crown = document.querySelector('[data-testid="race-card"] [aria-label="Leading"]');
     return !!crown && crown.closest('span')?.innerText.includes('Cousin');
@@ -152,7 +157,7 @@ try {
 
   // Last week's loss shows once as a banner that wobbles.
   log('Loss banner for last week:', await until(async () => (await card('result-banner')).includes('Cousin took the week on Studying')));
-  log('Loss banner wobbles and taunts:', await page.$eval('[data-testid="result-banner"]', (e) => e.classList.contains('wobble') && !!e.querySelector('.italic')?.textContent));
+  log('Loss banner wobbles and Cousin taunts:', await page.$eval('[data-testid="result-banner"]', (e) => e.classList.contains('wobble') && e.querySelector('[data-testid="taunt"]')?.dataset.speaker === 'them'));
   await shot('cp-04b-loss-banner');
   await pressText('Ugh, fine');
   log('Dismissed banner stays gone:', !(await text()).includes('took the week'));
@@ -181,6 +186,43 @@ try {
     const c = await card('challenge-card');
     return c.includes('First to 5h of Studying') && c.includes('Cousin leads by 1h');
   }));
+
+  // ── Logs on a challenge day ──
+  const logs = () => card('challenge-logs');
+  log('Logs section on the challenge, today:', await until(async () => (await logs()).includes('Today')));
+  log('My 2h log listed:', /You\s*2h · 1 log/.test(await logs()) && (await logs()).includes('+2h'));
+  log('Their logs wait for their new version:', (await logs()).includes('Cousin’s logs show up once they open'));
+  log('Can’t go before the challenge started:', await page.$eval('[data-testid="challenge-logs"] [aria-label="Previous day"]', (b) => b.disabled));
+  const published2 = await until(async () => {
+    const sc = await hook('myScore');
+    const l = sc && Object.values(sc.metrics)[0].logs;
+    return !!l && l[TODAY]?.length === 1 && l[TODAY][0].v === 2 * H && l[TODAY][0].src === 'm';
+  }, 6000);
+  log('My challenge-day logs published:', published2);
+  const at = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  await hook('score', TODAY, { 'their-study': { ...theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } })['their-study'],
+    logs: { [TODAY]: [{ v: 2 * H, at: at(4), src: 't', note: 'Subnetting drills, 40 questions' }, { v: H, at: at(1), src: 'q' }] } } });
+  log('Their logs with times and the note:', await until(async () => {
+    const t = await logs();
+    return /Cousin\s*3h · 2 logs/.test(t) && t.includes('Subnetting drills, 40 questions') && t.includes('timer') && t.includes('quick add');
+  }));
+  log('Timer log shows its span:', /\d\d:\d\d–\d\d:\d\d/.test(await logs()));
+  // A note logged today lands in my list and in what's published, and the sheet says Cousin will see it.
+  await page.goto('http://localhost:5173/#/today');
+  await wait(600);
+  await click('::-p-aria(Add a custom amount to Studying)');
+  log('Entry sheet says Cousin sees the note:', (await text()).includes('Cousin sees this entry and its note'));
+  await page.type('#entry-m', '30');
+  await page.type('#entry-note', 'Port numbers flashcards');
+  await click('dialog[open] button[type=submit]');
+  await wait(400);
+  await page.goto('http://localhost:5173/#/compete');
+  await wait(800);
+  log('My new log with its note:', await until(async () => (await logs()).includes('Port numbers flashcards') && /You\s*2h 30m · 2 logs/.test(await logs())));
+  log('Note published for Cousin:', await until(async () => JSON.stringify(await hook('myScore')).includes('Port numbers flashcards'), 6000));
+  log('Fits a phone:', await fitsPhone());
+  await page.evaluate(() => document.querySelector('[data-testid="challenge-logs"]').scrollIntoView({ block: 'center' }));
+  await shot('cp-05b-logs');
 
   // Their challenge: most target days this week.
   const linkId = await hook('raceLinkId');
@@ -246,7 +288,7 @@ try {
     [...c.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Call it off').click();
   });
   await wait(300);
-  await pressText('Call it off', '[data-testid="challenge-card"] .rounded-lg');
+  await pressText('Call it off', '[data-testid="challenge-card"] div.rounded-lg.bg-s2');
   log('Called-off challenge gone:', await until(async () => !(await card('challenge-card')).includes('First to')));
 
   // ── Changing my name ──

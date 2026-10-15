@@ -263,7 +263,7 @@ export function DayPicker({ days, onChange, weekStartsOn }: { days: number[]; on
 
 interface ToastOptions {
   /** Adds a "What did you accomplish?" row with a pen. The toast then stays until dismissed or saved. */
-  note?: { prompt: string; save: (text: string) => void };
+  note?: { prompt: string; save: (text: string) => void; /** A small line under the field, e.g. who else sees the note. */ hint?: string };
 }
 
 interface ToastMsg extends ToastOptions {
@@ -335,7 +335,7 @@ function NoteRow({ note, onDone }: { note: NonNullable<ToastOptions['note']>; on
   }
   return (
     <form
-      className="flex items-center gap-1.5 border-t border-line pt-1.5"
+      className="flex flex-wrap items-center gap-1.5 border-t border-line pt-1.5"
       onSubmit={(e) => {
         e.preventDefault();
         if (text.trim()) note.save(text.trim());
@@ -353,6 +353,7 @@ function NoteRow({ note, onDone }: { note: NonNullable<ToastOptions['note']>; on
         className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-bg px-2.5 text-[16px] text-ink placeholder:text-ink-3 focus:border-focus focus:outline-none"
       />
       <button type="submit" className="press min-h-9 rounded-lg px-3 font-semibold text-ink hover:bg-s2">Save</button>
+      {note.hint && <p className="basis-full pb-1 text-[12px] text-ink-3">{note.hint}</p>}
     </form>
   );
 }

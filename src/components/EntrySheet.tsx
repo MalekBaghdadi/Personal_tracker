@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, FieldError, Label, Sheet, inputClass, useToast } from './ui';
 import { CountInput, DurationInput, parseCount, parseDuration, splitDuration } from './inputs';
 import { useData } from '../state/DataContext';
+import { useCompete } from '../state/CompeteContext';
 import { addEntry, restoreEntry, softDeleteEntry, subtractFromDay, undoSubtraction, updateEntry } from '../lib/repo';
 import { formatTimeIn, instantAt } from '../lib/dates';
 import { formatDuration, formatValue } from '../lib/format';
@@ -43,6 +44,7 @@ export function EntrySheet({ state, onClose }: { state: EntrySheetState | null; 
 
 function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 'total' }>; onDone: () => void }) {
   const { uid, tz, today, entries } = useData();
+  const { sharedWith } = useCompete();
   const toast = useToast();
   const metric = state.metric;
   const existing = state.mode === 'edit' ? state.entry : null;
@@ -173,6 +175,9 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
         <div>
           <Label htmlFor="entry-note">Note</Label>
           <input id="entry-note" className={inputClass} value={note} maxLength={280} placeholder="Optional" onChange={(e) => setNote(e.target.value)} />
+          {date && sharedWith(metric.id, date) && (
+            <p className="mt-1.5 text-[13px] text-ink-3" data-testid="note-shared">{sharedWith(metric.id, date)} sees this entry and its note: it’s a challenge day.</p>
+          )}
         </div>
       )}
 

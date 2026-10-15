@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useData } from './DataContext';
+import { useCompete } from './CompeteContext';
 import { addEntry, discardTimer, softDeleteEntry, startTimer, stopTimer, updateEntry } from '../lib/repo';
 import { formatDuration } from '../lib/format';
 import { Button, Sheet, useToast } from '../components/ui';
@@ -57,6 +58,7 @@ export function useTimerActions(): TimerActions {
 
 export function TimerProvider({ children }: { children: ReactNode }) {
   const { uid, timer, metricById, tz, dayOf } = useData();
+  const { sharedWith } = useCompete();
   const toast = useToast();
   const [switchTo, setSwitchTo] = useState<{ metricId: string; startedAt?: string } | null>(null);
   const [recovering, setRecovering] = useState(false);
@@ -80,15 +82,16 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     }
     const id = stopTimer(uid, timer, raw, dayOf);
     const name = metricName(timer.metricId);
+    const partner = sharedWith(timer.metricId, dayOf(timer.startedAt));
     if (id)
       toast(
         `Logged ${formatDuration(raw)} to ${name}`,
         { label: 'Undo', run: () => softDeleteEntry(uid, id) },
-        raw > NOTE_PROMPT_AFTER_S ? { note: { prompt: 'What did you accomplish?', save: (note) => updateEntry(uid, id, { note }) } } : undefined,
+        raw > NOTE_PROMPT_AFTER_S ? { note: { prompt: 'What did you accomplish?', hint: partner ? `${partner} sees this note (challenge day)` : undefined, save: (note) => updateEntry(uid, id, { note }) } } : undefined,
       );
     else toast('Timer stopped. Under a second, so nothing was logged.');
     return true;
-  }, [timer, uid, dayOf, toast, metricById]);
+  }, [timer, uid, dayOf, toast, metricById, sharedWith]);
 
   const start = useCallback(
     (metricId: string, startedAt?: string) => {

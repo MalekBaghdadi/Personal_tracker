@@ -1,21 +1,21 @@
 import { useState } from 'react';
-import { Copy, Crown, Frown, Share2, Trophy } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Crown, Frown, Share2, Timer, Trophy } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useData } from '../state/DataContext';
 import { useCompete } from '../state/CompeteContext';
 import { useHue } from '../state/theme';
-import { addDays, formatLocalDate } from '../lib/dates';
+import { addDays, formatLocalDate, formatTimeIn } from '../lib/dates';
 import { weekOf } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
-import { canLink, challengeResult, nameFromEmail, normalizeCode, race, type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedMetric, type Side } from '../lib/compete';
+import { canLink, challengeResult, nameFromEmail, normalizeCode, race, type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side } from '../lib/compete';
 import {
   acceptLink, answerChallenge, cancelChallenge, cancelInvite, createInvite, endLink, endPair, joinWithCode, proposeChallenge, proposeLink, renameInPair,
   type JoinError,
 } from '../lib/competeRepo';
 import { Button, FieldError, Label, Segmented, Sheet, cx, inputClass, useBump, useToast } from '../components/ui';
 import { Confetti } from '../components/Confetti';
-import { taunt, type TauntKind } from '../lib/taunts';
+import { taunt, type TauntFacts, type TauntKind } from '../lib/taunts';
 import { local } from '../lib/device';
 import { fmtDay } from '../components/Goals';
 import type { Metric } from '../lib/types';
@@ -80,8 +80,8 @@ function PairSetup() {
     <div className="flex flex-col gap-6" data-tour="compete-pair">
       <p className="text-[15px] text-ink-2">
         Link up with one other person and race each other on a metric you both track: whose total is higher each week, how many days you
-        each hit your target, and challenges either of you can start. They only ever see totals for the metrics you link, never your notes
-        or anything else.
+        each hit your target, and challenges either of you can start. They only see daily totals for the metrics you link. During a
+        challenge you both also see each other’s logs on that metric, notes included, so nobody can fudge it. Nothing else is shared.
       </p>
 
       <section>
@@ -295,8 +295,8 @@ function LinkForm({ onDone }: { onDone: () => void }) {
         </select>
       </div>
       <p className="text-[14px] text-ink-2">
-        {partnerName} then picks one of theirs to race it against. It has to be a {metric ? typeWord(metric.type) : ''} metric too. Only its daily totals and
-        target days are shared.
+        {partnerName} then picks one of theirs to race it against. It has to be a {metric ? typeWord(metric.type) : ''} metric too. Its daily totals and
+        target days are shared, and during a challenge each log on it, with its note.
       </p>
       <Button type="submit" variant="primary">Send to {partnerName}</Button>
     </form>
@@ -341,7 +341,7 @@ function LinkRequest({ link }: { link: Link }) {
 
 function RaceCard({ link }: { link: Link }) {
   const { uid, today, metricById } = useData();
-  const { pair, partnerUid, partnerName, theirScore, mine } = useCompete();
+  const { pair, partnerUid, partnerName, myName, theirScore, mine } = useCompete();
   const [confirmStop, setConfirmStop] = useState(false);
   const metric = metricById.get(link.metrics[uid]);
   const theirId = partnerUid ? link.metrics[partnerUid] : undefined;
@@ -379,10 +379,16 @@ function RaceCard({ link }: { link: Link }) {
         <Contender label={partnerName} value={formatValue(theirs ?? metric, them.total)} suffix={targetDays(them)} pct={top ? them.total / top : 0} hue={theirHue} leader={gap < 0} />
       </div>
 
+      <Bubble
+        kind={raceTaunt(me.total, them.total)}
+        seed={`${link.id}:${today}`}
+        facts={tauntFacts(myName, partnerName, metric, mine[metric.id], theirs, gap, today)}
+        myHue={myHue}
+        theirHue={theirHue}
+      />
       <p key={verdictBump} className={cx('mt-3 text-[14px] font-medium', verdictBump > 0 && 'bump')} data-testid="race-verdict">
         {gap === 0 ? (me.total === 0 ? 'Nothing logged yet this week' : 'Level') : gap > 0 ? `You’re ${formatValue(metric, gap)} ahead` : `${partnerName} is ${formatValue(metric, -gap)} ahead`}
       </p>
-      <Taunt kind={raceTaunt(me.total, them.total)} seed={`${link.id}:${today}`} them={partnerName} />
       <p className="mt-1 text-[13px] text-ink-2" data-testid="race-tally">
         Weeks won: you {r.wins} · {partnerName} {r.losses}
         {r.draws > 0 && ` · ${r.draws} ${r.draws === 1 ? 'draw' : 'draws'}`}
@@ -419,12 +425,68 @@ function raceTaunt(me: number, them: number): TauntKind {
   return me === them ? 'level' : me > them ? 'ahead' : 'behind';
 }
 
-function Taunt({ kind, seed, them }: { kind: TauntKind; seed: string; them: string }) {
-  const line = taunt(kind, seed, them);
+/**
+ * What the trash talk can use: names, the metric, the margin, and today's
+ * totals and log counts (logs only on a challenge day, when both are shared).
+ */
+function tauntFacts(
+  me: string,
+  them: string,
+  metric: Pick<Metric, 'name' | 'type' | 'unit'>,
+  mineShared: SharedMetric | undefined,
+  theirs: SharedMetric | undefined,
+  gap: number,
+  today: string,
+  fmtGap: (v: number) => string = (v) => formatValue(metric, v),
+): TauntFacts {
+  const myLogs = mineShared?.logs?.[today];
+  const theirLogs = theirs?.logs?.[today];
+  return {
+    me,
+    them,
+    metric: metric.name,
+    gap: gap !== 0 ? fmtGap(Math.abs(gap)) : undefined,
+    today: { me: mineShared?.days[today]?.t ?? 0, them: theirs?.days[today]?.t ?? 0, fmt: (v) => formatValue(metric, v) },
+    logs: myLogs && theirLogs ? { me: myLogs.length, them: theirLogs.length } : undefined,
+  };
+}
+
+/**
+ * The trash talk, as a speech bubble from whoever's winning: mine on the
+ * right in my colour, theirs on the left in theirs, the ref's in the middle.
+ */
+function Bubble({ kind, seed, facts, myHue, theirHue, className }: {
+  kind: TauntKind; seed: string; facts: TauntFacts; myHue: string; theirHue: string; className?: string;
+}) {
+  const { line, speaker } = taunt(kind, seed, facts);
+  const hue = speaker === 'me' ? myHue : speaker === 'them' ? theirHue : 'var(--ink-3)';
+  const fill = `color-mix(in srgb, ${hue} 18%, var(--s1))`;
+  const edge = `color-mix(in srgb, ${hue} 60%, transparent)`;
   return (
-    <p key={line} className="taunt-in mt-0.5 text-[13px] text-ink-2 italic" data-testid="taunt">
-      {line}
-    </p>
+    <figure
+      key={line}
+      className={cx('mt-4 flex flex-col', speaker === 'me' ? 'items-end' : speaker === 'them' ? 'items-start' : 'items-center', className)}
+      data-testid="taunt"
+      data-speaker={speaker}
+    >
+      <blockquote
+        className={cx(
+          'bubble-in relative max-w-[92%] rounded-2xl border-[1.5px] px-4 py-2.5 text-[16px] leading-snug font-semibold text-ink',
+          speaker === 'me' ? 'origin-bottom-right' : speaker === 'them' ? 'origin-bottom-left' : 'origin-bottom',
+        )}
+        style={{ background: fill, borderColor: edge }}
+      >
+        {line}
+        <span
+          aria-hidden
+          className={cx('absolute -bottom-[7px] size-3 rotate-45 border-r-[1.5px] border-b-[1.5px]', speaker === 'me' ? 'right-5' : speaker === 'them' ? 'left-5' : 'left-1/2 -ml-1.5')}
+          style={{ background: fill, borderColor: edge }}
+        />
+      </blockquote>
+      <figcaption className="taunt-in mt-2 px-3 text-[12px] text-ink-3">
+        {speaker === 'me' ? '— you' : speaker === 'them' ? `— ${facts.them}` : '— the ref'}
+      </figcaption>
+    </figure>
   );
 }
 
@@ -462,6 +524,9 @@ interface Result {
   title: string;
   score: string;
   kind: TauntKind;
+  facts: TauntFacts;
+  myColor: string;
+  theirColor: string;
 }
 
 const SEEN_KEY = 'pt.compete.seen';
@@ -480,7 +545,7 @@ const readSeen = (): string[] => {
  */
 function Results() {
   const { uid, today, metricById } = useData();
-  const { pair, links, challenges, mine, theirScore, partnerUid, partnerName } = useCompete();
+  const { pair, links, challenges, mine, theirScore, partnerUid, partnerName, myName } = useCompete();
   const [seen, setSeen] = useState(readSeen);
   if (!pair) return null;
 
@@ -497,6 +562,14 @@ function Results() {
       title: last.outcome === 'me' ? `You won the week on ${metric.name}` : last.outcome === 'them' ? `${partnerName} took the week on ${metric.name}` : `The week on ${metric.name} was a draw`,
       score: `${formatValue(metric, last.me.total)} to ${formatValue(theirs ?? metric, last.them.total)}`,
       kind: last.outcome === 'me' ? 'wonWeek' : last.outcome === 'them' ? 'lostWeek' : 'drewWeek',
+      facts: {
+        me: myName,
+        them: partnerName,
+        metric: metric.name,
+        gap: last.me.total !== last.them.total ? formatValue(metric, Math.abs(last.me.total - last.them.total)) : undefined,
+      },
+      myColor: metric.color,
+      theirColor: theirs?.color ?? '#8590a3',
     });
   }
   const recent = addDays(today, -14);
@@ -507,6 +580,7 @@ function Results() {
     const decided = (c.kind === 'first_to' ? [r.reached.me, r.reached.them].filter((d): d is string => !!d).sort()[0] : undefined) ?? c.endDate;
     if (r.status !== 'finished' || !r.winner || decided < recent) continue;
     const m = mine[link.metrics[uid]];
+    const theirs = partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
     const fmt = (v: number) => (c.kind === 'most_days' ? `${v} ${v === 1 ? 'day' : 'days'}` : m ? formatValue(m, v) : String(v));
     const title = challengeTitle(c, links, uid, mine);
     results.push({
@@ -515,6 +589,9 @@ function Results() {
       title: r.winner === 'me' ? `You won “${title}”` : r.winner === 'them' ? `${partnerName} won “${title}”` : `“${title}” ended in a draw`,
       score: `${fmt(r.me)} to ${fmt(r.them)}`,
       kind: r.winner === 'me' ? 'wonChallenge' : r.winner === 'them' ? 'lostChallenge' : 'drewChallenge',
+      facts: { me: myName, them: partnerName, metric: m?.name, gap: r.me !== r.them ? fmt(Math.abs(r.me - r.them)) : undefined },
+      myColor: m?.color ?? '#8590a3',
+      theirColor: theirs?.color ?? '#8590a3',
     });
   }
 
@@ -525,11 +602,13 @@ function Results() {
     local.set(SEEN_KEY, JSON.stringify(all));
     setSeen(all);
   };
-  return <ResultBanner key={next.id} result={next} them={partnerName} onDismiss={dismiss} />;
+  return <ResultBanner key={next.id} result={next} onDismiss={dismiss} />;
 }
 
-function ResultBanner({ result, them, onDismiss }: { result: Result; them: string; onDismiss: () => void }) {
+function ResultBanner({ result, onDismiss }: { result: Result; onDismiss: () => void }) {
   const [confetti, setConfetti] = useState(result.outcome === 'me');
+  const myHue = useHue(result.myColor);
+  const theirHue = useHue(result.theirColor);
   const won = result.outcome === 'me';
   const lost = result.outcome === 'them';
   return (
@@ -554,7 +633,7 @@ function ResultBanner({ result, them, onDismiss }: { result: Result; them: strin
       </div>
       <p className="mt-2 text-[17px] font-semibold">{result.title}</p>
       <p className="mt-0.5 text-[14px] text-ink-2">{result.score}</p>
-      <p className="taunt-in mt-1 text-[14px] text-ink-2 italic">{taunt(result.kind, result.id, them)}</p>
+      <Bubble kind={result.kind} seed={result.id} facts={result.facts} myHue={myHue} theirHue={theirHue} className="text-left" />
       <Button className="mt-3 min-w-28" variant={won ? 'primary' : 'quiet'} onClick={onDismiss}>
         {won ? 'Gloat' : lost ? 'Ugh, fine' : 'OK'}
       </Button>
@@ -637,7 +716,7 @@ function challengeTitle(c: Challenge, links: Link[], uid: string, mine: Record<s
 
 function ChallengeCard({ ch }: { ch: Challenge }) {
   const { uid, today, metricById } = useData();
-  const { pair, links, mine, theirScore, partnerUid, partnerName } = useCompete();
+  const { pair, links, mine, theirScore, partnerUid, partnerName, myName } = useCompete();
   const toast = useToast();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const link = links.find((l) => l.id === ch.linkId);
@@ -690,8 +769,19 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
           <Contender label={partnerName} value={fmt(r.them, theirs)} pct={max > 0 ? r.them / max : 0} hue={theirHue} leader={leader === 'them'} />
         </div>
       )}
+      {tauntKind && metric && (
+        <Bubble
+          kind={tauntKind}
+          seed={`${ch.id}:${today}`}
+          facts={tauntFacts(myName, partnerName, metric, mine[metric.id], theirs, r.me - r.them, today, (v) => fmt(v))}
+          myHue={myHue}
+          theirHue={theirHue}
+        />
+      )}
       <p className="mt-3 text-[14px] font-medium" data-testid="challenge-verdict">{verdict}</p>
-      {tauntKind && <Taunt kind={tauntKind} seed={`${ch.id}:${today}`} them={partnerName} />}
+      {metric && (r.status === 'active' || r.status === 'awaiting') && (
+        <ChallengeLogs ch={ch} metric={metric} theirs={theirs} myHue={myHue} theirHue={theirHue} />
+      )}
 
       {theirRequest ? (
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -712,6 +802,102 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
         </button>
       )}
     </article>
+  );
+}
+
+const SRC_LABEL: Record<SharedLog['src'], string> = { t: 'timer', m: 'added', q: 'quick add' };
+
+/**
+ * Both sides' logs for one day of a challenge, with a day picker over the
+ * challenge so far. Mine come from my live data; theirs from what their app
+ * last published.
+ */
+function ChallengeLogs({ ch, metric, theirs, myHue, theirHue }: {
+  ch: Challenge; metric: Metric; theirs: SharedMetric | undefined; myHue: string; theirHue: string;
+}) {
+  const { today } = useData();
+  const { mine, partnerName, theirScore } = useCompete();
+  const last = ch.endDate < today ? ch.endDate : today;
+  const [day, setDay] = useState(last);
+  const shown = day > last ? last : day;
+  const label = shown === today ? 'Today' : shown === addDays(today, -1) ? 'Yesterday' : formatLocalDate(shown, 'EEE d MMM');
+  const theirLogs = theirs?.logs?.[shown];
+
+  let theirNote: string | null = null;
+  if (!theirs?.logs) theirNote = `${partnerName}’s logs show up once they open the latest version of the app.`;
+  else if (!theirLogs) theirNote = `Nothing from ${partnerName} for this day yet. Their numbers updated ${theirScore ? ago(theirScore.updatedAt) : 'a while ago'}.`;
+
+  return (
+    <section className="mt-4 border-t border-line pt-3" aria-label="Logs" data-testid="challenge-logs">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-[13px] font-medium text-ink-2">Logs</h4>
+        <div className="flex items-center">
+          <button
+            type="button"
+            aria-label="Previous day"
+            disabled={shown <= ch.startDate}
+            onClick={() => setDay(addDays(shown, -1))}
+            className="press grid size-9 place-items-center rounded-lg text-ink-2 hover:bg-s2 disabled:opacity-30"
+          >
+            <ChevronLeft size={18} aria-hidden />
+          </button>
+          <span className="min-w-24 text-center text-[13px] font-medium" data-testid="logs-day">{label}</span>
+          <button
+            type="button"
+            aria-label="Next day"
+            disabled={shown >= last}
+            onClick={() => setDay(addDays(shown, 1))}
+            className="press grid size-9 place-items-center rounded-lg text-ink-2 hover:bg-s2 disabled:opacity-30"
+          >
+            <ChevronRight size={18} aria-hidden />
+          </button>
+        </div>
+      </div>
+      <LogList who="You" logs={mine[metric.id]?.logs?.[shown] ?? []} metric={metric} hue={myHue} />
+      <LogList who={partnerName} logs={theirLogs ?? []} metric={theirs ?? metric} hue={theirHue} empty={theirNote} />
+    </section>
+  );
+}
+
+/** One side's logs for a day: time (a timer's span), how it was logged, amount, and the note. */
+function LogList({ who, logs, metric, hue, empty }: {
+  who: string; logs: SharedLog[]; metric: Pick<Metric, 'type' | 'unit'>; hue: string; empty?: string | null;
+}) {
+  const { tz } = useData();
+  const total = logs.reduce((s, l) => s + l.v, 0);
+  return (
+    <div className="mt-2" data-testid="log-list">
+      <p className="flex items-baseline justify-between gap-3 text-[14px]">
+        <span className="flex min-w-0 items-center gap-2 font-medium">
+          <span aria-hidden className="size-2.5 shrink-0 self-center rounded-full" style={{ background: hue }} />
+          <span className="truncate">{who}</span>
+        </span>
+        {!empty && (
+          <span className="shrink-0 text-[13px] text-ink-2">
+            {formatValue(metric, total)} · {logs.length === 1 ? '1 log' : `${logs.length} logs`}
+          </span>
+        )}
+      </p>
+      {empty || logs.length === 0 ? (
+        <p className="mt-1 pl-[18px] text-[13px] text-ink-3">{empty ?? 'Nothing logged.'}</p>
+      ) : (
+        <ul className="mt-1 ml-[4px] flex flex-col">
+          {logs.map((l, i) => (
+            <li key={`${l.at}-${i}`} className="py-1.5 pl-3 text-[14px]" style={{ borderLeft: `2px solid color-mix(in srgb, ${hue} 45%, transparent)` }}>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-1.5 text-ink-2 tabular-nums">
+                  {l.src === 't' && <Timer size={13} aria-hidden className="shrink-0 self-center" />}
+                  {l.src === 't' ? `${formatTimeIn(l.at, tz)}–${formatTimeIn(new Date(Date.parse(l.at) + l.v * 1000).toISOString(), tz)}` : formatTimeIn(l.at, tz)}
+                  <span className="text-[12px] text-ink-3">{SRC_LABEL[l.src]}</span>
+                </span>
+                <span className="shrink-0 font-medium">+{formatValue(metric, l.v)}</span>
+              </div>
+              {l.note && <p className="mt-0.5 text-[13px] break-words text-ink">“{l.note}”</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -803,7 +989,7 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
           <FieldError>{errors.end}</FieldError>
         </div>
       </div>
-      <p className="-mt-3 text-[13px] text-ink-3">Both days count. {partnerName} has to accept before it’s on.</p>
+      <p className="-mt-3 text-[13px] text-ink-3">Both days count. {partnerName} has to accept before it’s on. Once it is, you both see each other’s logs for those days, notes included.</p>
       <Button type="submit" variant="primary"><Trophy size={17} /> Send challenge</Button>
     </form>
   );

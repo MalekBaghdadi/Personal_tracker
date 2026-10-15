@@ -1,6 +1,6 @@
 import { addDays } from './dates';
 import { isHit, isScheduled, restDays, weekOf } from './streaks';
-import type { DayStats, Metric, MetricType } from './types';
+import type { DayStats, Entry, Metric, MetricType } from './types';
 
 /*
  * Compete: two linked accounts race on linked metrics. Neither can read the
@@ -8,6 +8,10 @@ import type { DayStats, Metric, MetricType } from './types';
  * (per-day totals and whether the day's target was met) to the pair, and the
  * race and challenge results are derived from those summaries. Pure: no React,
  * no Firestore.
+ *
+ * During an accepted challenge the summary also carries that metric's
+ * individual logs (amount, time, how, note) for the challenge's days, so each
+ * side can see what the other actually did.
  *
  * Firestore (rules in firestore.rules):
  *   invites/{code}                      Invite
@@ -77,6 +81,18 @@ export interface SharedDay {
   s: DayStatus;
 }
 
+/**
+ * One log, shared only for days inside an accepted challenge: its value, when
+ * it happened (a timer's start), how it was logged (t timer, m manual, q quick
+ * add) and its note. Not stored anywhere else; a copy for the partner.
+ */
+export interface SharedLog {
+  v: number;
+  at: string;
+  src: 't' | 'm' | 'q';
+  note?: string;
+}
+
 /** One linked metric as its owner publishes it. Days not listed: nothing logged, not due. */
 export interface SharedMetric {
   name: string;
@@ -86,6 +102,8 @@ export interface SharedMetric {
   color: string;
   icon: string;
   days: Record<string, SharedDay>;
+  /** Each challenge day's logs, oldest first; a challenge day with nothing logged is an empty list. Absent with no challenge. */
+  logs?: Record<string, SharedLog[]>;
 }
 
 export interface Score {
@@ -121,6 +139,37 @@ export function shareMetric(metric: Metric, stats: DayStats, from: string, today
     if (t > 0 || status === 'h' || status === 'd' || status === 'r') days[d] = { t, s: status };
   }
   return { name: metric.name, type: metric.type, unit: metric.unit, target: metric.target, color: metric.color, icon: metric.icon, days };
+}
+
+/** A challenge both sides agreed to and nobody called off: its days share logs. */
+export const sharesLogs = (c: Challenge): boolean => !!c.acceptedAt && !c.declinedAt && !c.cancelledAt;
+
+/** The days of a link whose logs are shared: every day of its live challenges, through today. */
+export function challengeDays(challenges: Challenge[], linkId: string, today: string): Set<string> {
+  const out = new Set<string>();
+  for (const c of challenges) {
+    if (c.linkId !== linkId || !sharesLogs(c)) continue;
+    const end = c.endDate < today ? c.endDate : today;
+    for (let d = c.startDate; d <= end; d = addDays(d, 1)) out.add(d);
+  }
+  return out;
+}
+
+const SRC: Record<Entry['source'], SharedLog['src']> = { timer: 't', manual: 'm', quick_add: 'q' };
+
+/** A metric's live entries on the given days as shared logs, oldest first. Every day gets a list, empty or not. */
+export function shareLogs(entries: Entry[], days: Set<string>): Record<string, SharedLog[]> {
+  const out: Record<string, SharedLog[]> = {};
+  for (const d of days) out[d] = [];
+  for (const e of entries) {
+    if (e.deletedAt || !days.has(e.localDate)) continue;
+    // Firestore refuses undefined fields, so an empty note is left out rather than set.
+    const log: SharedLog = { v: e.value, at: e.occurredAt, src: SRC[e.source] };
+    if (e.note) log.note = e.note;
+    out[e.localDate].push(log);
+  }
+  for (const d of days) out[d].sort((a, b) => a.at.localeCompare(b.at));
+  return out;
 }
 
 export interface Side {

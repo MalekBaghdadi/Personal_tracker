@@ -88,47 +88,49 @@ button {
 :root {
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* A softer overshoot for big things (sheets). */
+  --ease-settle: cubic-bezier(0.3, 1.25, 0.5, 1);
 }
 
 /* Tap feedback: a quick squeeze that springs back. */
 .press {
-  transition: transform 160ms var(--ease-spring), background-color 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
+  transition: transform 220ms var(--ease-spring), background-color 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out;
 }
 .press:active {
-  transform: scale(0.95);
-  transition-duration: 60ms;
+  transform: scale(0.92);
+  transition-duration: 70ms;
 }
 
 /* Progress bars fill instead of jumping. */
 .bar-fill {
-  transition: width 600ms var(--ease-out), background-color 300ms ease-out;
+  transition: width 800ms var(--ease-out), background-color 300ms ease-out;
 }
 
 /* A tab's content arriving. */
 @keyframes screen-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(12px); }
 }
 .screen-in {
-  animation: screen-in 220ms var(--ease-out) backwards;
+  animation: screen-in 320ms var(--ease-out) backwards;
 }
 
 /* A number or label that just changed. */
 @keyframes bump {
   0% { transform: scale(1); }
-  35% { transform: scale(1.14); }
+  35% { transform: scale(1.24); }
   100% { transform: scale(1); }
 }
 .bump {
   display: inline-block;
-  animation: bump 420ms var(--ease-spring);
+  animation: bump 500ms var(--ease-spring);
 }
 
 /* Toasts rise in. */
 @keyframes toast-in {
-  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  from { opacity: 0; transform: translateY(24px) scale(0.9); }
 }
 .toast-in {
-  animation: toast-in 280ms var(--ease-spring) both;
+  animation: toast-in 380ms var(--ease-spring) both;
 }
 
 /* Sheets: slide up on phones, scale in on wider screens; reverse on close. */
@@ -139,7 +141,7 @@ button {
   to { transform: translateY(100%); }
 }
 @keyframes sheet-pop {
-  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  from { opacity: 0; transform: translateY(16px) scale(0.92); }
 }
 @keyframes sheet-out {
   to { opacity: 0; transform: translateY(8px) scale(0.97); }
@@ -151,7 +153,7 @@ button {
   to { opacity: 0; }
 }
 .sheet-panel {
-  animation: sheet-up 300ms var(--ease-out) both;
+  animation: sheet-up 380ms var(--ease-settle) both;
 }
 .sheet-closing .sheet-panel {
   animation: sheet-down 200ms ease-in both;
@@ -165,7 +167,8 @@ dialog.sheet-closing::backdrop {
 @media (min-width: 640px) {
   .sheet-panel {
     animation-name: sheet-pop;
-    animation-duration: 220ms;
+    animation-duration: 300ms;
+    animation-timing-function: var(--ease-spring);
   }
   .sheet-closing .sheet-panel {
     animation-name: sheet-out;
@@ -176,16 +179,16 @@ dialog.sheet-closing::backdrop {
 /* The tab you just picked gives a little hop. */
 @keyframes hop {
   0% { transform: translateY(0); }
-  40% { transform: translateY(-3px) scale(1.08); }
+  40% { transform: translateY(-5px) scale(1.16); }
   100% { transform: translateY(0); }
 }
 .hop {
-  animation: hop 340ms var(--ease-spring);
+  animation: hop 420ms var(--ease-spring);
 }
 
 /* Segmented control: the highlight slides between options. */
 .seg-thumb {
-  transition: transform 260ms var(--ease-spring);
+  transition: transform 320ms var(--ease-spring);
 }
 
 /* The running timer: the one live thing in the interface. */
@@ -261,6 +264,15 @@ dialog.sheet-closing::backdrop {
 .taunt-in {
   animation: taunt-in 400ms var(--ease-out) 250ms both;
 }
+/* The trash-talk bubble pops out from its tail. */
+@keyframes bubble-in {
+  0% { opacity: 0; transform: scale(0.6) translateY(8px); }
+  60% { opacity: 1; transform: scale(1.06); }
+  100% { transform: none; }
+}
+.bubble-in {
+  animation: bubble-in 520ms var(--ease-spring) 150ms both;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .timer-dot,
@@ -279,7 +291,8 @@ dialog.sheet-closing::backdrop {
   .trophy-in,
   .wobble,
   .droop,
-  .taunt-in {
+  .taunt-in,
+  .bubble-in {
     animation: none;
   }
   .press,

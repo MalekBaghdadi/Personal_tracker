@@ -3,7 +3,7 @@ import { getDocFromCache, getDocsFromCache, onSnapshot, query, setDoc, updateDoc
 import { useData } from './DataContext';
 import { nowIso } from '../lib/dates';
 import { competePaths, publishScore } from '../lib/competeRepo';
-import { shareMetric, type Challenge, type Invite, type Link, type Pair, type Score, type SharedMetric } from '../lib/compete';
+import { challengeDays, shareLogs, shareMetric, type Challenge, type Invite, type Link, type Pair, type Score, type SharedMetric } from '../lib/compete';
 
 interface Compete {
   /** All listeners have answered at least once (from cache or server). */
@@ -22,6 +22,8 @@ interface Compete {
   theirScore: Score | null;
   /** My linked metrics as they'd be published, from live data (fresher than my own score doc). */
   mine: Record<string, SharedMetric>;
+  /** The partner's name if a log on this metric and day is shared with them (a challenge day), else null. */
+  sharedWith: (metricId: string, localDate: string) => string | null;
 }
 
 const Ctx = createContext<Compete | null>(null);
@@ -40,7 +42,7 @@ const PUBLISH_DELAY_MS = 2000;
  * this account's published summary current.
  */
 export function CompeteProvider({ children }: { children: ReactNode }) {
-  const { uid, metricById, dayStats, today, weekStartsOn, dayOf } = useData();
+  const { uid, metricById, dayStats, entries, today, weekStartsOn, dayOf } = useData();
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [pairs, setPairs] = useState<Pair[] | null>(null);
   const [links, setLinks] = useState<Link[]>([]);
@@ -91,7 +93,20 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
     return () => unsubs.forEach((u) => u());
   }, [pairId]);
 
-  // What this account publishes: each accepted link's metric, from the week it started.
+  // Days whose individual logs are shared, per metric of mine: its link's challenge days.
+  const logDays = useMemo(() => {
+    const out = new Map<string, Set<string>>();
+    for (const l of links) {
+      const metricId = l.metrics[uid];
+      if (!l.acceptedAt || !metricId) continue;
+      const days = challengeDays(challenges, l.id, today);
+      if (days.size) out.set(metricId, days);
+    }
+    return out;
+  }, [links, challenges, uid, today]);
+
+  // What this account publishes: each accepted link's metric, from the week it
+  // started, plus its logs on challenge days.
   const mine = useMemo(() => {
     const out: Record<string, SharedMetric> = {};
     for (const l of links) {
@@ -103,9 +118,11 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
       let since = dayOf(metric.createdAt);
       for (const d of stats.keys()) if (d < since) since = d;
       out[metric.id] = shareMetric(metric, stats, l.startDate, today, weekStartsOn, since);
+      const days = logDays.get(metric.id);
+      if (days) out[metric.id].logs = shareLogs(entries.filter((e) => e.metricId === metric.id), days);
     }
     return out;
-  }, [links, uid, metricById, dayStats, today, weekStartsOn, dayOf]);
+  }, [links, uid, metricById, dayStats, entries, logDays, today, weekStartsOn, dayOf]);
 
   // Publish when it differs from what's on record, a moment after the last
   // change so a burst of quick adds is one write. Never awaited.
@@ -132,6 +149,8 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
     challenges,
     theirScore: partnerUid ? scores.get(partnerUid) ?? null : null,
     mine,
+    sharedWith: (metricId, localDate) =>
+      logDays.get(metricId)?.has(localDate) ? (partnerUid && pair?.names[partnerUid]) || 'Them' : null,
   };
 
   useE2eHooks(uid, pairId);
