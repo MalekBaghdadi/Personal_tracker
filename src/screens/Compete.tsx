@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy, Crown, Frown, Gift, Share2, Timer, Trophy } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, Copy, Crown, Frown, Gift, Plus, Share2, Timer, Trophy } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useData } from '../state/DataContext';
 import { useCompete } from '../state/CompeteContext';
@@ -8,9 +8,13 @@ import { addDays, formatLocalDate, formatTimeIn, instantAt, localDateOf } from '
 import { weekOf } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
-import { canLink, challengeResult, challengeSpan, isTimed, logInWindow, nameFromEmail, normalizeCode, race, type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side } from '../lib/compete';
 import {
-  acceptLink, answerChallenge, cancelChallenge, cancelInvite, createInvite, endLink, endPair, joinWithCode, proposeChallenge, proposeLink, renameInPair,
+  canJoin, canLink, challengeResult, challengeSpan, isTimed, logInWindow, nameFromEmail, normalizeCode, race, sideAt, sideForChallenge, sideMetricIds,
+  type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side,
+} from '../lib/compete';
+import {
+  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, createInvite, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
+  removeFromSide, renameInPair, restoreSide,
   type JoinError,
 } from '../lib/competeRepo';
 import { Button, FieldError, Label, Segmented, Sheet, Switch, cx, inputClass, useBump, useToast } from '../components/ui';
@@ -22,12 +26,10 @@ import type { Metric } from '../lib/types';
 
 /** Two linked accounts race on linked metrics, week by week, plus challenges either can start. */
 export function Compete() {
-  const { ready, pair, partnerName } = useCompete();
+  const { ready, pair } = useCompete();
   return (
     <div className="mx-auto max-w-2xl px-4 pt-5 pb-28 md:pb-10">
-      <h1 className="mb-4 text-[22px] font-semibold tracking-tight">
-        Compete{pair && <span className="font-normal text-ink-3"> · you vs {partnerName}</span>}
-      </h1>
+      <h1 className="mb-4 text-[22px] font-semibold tracking-tight">Compete</h1>
       {!ready ? null : pair ? <Paired /> : <PairSetup />}
     </div>
   );
@@ -144,55 +146,273 @@ function PairSetup() {
 
 // ── Paired ─────────────────────────────────────────────────────────────────
 
+type Tab = 'races' | 'challenges' | 'history';
+const TAB_KEY = 'pt.compete.tab';
+const readTab = (): Tab => {
+  const t = local.get(TAB_KEY);
+  return t === 'challenges' || t === 'history' ? t : 'races';
+};
+
 function Paired() {
   const { uid, metricById } = useData();
   const { pair, partnerUid, partnerName, links, challenges, theirScore } = useCompete();
+  const result = useChallengeResult();
+  const [tab, setTabState] = useState<Tab>(readTab);
   const [linkSheet, setLinkSheet] = useState(false);
   const [challengeSheet, setChallengeSheet] = useState(false);
-  const [confirmUnlink, setConfirmUnlink] = useState(false);
+  const [teamLink, setTeamLink] = useState<string | null>(null);
   if (!pair || !partnerUid) return null;
 
+  const setTab = (t: Tab) => {
+    local.set(TAB_KEY, t);
+    setTabState(t);
+  };
   const accepted = links.filter((l) => l.acceptedAt && metricById.has(l.metrics[uid]));
   const theirProposals = links.filter((l) => !l.acceptedAt && l.proposedBy !== uid);
-  const myProposals = links.filter((l) => !l.acceptedAt && l.proposedBy === uid);
   const challengeRequests = challenges.filter((c) => !c.acceptedAt && !c.declinedAt && !c.cancelledAt && c.createdBy !== uid);
+  const liveCount = challenges.filter((c) => {
+    const r = result(c);
+    return !!r && LIVE.includes(r.status) && !(r.status === 'pending' && c.createdBy !== uid);
+  }).length;
+  const teamFor = links.find((l) => l.id === teamLink);
 
   return (
-    <div className="flex flex-col gap-6">
-      <p className="-mt-2 text-[13px] text-ink-3" data-testid="freshness">
-        {theirScore ? `${partnerName}’s numbers updated ${ago(theirScore.updatedAt)}.` : `${partnerName} hasn’t shared any numbers yet.`} Theirs update
-        whenever they open the app.
-      </p>
+    <div className="flex flex-col gap-5">
+      <div>
+        <Scoreboard />
+        <p className="mt-2 px-1 text-[13px] text-ink-3" data-testid="freshness">
+          {theirScore ? `${partnerName}’s numbers updated ${ago(theirScore.updatedAt)}.` : `${partnerName} hasn’t shared any numbers yet.`} Theirs update
+          whenever they open the app.
+        </p>
+      </div>
 
       <Results />
 
       {(theirProposals.length > 0 || challengeRequests.length > 0) && (
         <section aria-label="Requests" className="flex flex-col gap-3">
+          <h2 className="text-[13px] font-medium text-ink-3">Waiting for you</h2>
           {theirProposals.map((l) => <LinkRequest key={l.id} link={l} />)}
-          {challengeRequests.map((c) => <ChallengeCard key={c.id} ch={c} />)}
+          {challengeRequests.map((c) => <ChallengeCard key={c.id} ch={c} onTeam={setTeamLink} />)}
         </section>
       )}
 
-      <section aria-labelledby="races-h" data-tour="compete-race">
-        <h2 id="races-h" className="mb-2 text-[15px] font-medium">Weekly race</h2>
-        {accepted.length === 0 && myProposals.length === 0 && (
-          <p className="mb-3 text-[14px] text-ink-2">Link one of your metrics to one of {partnerName}’s to start racing, like your Studying against theirs.</p>
+      <div className="sticky top-[env(safe-area-inset-top,0px)] z-10 -mx-4 bg-bg/90 px-4 py-2 backdrop-blur-sm md:top-0" data-tour="compete-tabs" data-testid="compete-tabs">
+        <Segmented
+          label="Show"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: 'races', label: accepted.length > 1 ? `Races · ${accepted.length}` : 'Races' },
+            { value: 'challenges', label: liveCount > 0 ? `Challenges · ${liveCount}` : 'Challenges' },
+            { value: 'history', label: 'History' },
+          ]}
+        />
+      </div>
+
+      <div key={tab} className="screen-in">
+        {tab === 'races' && <RacesTab onLink={() => setLinkSheet(true)} onTeam={setTeamLink} />}
+        {tab === 'challenges' && <Challenges onNew={() => setChallengeSheet(true)} canCreate={accepted.length > 0} onTeam={setTeamLink} />}
+        {tab === 'history' && <HistoryTab />}
+      </div>
+
+      <Sheet open={linkSheet} onClose={() => setLinkSheet(false)} title="Link a metric">
+        {linkSheet && <LinkForm onDone={() => setLinkSheet(false)} />}
+      </Sheet>
+      <Sheet open={challengeSheet} onClose={() => setChallengeSheet(false)} title="New challenge">
+        {challengeSheet && <ChallengeForm onDone={() => setChallengeSheet(false)} />}
+      </Sheet>
+      <Sheet open={!!teamFor} onClose={() => setTeamLink(null)} title="Metrics in this race">
+        {teamFor && <TeamForm link={teamFor} />}
+      </Sheet>
+    </div>
+  );
+}
+
+/** Head to head: weeks and challenges each side has won, across every race. */
+function Scoreboard() {
+  const { uid, today, metricById } = useData();
+  const { pair, links, challenges, sides, theirScore, partnerUid, partnerName, myName } = useCompete();
+  const result = useChallengeResult();
+  const first = links.find((l) => l.acceptedAt && metricById.has(l.metrics[uid]));
+  const myHue = useHue((first && metricById.get(first.metrics[uid])?.color) ?? '#8590a3');
+  const theirHue = useHue((first && partnerUid && theirScore?.metrics[first.metrics[partnerUid]]?.color) || '#8590a3');
+  if (!pair) return null;
+
+  const weeks = { me: 0, them: 0, draws: 0 };
+  for (const l of links) {
+    if (!l.acceptedAt || !l.startDate) continue;
+    const s = sides(l);
+    const r = race(s.mine, s.theirs, l.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn);
+    weeks.me += r.wins;
+    weeks.them += r.losses;
+    weeks.draws += r.draws;
+  }
+  const won = { me: 0, them: 0, draws: 0 };
+  for (const c of challenges) {
+    const r = result(c);
+    if (r?.status !== 'finished') continue;
+    if (r.winner === 'me') won.me++;
+    else if (r.winner === 'them') won.them++;
+    else won.draws++;
+  }
+  const rows = [
+    { label: 'Weeks won', ...weeks },
+    { label: 'Challenges won', ...won },
+  ];
+  const lead = weeks.me + won.me - (weeks.them + won.them);
+
+  return (
+    <section aria-label="Scoreboard" className="rounded-2xl border border-line bg-s1 px-4 pt-4 pb-2" data-testid="scoreboard" data-tour="compete-score">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+        <Player name={myName} who="You" hue={myHue} leader={lead > 0} />
+        <span aria-hidden className="text-[12px] font-semibold tracking-[0.2em] text-ink-3">VS</span>
+        <Player name={partnerName} who="Them" hue={theirHue} leader={lead < 0} right />
+      </div>
+      <div className="mt-3 divide-y divide-line border-t border-line">
+        {rows.map((r) => (
+          <div key={r.label} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-2" data-testid="score-row">
+            <span className={cx('text-[26px] leading-none font-semibold tabular-nums', r.me < r.them && 'text-ink-3')} aria-label={`You ${r.me}`}>{r.me}</span>
+            <span className="text-center text-[12px] text-ink-3">
+              {r.label}
+              {r.draws > 0 && <span className="block">{r.draws} drawn</span>}
+            </span>
+            <span className={cx('text-right text-[26px] leading-none font-semibold tabular-nums', r.them < r.me && 'text-ink-3')} aria-label={`${partnerName} ${r.them}`}>{r.them}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Player({ name, who, hue, leader, right }: { name: string; who: string; hue: string; leader: boolean; right?: boolean }) {
+  return (
+    <div className={cx('flex min-w-0 items-center gap-2.5', right && 'flex-row-reverse text-right')}>
+      <span
+        aria-hidden
+        className="relative grid size-10 shrink-0 place-items-center rounded-full text-[16px] font-semibold"
+        style={{ background: `color-mix(in srgb, ${hue} 22%, var(--s2))`, color: hue, boxShadow: `inset 0 0 0 1.5px color-mix(in srgb, ${hue} 55%, transparent)` }}
+      >
+        {name.trim().charAt(0).toUpperCase() || '?'}
+        {leader && <Crown size={15} className="crown-in absolute -top-2 text-[#e0a03a]" fill="currentColor" />}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-[16px] font-semibold">{name}</span>
+        <span className="block text-[12px] text-ink-3">{leader ? 'Leading' : who}</span>
+      </span>
+    </div>
+  );
+}
+
+function RacesTab({ onLink, onTeam }: { onLink: () => void; onTeam: (linkId: string) => void }) {
+  const { uid, metricById } = useData();
+  const { pair, partnerName, links } = useCompete();
+  if (!pair) return null;
+  const accepted = links.filter((l) => l.acceptedAt && metricById.has(l.metrics[uid]));
+  const myProposals = links.filter((l) => !l.acceptedAt && l.proposedBy === uid);
+  return (
+    <section aria-label="Weekly races" data-tour="compete-race">
+      {accepted.length === 0 && myProposals.length === 0 && (
+        <p className="mb-3 text-[14px] text-ink-2">Link one of your metrics to one of {partnerName}’s to start racing, like your Studying against theirs.</p>
+      )}
+      <div className="flex flex-col gap-3">
+        {accepted.map((l) => <RaceCard key={l.id} link={l} onTeam={() => onTeam(l.id)} />)}
+        {myProposals.map((l) => (
+          <div key={l.id} className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-line px-4 py-3 text-[14px]">
+            <span className="text-ink-2">Waiting for {partnerName} to pick a metric to race your {metricById.get(l.metrics[uid])?.name ?? 'metric'}.</span>
+            <Button variant="ghost" className="shrink-0 px-3" onClick={() => endLink(pair.id, l.id)}>Withdraw</Button>
+          </div>
+        ))}
+      </div>
+      <Button className="mt-3 w-full" onClick={onLink}>Link a metric</Button>
+    </section>
+  );
+}
+
+/** Past weeks per race, finished challenges, and the pair itself (name, unlink). */
+function HistoryTab() {
+  const { uid, today, metricById } = useData();
+  const { pair, partnerName, links, challenges, sides, theirScore } = useCompete();
+  const result = useChallengeResult();
+  const [allWeeks, setAllWeeks] = useState(false);
+  const [allChallenges, setAllChallenges] = useState(false);
+  const [confirmUnlink, setConfirmUnlink] = useState(false);
+  if (!pair) return null;
+
+  const weeks: { key: string; title: string; start: string; end: string; outcome: Outcome | null; score: string }[] = [];
+  for (const l of links) {
+    const metric = metricById.get(l.metrics[uid]);
+    if (!l.acceptedAt || !l.startDate || !metric) continue;
+    const s = sides(l);
+    const r = race(s.mine, s.theirs, l.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn);
+    for (const w of r.past) {
+      weeks.push({
+        key: `${l.id}:${w.start}`,
+        title: sideAt(s.mine, w.end)?.name ?? metric.name,
+        start: w.start,
+        end: w.end,
+        outcome: w.outcome,
+        score: `${formatValue(metric, w.me.total)} – ${formatValue(metric, w.them.total)}`,
+      });
+    }
+  }
+  weeks.sort((a, b) => b.start.localeCompare(a.start));
+  const done = challenges.flatMap((c) => {
+    const r = result(c);
+    return r?.status === 'finished' ? [{ c, r }] : [];
+  }).reverse();
+  const verdict = (o: Outcome | null) => (o === 'me' ? 'You won' : o === 'them' ? `${partnerName} won` : o === 'draw' ? 'Draw' : 'Waiting');
+
+  return (
+    <div className="flex flex-col gap-6">
+      <section aria-labelledby="weeks-h">
+        <h2 id="weeks-h" className="mb-1 text-[15px] font-medium">Past weeks</h2>
+        {weeks.length === 0 ? (
+          <p className="text-[14px] text-ink-2">Finished weeks show up here, with who took each one.</p>
+        ) : (
+          <ul className="divide-y divide-line border-y border-line" data-testid="past-weeks">
+            {(allWeeks ? weeks : weeks.slice(0, 6)).map((w) => (
+              <li key={w.key} className="flex items-baseline justify-between gap-3 py-2.5 text-[14px]">
+                <span className="min-w-0">
+                  <span className="block truncate">{w.title}</span>
+                  <span className="block text-[12px] text-ink-3">{formatLocalDate(w.start, 'd MMM')} – {formatLocalDate(w.end, 'd MMM')} · {w.score}</span>
+                </span>
+                <OutcomeTag outcome={w.outcome} label={verdict(w.outcome)} />
+              </li>
+            ))}
+          </ul>
         )}
-        <div className="flex flex-col gap-3">
-          {accepted.map((l) => <RaceCard key={l.id} link={l} />)}
-          {myProposals.map((l) => (
-            <div key={l.id} className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-line px-4 py-3 text-[14px]">
-              <span className="text-ink-2">Waiting for {partnerName} to pick a metric to race your {metricById.get(l.metrics[uid])?.name ?? 'metric'}.</span>
-              <Button variant="ghost" className="shrink-0 px-3" onClick={() => endLink(pair.id, l.id)}>Withdraw</Button>
-            </div>
-          ))}
-        </div>
-        <Button className="mt-3 w-full" onClick={() => setLinkSheet(true)}>Link a metric</Button>
+        {weeks.length > 6 && !allWeeks && (
+          <button type="button" className="mt-2 text-[13px] text-ink-2 underline underline-offset-2" onClick={() => setAllWeeks(true)}>Show all</button>
+        )}
       </section>
 
-      <Challenges onNew={() => setChallengeSheet(true)} canCreate={accepted.length > 0} />
+      <section aria-labelledby="done-h">
+        <h2 id="done-h" className="mb-1 text-[15px] font-medium">Finished challenges</h2>
+        {done.length === 0 ? (
+          <p className="text-[14px] text-ink-2">Nothing settled yet.</p>
+        ) : (
+          <ul className="divide-y divide-line border-y border-line" data-testid="finished-challenges">
+            {(allChallenges ? done : done.slice(0, 5)).map(({ c }) => {
+              const r = result(c)!;
+              return (
+                <li key={c.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[14px]">
+                  <span className="min-w-0">
+                    <span className="block truncate">{challengeTitleFor(c, links, uid, sides, metricById)}</span>
+                    {c.stake && <span className="block truncate text-[12px] text-ink-3">Winner got {c.stake}</span>}
+                  </span>
+                  <OutcomeTag outcome={r.winner} label={verdict(r.winner)} />
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {done.length > 5 && !allChallenges && (
+          <button type="button" className="mt-2 text-[13px] text-ink-2 underline underline-offset-2" onClick={() => setAllChallenges(true)}>Show all</button>
+        )}
+      </section>
 
-      <section className="flex flex-col gap-3 border-t border-line pt-5">
+      <section aria-labelledby="pair-h" className="flex flex-col gap-3 border-t border-line pt-5">
+        <h2 id="pair-h" className="text-[15px] font-medium">You and {partnerName}</h2>
         <NameRow />
         {confirmUnlink ? (
           <div className="rounded-lg bg-s2 p-3 text-[14px] text-ink-2">
@@ -206,14 +426,125 @@ function Paired() {
           <Button variant="ghost" onClick={() => setConfirmUnlink(true)}>Unlink from {partnerName}</Button>
         )}
       </section>
-
-      <Sheet open={linkSheet} onClose={() => setLinkSheet(false)} title="Link a metric">
-        {linkSheet && <LinkForm onDone={() => setLinkSheet(false)} />}
-      </Sheet>
-      <Sheet open={challengeSheet} onClose={() => setChallengeSheet(false)} title="New challenge">
-        {challengeSheet && <ChallengeForm onDone={() => setChallengeSheet(false)} />}
-      </Sheet>
     </div>
+  );
+}
+
+function OutcomeTag({ outcome, label }: { outcome: Outcome | null; label: string }) {
+  return (
+    <span
+      className={cx(
+        'shrink-0 rounded-full px-2.5 py-0.5 text-[13px]',
+        outcome === 'me' ? 'bg-[#e0a03a]/15 font-medium text-ink' : outcome === 'them' ? 'bg-s2 text-ink-2' : 'text-ink-3',
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+/**
+ * The metrics on each side of a race. Mine can be added and removed freely;
+ * they're summed. Theirs are listed; they change them on their own phone.
+ */
+function TeamForm({ link }: { link: Link }) {
+  const { uid, today, metrics, metricById } = useData();
+  const { pair, links, partnerUid, partnerName, theirScore } = useCompete();
+  const toast = useToast();
+  const first = metricById.get(link.metrics[uid]);
+  const used = new Set(links.flatMap((l) => sideMetricIds(l, uid)));
+  const options = first ? metrics.filter((m) => !used.has(m.id) && canJoin(m, link, first.unit)) : [];
+  const [pick, setPick] = useState(options[0]?.id ?? '');
+  const [removing, setRemoving] = useState<string | null>(null);
+  if (!pair || !first) return null;
+  const picked = options.find((m) => m.id === pick) ?? options[0];
+  const added = (link.extra?.[uid] ?? []).filter((x) => !x.removedOn);
+  const theirIds = partnerUid ? sideMetricIds(link, partnerUid) : [];
+
+  return (
+    <div className="mt-2 flex flex-col gap-5" data-testid="team-sheet">
+      <section>
+        <h3 className="text-[13px] font-medium text-ink-3">Your side</h3>
+        <ul className="mt-1 divide-y divide-line border-y border-line">
+          <TeamRow name={first.name} color={first.color} note="From the start" />
+          {added.map((x) => {
+            const m = metricById.get(x.metricId);
+            return (
+              <TeamRow key={x.metricId} name={m?.name ?? 'Deleted metric'} color={m?.color} note={`Added ${fmtDay(x.addedOn, today).toLowerCase()}`}>
+                {removing === x.metricId ? (
+                  <span className="flex gap-1">
+                    <Button variant="danger" className="min-h-9 px-3 text-[14px]" onClick={() => {
+                      removeFromSide(pair.id, link, uid, x.metricId, today);
+                      setRemoving(null);
+                      toast(`${m?.name ?? 'Metric'} taken off your side`);
+                    }}>Remove</Button>
+                    <Button variant="ghost" className="min-h-9 px-3 text-[14px]" onClick={() => setRemoving(null)}>Keep</Button>
+                  </span>
+                ) : (
+                  <Button variant="ghost" className="min-h-9 px-3 text-[14px]" onClick={() => setRemoving(x.metricId)}>Remove</Button>
+                )}
+              </TeamRow>
+            );
+          })}
+        </ul>
+        {removing && (
+          <p className="mt-1.5 text-[13px] text-ink-3">It stops counting toward this week and every challenge still running. Finished ones keep it.</p>
+        )}
+      </section>
+
+      {options.length > 0 && picked ? (
+        <form noValidate onSubmit={(e) => {
+          e.preventDefault();
+          const before = link.extra?.[uid] ?? [];
+          addToSide(pair.id, link, uid, picked.id, today);
+          toast(`${picked.name} added to your side`, { label: 'Undo', run: () => restoreSide(pair.id, link.id, uid, before) });
+        }}>
+          <Label htmlFor="t-add">Add one of yours</Label>
+          <div className="flex gap-2">
+            <select id="t-add" className={inputClass} value={picked.id} onChange={(e) => setPick(e.target.value)}>
+              {options.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <Button type="submit" variant="primary" className="shrink-0"><Plus size={17} aria-hidden /> Add</Button>
+          </div>
+        </form>
+      ) : (
+        <p className="text-[14px] text-ink-2">
+          No other {first.type === 'duration' ? 'time' : first.unit} metrics to add. Races take “at least” metrics of the same kind, each on one race at a time.
+        </p>
+      )}
+      <p className="-mt-2 text-[13px] text-ink-3">
+        Everything on your side is added together. A new one counts toward this week and every challenge still running on this race, from their
+        start; finished weeks and challenges stay as they were. A day is a target day if you hit any of their targets. {partnerName} sees their daily
+        totals, and their logs and notes during challenges.
+      </p>
+
+      <section>
+        <h3 className="text-[13px] font-medium text-ink-3">{partnerName}’s side</h3>
+        <ul className="mt-1 divide-y divide-line border-y border-line">
+          {theirIds.map((id) => {
+            const m = theirScore?.metrics[id];
+            return <TeamRow key={id} name={m?.name ?? 'Not shared yet'} color={m?.color} />;
+          })}
+        </ul>
+        <p className="mt-1.5 text-[13px] text-ink-3">{partnerName} adds theirs from their own phone.</p>
+      </section>
+    </div>
+  );
+}
+
+function TeamRow({ name, color, note, children }: { name: string; color?: string; note?: string; children?: ReactNode }) {
+  const hue = useHue(color ?? '#8590a3');
+  return (
+    <li className="flex min-h-12 items-center justify-between gap-3 py-1.5 text-[15px]" data-testid="team-row">
+      <span className="flex min-w-0 items-center gap-2.5">
+        <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ background: hue }} />
+        <span className="min-w-0">
+          <span className="block truncate">{name}</span>
+          {note && <span className="block text-[12px] text-ink-3">{note}</span>}
+        </span>
+      </span>
+      {children}
+    </li>
   );
 }
 
@@ -259,11 +590,11 @@ function NameRow() {
   );
 }
 
-/** My metrics that can go into a new link: the right kind, and not already linked or proposed. */
+/** My metrics that can go into a new link: the right kind, and not already on a side of one (linked, added or proposed). */
 function useFreeMetrics(): Metric[] {
   const { uid, metrics } = useData();
   const { links } = useCompete();
-  const used = new Set(links.map((l) => l.metrics[uid]).filter(Boolean));
+  const used = new Set(links.flatMap((l) => sideMetricIds(l, uid)));
   return metrics.filter((m) => canLink(m) && !used.has(m.id));
 }
 
@@ -339,50 +670,83 @@ function LinkRequest({ link }: { link: Link }) {
 
 // ── Weekly race ────────────────────────────────────────────────────────────
 
-function RaceCard({ link }: { link: Link }) {
+/** Names on each side of a link now. */
+function useSideNames(link: Link): { mine: string[]; theirs: string[] } {
+  const { uid, metricById } = useData();
+  const { partnerUid, theirScore } = useCompete();
+  return {
+    mine: sideMetricIds(link, uid).map((id) => metricById.get(id)?.name).filter((n): n is string => !!n),
+    theirs: partnerUid ? sideMetricIds(link, partnerUid).map((id) => theirScore?.metrics[id]?.name).filter((n): n is string => !!n) : [],
+  };
+}
+
+/** "Studying vs Study", or "Network+ & Study vs Study"; the other side only when it differs. */
+function SidesTitle({ link }: { link: Link }) {
+  const names = useSideNames(link);
+  const mine = names.mine.join(' & ');
+  const theirs = names.theirs.join(' & ');
+  return (
+    <>
+      {mine}
+      {theirs && theirs !== mine && <span className="font-normal text-ink-3"> vs {theirs}</span>}
+    </>
+  );
+}
+
+function AddMetricButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button variant="ghost" className="min-h-9 shrink-0 gap-1.5 px-2.5 text-[14px]" onClick={onClick} data-tour="compete-team">
+      <Plus size={16} aria-hidden /> Add metric
+    </Button>
+  );
+}
+
+function RaceCard({ link, onTeam }: { link: Link; onTeam: () => void }) {
   const { uid, today, metricById } = useData();
-  const { pair, partnerUid, partnerName, myName, theirScore, mine } = useCompete();
+  const { pair, partnerUid, partnerName, myName, theirScore, sides } = useCompete();
   const [confirmStop, setConfirmStop] = useState(false);
+  const names = useSideNames(link);
   const metric = metricById.get(link.metrics[uid]);
-  const theirId = partnerUid ? link.metrics[partnerUid] : undefined;
-  const theirs = theirId ? theirScore?.metrics[theirId] : undefined;
+  const theirFirst = partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
   const myHue = useHue(metric?.color ?? '#8590a3');
-  const theirHue = useHue(theirs?.color ?? '#8590a3');
-  const current = pair && metric && link.startDate
-    ? race(mine[metric.id], theirs, link.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn).current
-    : null;
+  const theirHue = useHue(theirFirst?.color ?? '#8590a3');
+  const s = sides(link);
+  const r = pair && link.startDate ? race(s.mine, s.theirs, link.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn) : null;
+  const current = r?.current;
   // Pops the verdict when the lead changes hands.
   const verdictBump = useBump(!current || current.me.total === current.them.total ? 'level' : current.me.total > current.them.total ? 'me' : 'them');
-  if (!pair || !metric || !link.startDate) return null;
+  if (!pair || !metric || !r) return null;
   const Icon = iconFor(metric.icon);
-  const r = race(mine[metric.id], theirs, link.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn);
   const { me, them } = r.current;
   const gap = me.total - them.total;
   const top = Math.max(me.total, them.total);
   const last = r.past[0];
+  const label = names.mine.join(' & ') || metric.name;
 
   return (
     <article className="rounded-xl border border-line bg-s1 p-4" data-testid="race-card">
-      <header className="flex items-center gap-2">
-        <Icon size={17} style={{ color: myHue }} aria-hidden className="shrink-0" />
-        <h3 className="truncate text-[15px] font-medium">
-          {metric.name}
-          {theirs && theirs.name !== metric.name && <span className="font-normal text-ink-3"> vs {theirs.name}</span>}
-        </h3>
+      <header className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-2 text-[15px] font-medium">
+            <Icon size={17} style={{ color: myHue }} aria-hidden className="shrink-0" />
+            <span className="min-w-0"><SidesTitle link={link} /></span>
+          </h3>
+          <p className="mt-0.5 text-[13px] text-ink-3">
+            This week · {formatLocalDate(r.current.start, 'd MMM')} – {formatLocalDate(r.current.end, 'd MMM')}
+          </p>
+        </div>
+        <AddMetricButton onClick={onTeam} />
       </header>
-      <p className="mt-0.5 text-[13px] text-ink-3">
-        This week · {formatLocalDate(r.current.start, 'd MMM')} – {formatLocalDate(r.current.end, 'd MMM')}
-      </p>
 
       <div className="mt-3 flex flex-col gap-2.5">
         <Contender label="You" value={formatValue(metric, me.total)} suffix={targetDays(me)} pct={top ? me.total / top : 0} hue={myHue} leader={gap > 0} />
-        <Contender label={partnerName} value={formatValue(theirs ?? metric, them.total)} suffix={targetDays(them)} pct={top ? them.total / top : 0} hue={theirHue} leader={gap < 0} />
+        <Contender label={partnerName} value={formatValue(metric, them.total)} suffix={targetDays(them)} pct={top ? them.total / top : 0} hue={theirHue} leader={gap < 0} />
       </div>
 
       <Bubble
         kind={raceTaunt(me.total, them.total)}
         seed={`${link.id}:${today}`}
-        facts={tauntFacts(myName, partnerName, metric, mine[metric.id], theirs, gap, today)}
+        facts={tauntFacts(myName, partnerName, { ...metric, name: label }, sideAt(s.mine, r.current.end), sideAt(s.theirs, r.current.end), gap, today)}
         myHue={myHue}
         theirHue={theirHue}
       />
@@ -398,13 +762,13 @@ function RaceCard({ link }: { link: Link }) {
           Last week:{' '}
           {last.outcome === null
             ? `waiting for ${partnerName}’s numbers`
-            : `${last.outcome === 'me' ? 'you won' : last.outcome === 'them' ? `${partnerName} won` : 'a draw'}, ${formatValue(metric, last.me.total)} to ${formatValue(theirs ?? metric, last.them.total)}`}
+            : `${last.outcome === 'me' ? 'you won' : last.outcome === 'them' ? `${partnerName} won` : 'a draw'}, ${formatValue(metric, last.me.total)} to ${formatValue(metric, last.them.total)}`}
         </p>
       )}
 
       {confirmStop ? (
         <div className="mt-3 rounded-lg bg-s2 p-3 text-[14px] text-ink-2">
-          Stop racing on {metric.name}? The weeks won so far go with it.
+          Stop racing on {label}? The weeks won so far go with it.
           <div className="mt-2 grid grid-cols-2 gap-2">
             <Button variant="danger" onClick={() => endLink(pair.id, link.id)}>Stop racing</Button>
             <Button onClick={() => setConfirmStop(false)}>Keep</Button>
@@ -547,7 +911,8 @@ const readSeen = (): string[] => {
  */
 function Results() {
   const { uid, today, metricById, dayOf } = useData();
-  const { pair, links, challenges, mine, theirScore, partnerUid, partnerName, myName, now } = useCompete();
+  const { pair, links, challenges, sides, theirScore, partnerUid, partnerName, myName } = useCompete();
+  const result = useChallengeResult();
   const [seen, setSeen] = useState(readSeen);
   if (!pair) return null;
 
@@ -555,19 +920,21 @@ function Results() {
   for (const l of links) {
     const metric = metricById.get(l.metrics[uid]);
     if (!l.acceptedAt || !l.startDate || !metric) continue;
+    const s = sides(l);
     const theirs = partnerUid ? theirScore?.metrics[l.metrics[partnerUid]] : undefined;
-    const last = race(mine[metric.id], theirs, l.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn).past[0];
+    const last = race(s.mine, s.theirs, l.startDate, today, theirScore?.asOf ?? null, pair.weekStartsOn).past[0];
     if (!last?.outcome) continue;
+    const name = sideAt(s.mine, last.end)?.name ?? metric.name;
     results.push({
       id: `week:${l.id}:${last.start}`,
       outcome: last.outcome,
-      title: last.outcome === 'me' ? `You won the week on ${metric.name}` : last.outcome === 'them' ? `${partnerName} took the week on ${metric.name}` : `The week on ${metric.name} was a draw`,
-      score: `${formatValue(metric, last.me.total)} to ${formatValue(theirs ?? metric, last.them.total)}`,
+      title: last.outcome === 'me' ? `You won the week on ${name}` : last.outcome === 'them' ? `${partnerName} took the week on ${name}` : `The week on ${name} was a draw`,
+      score: `${formatValue(metric, last.me.total)} to ${formatValue(metric, last.them.total)}`,
       kind: last.outcome === 'me' ? 'wonWeek' : last.outcome === 'them' ? 'lostWeek' : 'drewWeek',
       facts: {
         me: myName,
         them: partnerName,
-        metric: metric.name,
+        metric: name,
         gap: last.me.total !== last.them.total ? formatValue(metric, Math.abs(last.me.total - last.them.total)) : undefined,
       },
       myColor: metric.color,
@@ -577,15 +944,15 @@ function Results() {
   const recent = addDays(today, -14);
   for (const c of challenges) {
     const link = links.find((l) => l.id === c.linkId);
-    if (!link) continue;
-    const r = resultFor(c, links, uid, partnerUid, mine, theirScore, today, now);
+    const r = result(c);
+    if (!link || !r) continue;
     const first = c.kind === 'first_to' ? [r.reached.me, r.reached.them].filter((d): d is string => !!d).sort()[0] : undefined;
     const decided = first ? (isTimed(c) ? dayOf(first) : first) : challengeSpan(c, dayOf).end;
     if (r.status !== 'finished' || !r.winner || decided < recent) continue;
-    const m = mine[link.metrics[uid]];
+    const m = sideForChallenge(sides(link).mine, c);
     const theirs = partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
     const fmt = (v: number) => (c.kind === 'most_days' ? `${v} ${v === 1 ? 'day' : 'days'}` : m ? formatValue(m, v) : String(v));
-    const title = challengeTitle(c, links, uid, mine);
+    const title = challengeTitle(c, m);
     results.push({
       id: `ch:${c.id}`,
       outcome: r.winner,
@@ -593,7 +960,7 @@ function Results() {
       score: `${fmt(r.me)} to ${fmt(r.them)}`,
       kind: r.winner === 'me' ? 'wonChallenge' : r.winner === 'them' ? 'lostChallenge' : 'drewChallenge',
       facts: { me: myName, them: partnerName, metric: m?.name, gap: r.me !== r.them ? fmt(Math.abs(r.me - r.them)) : undefined },
-      myColor: m?.color ?? '#8590a3',
+      myColor: metricById.get(link.metrics[uid])?.color ?? '#8590a3',
       theirColor: theirs?.color ?? '#8590a3',
       stake: c.stake
         ? r.winner === 'me' ? `You get ${c.stake}` : r.winner === 'them' ? `${partnerName} gets ${c.stake}` : `Nobody gets ${c.stake}`
@@ -656,74 +1023,64 @@ function ResultBanner({ result, onDismiss }: { result: Result; onDismiss: () => 
 
 const LIVE: ChallengeResult['status'][] = ['active', 'upcoming', 'awaiting', 'pending'];
 
-function Challenges({ onNew, canCreate }: { onNew: () => void; canCreate: boolean }) {
-  const { uid, today } = useData();
-  const { challenges, links, mine, theirScore, partnerUid, partnerName, now } = useCompete();
-  const [showAll, setShowAll] = useState(false);
-  const withResult = challenges
-    .filter((c) => links.some((l) => l.id === c.linkId))
-    .map((c) => ({ c, r: resultFor(c, links, uid, partnerUid, mine, theirScore, today, now) }));
-  // Their open requests are shown at the top of the page instead.
-  const live = withResult.filter(({ c, r }) => LIVE.includes(r.status) && !(r.status === 'pending' && c.createdBy !== uid));
-  const done = withResult.filter(({ r }) => r.status === 'finished').reverse();
+function Challenges({ onNew, canCreate, onTeam }: { onNew: () => void; canCreate: boolean; onTeam: (linkId: string) => void }) {
+  const { uid } = useData();
+  const { challenges, links, partnerName } = useCompete();
+  const result = useChallengeResult();
+  // Their open requests are shown at the top of the page instead; finished ones are under History.
+  const live = challenges.filter((c) => {
+    const r = result(c);
+    return !!r && LIVE.includes(r.status) && !(r.status === 'pending' && c.createdBy !== uid);
+  });
+  const done = challenges.filter((c) => links.some((l) => l.id === c.linkId) && result(c)?.status === 'finished').length;
 
   return (
-    <section aria-labelledby="ch-h" data-tour="compete-challenges">
-      <h2 id="ch-h" className="mb-2 text-[15px] font-medium">Challenges</h2>
+    <section aria-label="Challenges" data-tour="compete-challenges">
       {live.length === 0 && (
         <p className="mb-3 text-[14px] text-ink-2">
           {canCreate ? `Start one: first to 20 hours, most this month, or most days hitting your target. ${partnerName} accepts it first.` : 'Link a metric first, then challenge each other on it.'}
+          {done > 0 && ` Finished ones are under History.`}
         </p>
       )}
       <div className="flex flex-col gap-3">
-        {live.map(({ c }) => <ChallengeCard key={c.id} ch={c} />)}
+        {live.map((c) => <ChallengeCard key={c.id} ch={c} onTeam={onTeam} />)}
       </div>
       <Button className="mt-3 w-full" disabled={!canCreate} onClick={onNew}>New challenge</Button>
-      {done.length > 0 && (
-        <>
-          <h3 className="mt-5 mb-1 text-[13px] font-medium text-ink-3">Finished</h3>
-          <ul className="divide-y divide-line border-y border-line" data-testid="finished-challenges">
-            {(showAll ? done : done.slice(0, 5)).map(({ c, r }) => (
-              <li key={c.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[14px]">
-                <span className="min-w-0 truncate">{challengeTitle(c, links, uid, mine)}</span>
-                <span className={cx('shrink-0', r.winner === 'me' ? 'font-medium' : 'text-ink-2')}>
-                  {r.winner === 'me' ? 'You won' : r.winner === 'them' ? `${partnerName} won` : 'Draw'}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {done.length > 5 && !showAll && (
-            <button type="button" className="mt-2 text-[13px] text-ink-2 underline underline-offset-2" onClick={() => setShowAll(true)}>Show all</button>
-          )}
-        </>
-      )}
     </section>
   );
 }
 
-function resultFor(
-  c: Challenge,
-  links: Link[],
-  uid: string,
-  partnerUid: string | null,
-  mine: Record<string, SharedMetric>,
-  theirScore: ReturnType<typeof useCompete>['theirScore'],
-  today: string,
-  now: string,
-): ChallengeResult {
-  const link = links.find((l) => l.id === c.linkId);
-  const myId = link?.metrics[uid];
-  const theirId = link && partnerUid ? link.metrics[partnerUid] : undefined;
-  return challengeResult(c, myId ? mine[myId] : undefined, theirId ? theirScore?.metrics[theirId] : undefined, today, theirScore?.asOf ?? null, now, theirScore?.updatedAt ?? null);
+/** Where a challenge stands, from both sides' metrics as they count toward it; null if its race is gone. */
+function useChallengeResult(): (c: Challenge) => ChallengeResult | null {
+  const { today } = useData();
+  const { links, sides, theirScore, now } = useCompete();
+  return (c) => {
+    const link = links.find((l) => l.id === c.linkId);
+    if (!link) return null;
+    const s = sides(link);
+    return challengeResult(c, s.mine, s.theirs, today, theirScore?.asOf ?? null, now, theirScore?.updatedAt ?? null);
+  };
 }
 
-function challengeTitle(c: Challenge, links: Link[], uid: string, mine: Record<string, SharedMetric>): string {
-  const link = links.find((l) => l.id === c.linkId);
-  const m = link ? mine[link.metrics[uid]] : undefined;
+/** "First to 20h of Network+ & Study", from my side as it counts toward the challenge. */
+function challengeTitle(c: Challenge, m: Pick<SharedMetric, 'name' | 'type' | 'unit'> | undefined): string {
   const name = m?.name ?? 'metric';
   if (c.kind === 'first_to') return `First to ${m && c.amount ? formatValue(m, c.amount) : '…'} of ${name}`;
   if (c.kind === 'most_total') return `Most ${name}`;
   return `Most ${name} target days`;
+}
+
+function challengeTitleFor(
+  c: Challenge,
+  links: Link[],
+  uid: string,
+  sides: ReturnType<typeof useCompete>['sides'],
+  metricById: Map<string, Metric>,
+): string {
+  const link = links.find((l) => l.id === c.linkId);
+  if (!link) return challengeTitle(c, undefined);
+  const first = metricById.get(link.metrics[uid]);
+  return challengeTitle(c, sideForChallenge(sides(link).mine, c) ?? first);
 }
 
 /** A calendar day and time: "Today 18:00", "Sat 18 Oct 09:30". */
@@ -734,18 +1091,24 @@ function fmtAt(iso: string, tz: string, now: string): string {
   return `${day} ${formatTimeIn(iso, tz)}`;
 }
 
-function ChallengeCard({ ch }: { ch: Challenge }) {
+function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string) => void }) {
   const { uid, today, metricById, tz } = useData();
-  const { pair, links, mine, theirScore, partnerUid, partnerName, myName, now } = useCompete();
+  const { pair, links, sides, theirScore, partnerUid, partnerName, myName, now } = useCompete();
   const toast = useToast();
+  const result = useChallengeResult();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const link = links.find((l) => l.id === ch.linkId);
   const metric = link ? metricById.get(link.metrics[uid]) : undefined;
-  const theirs = link && partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
+  const theirFirst = link && partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
   const myHue = useHue(metric?.color ?? '#8590a3');
-  const theirHue = useHue(theirs?.color ?? '#8590a3');
-  if (!pair || !link) return null;
-  const r = resultFor(ch, links, uid, partnerUid, mine, theirScore, today, now);
+  const theirHue = useHue(theirFirst?.color ?? '#8590a3');
+  const r = result(ch);
+  if (!pair || !link || !r) return null;
+  // Each side as it counts toward this challenge: one metric, or several summed.
+  const s = sides(link);
+  const myC = sideForChallenge(s.mine, ch);
+  const theirC = sideForChallenge(s.theirs, ch);
+  const theirs = theirC ?? theirFirst;
   const fmt = (v: number, m?: Pick<Metric, 'type' | 'unit'>) => (ch.kind === 'most_days' ? `${v} ${v === 1 ? 'day' : 'days'}` : formatValue(m ?? metric ?? { type: link.type, unit: '' }, v));
   const max = ch.kind === 'first_to' && ch.amount ? ch.amount : Math.max(r.me, r.them);
   const theirRequest = r.status === 'pending' && ch.createdBy !== uid;
@@ -785,7 +1148,10 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
 
   return (
     <article className={cx('rounded-xl border p-4', theirRequest ? 'border-ink-3 bg-s1' : 'border-line bg-s1')} data-testid="challenge-card">
-      <h3 className="text-[15px] font-medium">{challengeTitle(ch, links, uid, mine)}</h3>
+      <header className="flex items-start justify-between gap-2">
+        <h3 className="min-w-0 text-[15px] font-medium">{challengeTitle(ch, myC ?? metric)}</h3>
+        {(r.status === 'active' || r.status === 'upcoming') && <AddMetricButton onClick={() => onTeam(link.id)} />}
+      </header>
       <p className="mt-0.5 text-[13px] text-ink-3" data-testid="challenge-when">{when}{ch.kind === 'first_to' && ' · if nobody gets there, the higher total wins'}</p>
       {ch.stake && (
         <p className="mt-2 flex items-start gap-1.5 text-[14px]" data-testid="challenge-stake">
@@ -803,14 +1169,14 @@ function ChallengeCard({ ch }: { ch: Challenge }) {
         <Bubble
           kind={tauntKind}
           seed={`${ch.id}:${today}`}
-          facts={tauntFacts(myName, partnerName, metric, mine[metric.id], theirs, r.me - r.them, today, (v) => fmt(v))}
+          facts={tauntFacts(myName, partnerName, myC ?? metric, myC, theirC, r.me - r.them, today, (v) => fmt(v))}
           myHue={myHue}
           theirHue={theirHue}
         />
       )}
       <p className="mt-3 text-[14px] font-medium" data-testid="challenge-verdict">{verdict}</p>
       {metric && (r.status === 'active' || r.status === 'awaiting') && (
-        <ChallengeLogs ch={ch} metric={metric} theirs={theirs} myHue={myHue} theirHue={theirHue} />
+        <ChallengeLogs ch={ch} metric={metric} mine={myC} theirs={theirC} myHue={myHue} theirHue={theirHue} />
       )}
 
       {theirRequest ? (
@@ -842,11 +1208,11 @@ const SRC_LABEL: Record<SharedLog['src'], string> = { t: 'timer', m: 'added', q:
  * challenge so far. Mine come from my live data; theirs from what their app
  * last published.
  */
-function ChallengeLogs({ ch, metric, theirs, myHue, theirHue }: {
-  ch: Challenge; metric: Metric; theirs: SharedMetric | undefined; myHue: string; theirHue: string;
+function ChallengeLogs({ ch, metric, mine, theirs, myHue, theirHue }: {
+  ch: Challenge; metric: Metric; mine: SharedMetric | undefined; theirs: SharedMetric | undefined; myHue: string; theirHue: string;
 }) {
   const { today, dayOf } = useData();
-  const { mine, partnerName, theirScore } = useCompete();
+  const { partnerName, theirScore } = useCompete();
   const span = challengeSpan(ch, dayOf);
   const last = span.end < today ? span.end : today;
   const [day, setDay] = useState(last);
@@ -887,7 +1253,7 @@ function ChallengeLogs({ ch, metric, theirs, myHue, theirHue }: {
           </button>
         </div>
       </div>
-      <LogList who="You" logs={inside(mine[metric.id]?.logs?.[shown]) ?? []} counted={counted} metric={metric} hue={myHue} />
+      <LogList who="You" logs={inside(mine?.logs?.[shown]) ?? []} counted={counted} metric={metric} hue={myHue} />
       <LogList who={partnerName} logs={theirLogs ?? []} counted={counted} metric={theirs ?? metric} hue={theirHue} empty={theirNote} />
     </section>
   );
@@ -922,7 +1288,7 @@ function LogList({ who, logs, counted, metric, hue, empty }: {
                 <span className="flex min-w-0 items-center gap-1.5 text-ink-2 tabular-nums">
                   {l.src === 't' && <Timer size={13} aria-hidden className="shrink-0 self-center" />}
                   {l.src === 't' ? `${formatTimeIn(l.at, tz)}–${formatTimeIn(new Date(Date.parse(l.at) + l.v * 1000).toISOString(), tz)}` : formatTimeIn(l.at, tz)}
-                  <span className="text-[12px] text-ink-3">{SRC_LABEL[l.src]}</span>
+                  <span className="text-[12px] text-ink-3">{SRC_LABEL[l.src]}{l.m && ` · ${l.m}`}</span>
                 </span>
                 <span className="shrink-0 font-medium">
                   +{formatValue(metric, counted(l))}
@@ -963,7 +1329,7 @@ const STAKE_MAX = 60;
 
 function ChallengeForm({ onDone }: { onDone: () => void }) {
   const { uid, today, metricById, tz, dayOf } = useData();
-  const { pair, links, partnerUid, partnerName, theirScore, now } = useCompete();
+  const { pair, links, sides, partnerName, now } = useCompete();
   const toast = useToast();
   const accepted = links.filter((l) => l.acceptedAt && l.startDate && metricById.has(l.metrics[uid]));
   const [linkId, setLinkId] = useState(accepted[0]?.id ?? '');
@@ -980,9 +1346,11 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
 
   const link = accepted.find((l) => l.id === linkId);
   const metric = link ? metricById.get(link.metrics[uid]) : undefined;
-  const theirs = link && partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
-  // Target days need a target on both sides (theirs is only known once they've published).
-  const noTargets = metric?.target == null || (theirs !== undefined && theirs.target == null);
+  const s = link ? sides(link) : null;
+  const myNow = s ? sideAt(s.mine, today) : undefined;
+  const theirs = s ? sideAt(s.theirs, today) : undefined;
+  // Target days need a target on both sides, on any of their metrics (theirs is only known once they've published).
+  const noTargets = myNow?.target == null || (theirs !== undefined && theirs.target == null);
   // Target days are whole days, so times don't apply to them.
   const timed = withTimes && kind !== 'most_days';
 
@@ -991,7 +1359,7 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
     if (!link || !metric) errs.link = 'Choose a race.';
     const amount = kind === 'first_to' && metric ? parseAmount(metric.type, amountText) : null;
     if (kind === 'first_to' && !(amount && amount > 0)) errs.amount = metric?.type === 'count' ? `Enter a whole number of ${metric.unit}.` : 'Enter an amount in hours.';
-    if (kind === 'most_days' && noTargets) errs.kind = 'Both metrics need a daily target for this one.';
+    if (kind === 'most_days' && noTargets) errs.kind = 'Both sides need a daily target for this one.';
     const raceStart = link?.startDate ? `Pick ${formatLocalDate(link.startDate, 'd MMM')} or later, when this race started.` : '';
     let times: { startAt: string; endAt: string; startDate: string; endDate: string } | null = null;
     if (timed) {
@@ -1034,7 +1402,7 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
         <div>
           <Label htmlFor="ch-link">Race</Label>
           <select id="ch-link" className={inputClass} value={linkId} onChange={(e) => setLinkId(e.target.value)}>
-            {accepted.map((l) => <option key={l.id} value={l.id}>{metricById.get(l.metrics[uid])?.name}</option>)}
+            {accepted.map((l) => <option key={l.id} value={l.id}>{sideAt(sides(l).mine, today)?.name ?? metricById.get(l.metrics[uid])?.name}</option>)}
           </select>
           <FieldError>{errors.link}</FieldError>
         </div>

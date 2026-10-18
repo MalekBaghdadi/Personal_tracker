@@ -3,7 +3,10 @@ import { getDocFromCache, getDocsFromCache, onSnapshot, query, setDoc, updateDoc
 import { useData } from './DataContext';
 import { nowIso } from '../lib/dates';
 import { competePaths, publishScore } from '../lib/competeRepo';
-import { challengeDays, isTimed, sharesLogs, shareLogs, shareMetric, type Challenge, type Invite, type Link, type Pair, type Score, type SharedMetric } from '../lib/compete';
+import {
+  challengeDays, everSideMetricIds, isTimed, sharesLogs, shareLogs, shareMetric, teamOf,
+  type Challenge, type Invite, type Link, type Pair, type Score, type SharedMetric, type Team,
+} from '../lib/compete';
 
 interface Compete {
   /** All listeners have answered at least once (from cache or server). */
@@ -22,6 +25,8 @@ interface Compete {
   theirScore: Score | null;
   /** My linked metrics as they'd be published, from live data (fresher than my own score doc). */
   mine: Record<string, SharedMetric>;
+  /** Both sides of a link as teams (one metric or several), mine from live data, theirs from their last publish. */
+  sides: (link: Link) => { mine: Team; theirs: Team };
   /** The current instant, updated every 30 seconds: timed challenges start and end by it. */
   now: string;
   /** The partner's name if a log on this metric and day is shared with them (a challenge day), else null. */
@@ -95,33 +100,36 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
     return () => unsubs.forEach((u) => u());
   }, [pairId]);
 
-  // Days whose individual logs are shared, per metric of mine: its link's challenge days.
+  // Days whose individual logs are shared, per metric of mine: its link's
+  // challenge days, for every metric that's been on my side of it.
   const logDays = useMemo(() => {
     const out = new Map<string, Set<string>>();
     for (const l of links) {
-      const metricId = l.metrics[uid];
-      if (!l.acceptedAt || !metricId) continue;
+      if (!l.acceptedAt) continue;
       const days = challengeDays(challenges, l.id, today, dayOf);
-      if (days.size) out.set(metricId, days);
+      if (days.size) for (const id of everSideMetricIds(l, uid)) out.set(id, days);
     }
     return out;
   }, [links, challenges, uid, today, dayOf]);
 
-  // What this account publishes: each accepted link's metric, from the week it
-  // started, plus its logs on challenge days.
+  // What this account publishes: every metric that's been on my side of an
+  // accepted link (removed ones still settle what finished before), from the
+  // week it started, plus their logs on challenge days.
   const mine = useMemo(() => {
     const out: Record<string, SharedMetric> = {};
     for (const l of links) {
-      const metricId = l.metrics[uid];
-      const metric = metricId ? metricById.get(metricId) : undefined;
-      if (!l.acceptedAt || !l.startDate || !metric) continue;
-      const stats = dayStats.get(metric.id) ?? new Map();
-      // Like Stats: a metric counts from its creation, or its first entry if backfilled.
-      let since = dayOf(metric.createdAt);
-      for (const d of stats.keys()) if (d < since) since = d;
-      out[metric.id] = shareMetric(metric, stats, l.startDate, today, weekStartsOn, since);
-      const days = logDays.get(metric.id);
-      if (days) out[metric.id].logs = shareLogs(entries.filter((e) => e.metricId === metric.id), days);
+      if (!l.acceptedAt || !l.startDate) continue;
+      for (const id of everSideMetricIds(l, uid)) {
+        const metric = metricById.get(id);
+        if (!metric) continue;
+        const stats = dayStats.get(metric.id) ?? new Map();
+        // Like Stats: a metric counts from its creation, or its first entry if backfilled.
+        let since = dayOf(metric.createdAt);
+        for (const d of stats.keys()) if (d < since) since = d;
+        out[metric.id] = shareMetric(metric, stats, l.startDate, today, weekStartsOn, since);
+        const days = logDays.get(metric.id);
+        if (days) out[metric.id].logs = shareLogs(entries.filter((e) => e.metricId === metric.id), days);
+      }
     }
     return out;
   }, [links, uid, metricById, dayStats, entries, logDays, today, weekStartsOn, dayOf]);
@@ -149,6 +157,7 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
   }, [pairId, mine, myScore, uid, today, endedSincePublish]);
 
   const partnerUid = pair?.members.find((m) => m !== uid) ?? null;
+  const theirScore = partnerUid ? scores.get(partnerUid) ?? null : null;
   const invite = (invites ?? []).filter((i) => i.expiresAt > now).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
 
   const value: Compete = {
@@ -160,8 +169,9 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
     myName: pair?.names[uid] || 'You',
     links,
     challenges,
-    theirScore: partnerUid ? scores.get(partnerUid) ?? null : null,
+    theirScore,
     mine,
+    sides: (link) => ({ mine: teamOf(link, uid, mine), theirs: partnerUid ? teamOf(link, partnerUid, theirScore?.metrics) : { members: [] } }),
     now,
     sharedWith: (metricId, localDate) =>
       logDays.get(metricId)?.has(localDate) ? (partnerUid && pair?.names[partnerUid]) || 'Them' : null,

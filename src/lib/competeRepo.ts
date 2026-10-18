@@ -2,7 +2,7 @@ import { collection, deleteDoc, doc, getDocFromServer, setDoc, updateDoc, writeB
 import { db } from './firebase';
 import { uuid } from './device';
 import { nowIso } from './dates';
-import { newInviteCode, type Challenge, type ChallengeKind, type Invite, type Link, type Pair, type Score } from './compete';
+import { newInviteCode, type Challenge, type ChallengeKind, type Invite, type Link, type LinkMember, type Pair, type Score } from './compete';
 import type { MetricType } from './types';
 
 /*
@@ -116,6 +116,24 @@ export function proposeLink(pairId: string, uid: string, metricId: string, type:
 /** `startDate` is the first day of this week, so this week's race already counts. */
 export function acceptLink(pairId: string, linkId: string, uid: string, metricId: string, startDate: string): void {
   fire(updateDoc(competePaths.link(pairId, linkId), { [`metrics.${uid}`]: metricId, acceptedAt: nowIso(), startDate }));
+}
+
+/** Add one of my metrics to my side of a link. Re-adding a removed one starts a new entry. */
+export function addToSide(pairId: string, link: Link, uid: string, metricId: string, today: string): void {
+  const member: LinkMember = { metricId, addedOn: today, addedAt: nowIso(), removedOn: null, removedAt: null };
+  fire(updateDoc(competePaths.link(pairId, link.id), { [`extra.${uid}`]: [...(link.extra?.[uid] ?? []), member] }));
+}
+
+/** Put my side's added metrics back as they were (Undo). */
+export function restoreSide(pairId: string, linkId: string, uid: string, members: LinkMember[]): void {
+  fire(updateDoc(competePaths.link(pairId, linkId), { [`extra.${uid}`]: members }));
+}
+
+/** Take an added metric off my side. The entry stays, so finished weeks and challenges keep counting it. */
+export function removeFromSide(pairId: string, link: Link, uid: string, metricId: string, today: string): void {
+  const now = nowIso();
+  const members = (link.extra?.[uid] ?? []).map((x) => (x.metricId === metricId && !x.removedOn ? { ...x, removedOn: today, removedAt: now } : x));
+  fire(updateDoc(competePaths.link(pairId, link.id), { [`extra.${uid}`]: members }));
 }
 
 /** Decline a proposal, withdraw one, or stop racing on an accepted link. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { challengeDays, challengeResult, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type SharedDay, type SharedLog, type SharedMetric } from './compete';
+import { canJoin, challengeDays, challengeResult, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
 import type { DayStats, Entry, Metric } from './types';
 
 // 2026-10-05 is a Monday.
@@ -287,5 +287,81 @@ describe('shared logs', () => {
     // No undefined fields: Firestore refuses them.
     expect(JSON.stringify(logs)).not.toContain('undefined');
     expect('note' in logs['2026-10-06'][1]).toBe(false);
+  });
+});
+
+describe('sides with several metrics', () => {
+  const study = { ...shared({ '2026-10-12': H, '2026-10-13': 0 }), name: 'Study' };
+  const netplus = { ...shared({ '2026-10-06': 2 * H, '2026-10-12': 1800, '2026-10-13': H }), name: 'Network+' };
+  const link = (extra: LinkMember[]): Link => ({
+    id: 'l1', metrics: { a: 'net', b: 'their' }, type: 'duration', proposedBy: 'a', createdAt: 'x', acceptedAt: 'y', startDate: '2026-09-28', endedAt: null,
+    extra: { a: extra },
+  });
+  const added = (on: string, removedOn: string | null = null): LinkMember => ({
+    metricId: 'study', addedOn: on, addedAt: `${on}T12:00:00.000Z`, removedOn, removedAt: removedOn ? `${removedOn}T12:00:00.000Z` : null,
+  });
+  const metrics = { net: netplus, study };
+
+  it('sums daily totals; a day is a target day if any metric met its target', () => {
+    const c = combine([netplus, study])!;
+    expect(c.name).toBe('Network+ & Study');
+    expect(c.days['2026-10-12']).toEqual({ t: H + 1800, s: 'h' }); // Study met, Network+ didn't
+    expect(c.days['2026-10-13']).toEqual({ t: H, s: 'h' });
+    expect(c.days['2026-10-06']).toEqual({ t: 2 * H, s: 'h' });
+  });
+  it('a day with every target missed is a miss; rest beats not due', () => {
+    const a = shared({ '2026-10-05': { t: 0, s: 'd' }, '2026-10-06': { t: 0, s: 'r' } });
+    const b = shared({ '2026-10-05': { t: 600, s: 'd' }, '2026-10-06': { t: 300, s: 'o' } });
+    expect(combine([a, b])!.days).toEqual({ '2026-10-05': { t: 600, s: 'd' }, '2026-10-06': { t: 300, s: 'r' } });
+  });
+  it('merges logs oldest first, tagged with their metric', () => {
+    const a = { ...netplus, logs: { '2026-10-12': [{ v: 1800, at: '2026-10-12T15:00:00Z', src: 'm' as const }] } };
+    const b = { ...study, logs: { '2026-10-12': [{ v: H, at: '2026-10-12T09:00:00Z', src: 't' as const }] } };
+    expect(combine([a, b])!.logs).toEqual({ '2026-10-12': [
+      { v: H, at: '2026-10-12T09:00:00Z', src: 't', m: 'Study' },
+      { v: 1800, at: '2026-10-12T15:00:00Z', src: 'm', m: 'Network+' },
+    ] });
+  });
+  it('one metric passes through unchanged', () => {
+    expect(combine([netplus])).toBe(netplus);
+    expect(combine([])).toBeUndefined();
+  });
+  it('lists the ids on a side now, and every one it ever had', () => {
+    expect(sideMetricIds(link([added('2026-10-12')]), 'a')).toEqual(['net', 'study']);
+    expect(sideMetricIds(link([added('2026-10-12', '2026-10-13')]), 'a')).toEqual(['net']);
+    expect(everSideMetricIds(link([added('2026-10-12', '2026-10-13')]), 'a')).toEqual(['net', 'study']);
+    expect(sideMetricIds(link([]), 'b')).toEqual(['their']);
+  });
+  it('an added metric counts this week from its start, not finished weeks', () => {
+    const team = teamOf(link([added('2026-10-13')]), 'a', metrics);
+    const r = race(team, shared({}), '2026-10-05', '2026-10-14', '2026-10-14', 1);
+    expect(r.current.me.total).toBe(1800 + H + H); // Monday's Study hour counts too
+    expect(r.past[0].me.total).toBe(2 * H); // last week: Network+ only
+  });
+  it('removing it takes it out of the running week but not finished ones', () => {
+    const team = teamOf(link([added('2026-10-06', '2026-10-13')]), 'a', { ...metrics, study: { ...study, days: { ...study.days, '2026-10-07': { t: H, s: 'h' } } } });
+    const r = race(team, shared({}), '2026-10-05', '2026-10-14', '2026-10-14', 1);
+    expect(r.past[0].me.total).toBe(3 * H);
+    expect(r.current.me.total).toBe(1800 + H);
+  });
+  it('an added metric joins a challenge still running, from its start', () => {
+    const team = teamOf(link([added('2026-10-13')]), 'a', metrics);
+    const running = challengeResult(challenge({ startDate: '2026-10-12', endDate: '2026-10-18' }), team, shared({}), '2026-10-14', '2026-10-14');
+    expect(running.me).toBe(1800 + H + H);
+    const finished = challengeResult(challenge({ startDate: '2026-10-05', endDate: '2026-10-11' }), team, shared({}), '2026-10-14', '2026-10-14');
+    expect(finished.me).toBe(2 * H);
+  });
+  it('with times, it counts if added before the end instant', () => {
+    const m = { metricId: 'study', addedOn: '2026-10-13', addedAt: '2026-10-13T18:00:00Z', removedOn: null, removedAt: null };
+    expect(counts({ metric: study, ...m }, '2026-10-13', '2026-10-13T20:00:00Z')).toBe(true);
+    expect(counts({ metric: study, ...m }, '2026-10-13', '2026-10-13T17:00:00Z')).toBe(false);
+  });
+  it('time metrics join time ones; counts only with the same unit', () => {
+    const pages = metric({ id: 'p', type: 'count', unit: 'pages' });
+    expect(canJoin(metric({ id: 's' }), { type: 'duration' }, 'h')).toBe(true);
+    expect(canJoin(pages, { type: 'duration' }, 'h')).toBe(false);
+    expect(canJoin(pages, { type: 'count' }, 'Pages')).toBe(true);
+    expect(canJoin(pages, { type: 'count' }, 'chapters')).toBe(false);
+    expect(canJoin(metric({ targetDirection: 'at_most' }), { type: 'duration' }, 'h')).toBe(false);
   });
 });

@@ -53,6 +53,22 @@ export interface Link {
   startDate: string | null;
   /** Declined, or removed later. */
   endedAt: string | null;
+  /**
+   * uid → more of that member's metrics added to their side, each summed into
+   * it. A member adds or removes their own freely; see `counts` for which
+   * weeks and challenges each one is part of. Absent: just `metrics`.
+   */
+  extra?: Record<string, LinkMember[]>;
+}
+
+/** A metric added to one side of a link after the start. Removing it keeps the entry, with `removedOn` set. */
+export interface LinkMember {
+  metricId: string;
+  /** The adder's tracking day and the instant it was added. */
+  addedOn: string;
+  addedAt: string;
+  removedOn: string | null;
+  removedAt: string | null;
 }
 
 export type ChallengeKind = 'first_to' | 'most_total' | 'most_days';
@@ -100,6 +116,8 @@ export interface SharedLog {
   at: string;
   src: 't' | 'm' | 'q';
   note?: string;
+  /** Which metric, on a side with several (set when combining, never published). */
+  m?: string;
 }
 
 /** One linked metric as its owner publishes it. Days not listed: nothing logged, not due. */
@@ -126,6 +144,10 @@ export interface Score {
 /** A metric can be raced on when more is better; a ceiling (calories) has no sensible winner. */
 export const canLink = (m: Metric): boolean => !m.archivedAt && m.targetDirection === 'at_least';
 
+/** A metric can be added to a side when it can be summed with it: time with time, or counts of the same unit. */
+export const canJoin = (m: Metric, link: Pick<Link, 'type'>, unit: string): boolean =>
+  canLink(m) && m.type === link.type && (m.type === 'duration' || m.unit.trim().toLowerCase() === unit.trim().toLowerCase());
+
 /**
  * What the owner publishes for one metric, from `from` through today. Rest
  * days follow the metric's weekly allowance and the owner's own week start,
@@ -149,6 +171,108 @@ export function shareMetric(metric: Metric, stats: DayStats, from: string, today
   }
   return { name: metric.name, type: metric.type, unit: metric.unit, target: metric.target, color: metric.color, icon: metric.icon, days };
 }
+
+// ── Sides with several metrics ─────────────────────────────────────────────
+
+/** One metric on a side of a link. Null dates: there from the start, never removed. */
+export interface TeamMember {
+  metric: SharedMetric | undefined;
+  addedOn: string | null;
+  addedAt: string | null;
+  removedOn: string | null;
+  removedAt: string | null;
+}
+
+/** One side of a link: its first metric, then any added later, summed. */
+export interface Team {
+  members: TeamMember[];
+}
+
+/** The metric ids on one side of a link now, the first one first. */
+export function sideMetricIds(link: Link, uid: string): string[] {
+  const more = (link.extra?.[uid] ?? []).filter((x) => !x.removedOn).map((x) => x.metricId);
+  return link.metrics[uid] ? [link.metrics[uid], ...more] : more;
+}
+
+/** Every metric ever on one side, removed ones too: they still count toward what finished before they left. */
+export function everSideMetricIds(link: Link, uid: string): string[] {
+  const ids = [link.metrics[uid], ...(link.extra?.[uid] ?? []).map((x) => x.metricId)].filter(Boolean);
+  return [...new Set(ids)];
+}
+
+/** One side of a link as a team, its metrics looked up in that member's published (or live) summary. */
+export function teamOf(link: Link, uid: string, metrics: Record<string, SharedMetric> | undefined): Team {
+  const members: TeamMember[] = [];
+  if (link.metrics[uid]) members.push({ metric: metrics?.[link.metrics[uid]], addedOn: null, addedAt: null, removedOn: null, removedAt: null });
+  for (const x of link.extra?.[uid] ?? []) {
+    members.push({ metric: metrics?.[x.metricId], addedOn: x.addedOn, addedAt: x.addedAt, removedOn: x.removedOn, removedAt: x.removedAt });
+  }
+  return { members };
+}
+
+/**
+ * Whether a metric is part of a week or challenge ending on `end` (at
+ * `endAt`, for one with times): added before it was over, and not removed
+ * before it was over. So adding one counts it toward this week and every
+ * challenge still running, from their start, and finished ones stay as they
+ * were; removing one takes it out of whatever is still running.
+ */
+export function counts(x: TeamMember, end: string, endAt?: string): boolean {
+  if (endAt) return (!x.addedAt || x.addedAt <= endAt) && (!x.removedAt || x.removedAt > endAt);
+  return (!x.addedOn || x.addedOn <= end) && (!x.removedOn || x.removedOn > end);
+}
+
+// A day's status on a side: any target met makes it a target day; else any due day is a miss.
+const STATUS_RANK: DayStatus[] = ['h', 'd', 'r', 'o', 'n'];
+
+/**
+ * Several metrics as one: daily totals summed, a day is a target day if any
+ * of them met its target, and logs merged (each tagged with its metric).
+ * They're all the same type, so the first one's type and unit hold.
+ */
+export function combine(metrics: SharedMetric[]): SharedMetric | undefined {
+  if (metrics.length <= 1) return metrics[0];
+  const days: Record<string, SharedDay> = {};
+  for (const m of metrics) {
+    for (const [d, day] of Object.entries(m.days)) {
+      const cur = days[d];
+      days[d] = !cur ? { ...day } : { t: cur.t + day.t, s: STATUS_RANK.indexOf(day.s) < STATUS_RANK.indexOf(cur.s) ? day.s : cur.s };
+    }
+  }
+  let logs: Record<string, SharedLog[]> | undefined;
+  for (const m of metrics) {
+    if (!m.logs) continue;
+    logs ??= {};
+    for (const [d, list] of Object.entries(m.logs)) (logs[d] ??= []).push(...list.map((l) => ({ ...l, m: m.name })));
+  }
+  for (const list of Object.values(logs ?? {})) list.sort((a, b) => a.at.localeCompare(b.at));
+  return {
+    ...metrics[0],
+    name: metrics.map((m) => m.name).join(' & '),
+    target: metrics.find((m) => m.target != null)?.target ?? null,
+    days,
+    ...(logs ? { logs } : {}),
+  };
+}
+
+/** A side as it stood for a week or challenge ending on `end` (at `endAt`): the metrics that count, combined. */
+export function teamFor(team: Team, end: string, endAt?: string): SharedMetric | undefined {
+  return combine(team.members.filter((x) => x.metric && counts(x, end, endAt)).map((x) => x.metric!));
+}
+
+/** A side: one metric, or a team of them. */
+export type SideInput = SharedMetric | Team | undefined;
+
+const isTeam = (x: SideInput): x is Team => !!x && 'members' in x;
+
+/** A side for a period ending on `end` (at `endAt`). */
+export function sideAt(x: SideInput, end: string, endAt?: string): SharedMetric | undefined {
+  return isTeam(x) ? teamFor(x, end, endAt) : x;
+}
+
+/** A side for a challenge: what counts toward it. */
+export const sideForChallenge = (x: SideInput, c: Challenge): SharedMetric | undefined =>
+  sideAt(x, c.endDate, isTimed(c) ? c.endAt : undefined);
 
 /** A challenge both sides agreed to and nobody called off: its days share logs. */
 export const sharesLogs = (c: Challenge): boolean => !!c.acceptedAt && !c.declinedAt && !c.cancelledAt;
@@ -281,8 +405,8 @@ export interface Race {
  * after it; until then its outcome is null and it isn't in the tally.
  */
 export function race(
-  mine: SharedMetric | undefined,
-  theirs: SharedMetric | undefined,
+  mine: SideInput,
+  theirs: SideInput,
   startDate: string,
   today: string,
   theirAsOf: string | null,
@@ -295,8 +419,8 @@ export function race(
   let draws = 0;
   for (let w = weekOf(startDate, weekStartsOn); w < thisWeek; w = addDays(w, 7)) {
     const end = addDays(w, 6);
-    const me = sideFor(mine, w, end, today);
-    const them = sideFor(theirs, w, end, theirAsOf ?? w);
+    const me = sideFor(sideAt(mine, end), w, end, today);
+    const them = sideFor(sideAt(theirs, end), w, end, theirAsOf ?? w);
     const outcome = theirAsOf !== null && theirAsOf > end ? weekOutcome(me, them) : null;
     if (outcome === 'me') wins++;
     else if (outcome === 'them') losses++;
@@ -307,8 +431,8 @@ export function race(
   const current: WeekResult = {
     start: thisWeek,
     end,
-    me: sideFor(mine, thisWeek, end, today),
-    them: sideFor(theirs, thisWeek, end, theirAsOf ?? thisWeek),
+    me: sideFor(sideAt(mine, end), thisWeek, end, today),
+    them: sideFor(sideAt(theirs, end), thisWeek, end, theirAsOf ?? thisWeek),
     outcome: null,
   };
   return { current, past, wins, losses, draws };
@@ -352,13 +476,15 @@ function reachedOn(m: SharedMetric | undefined, from: string, to: string, amount
  */
 export function challengeResult(
   ch: Challenge,
-  mine: SharedMetric | undefined,
-  theirs: SharedMetric | undefined,
+  mineSide: SideInput,
+  theirSide: SideInput,
   today: string,
   theirAsOf: string | null,
   now: string = new Date().toISOString(),
   theirUpdatedAt: string | null = null,
 ): ChallengeResult {
+  const mine = sideForChallenge(mineSide, ch);
+  const theirs = sideForChallenge(theirSide, ch);
   if (isTimed(ch)) return timedResult(ch, mine, theirs, theirAsOf, now, theirUpdatedAt);
   const to = today < ch.endDate ? today : ch.endDate;
   const meSide = sideFor(mine, ch.startDate, to, today);

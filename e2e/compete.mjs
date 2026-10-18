@@ -16,7 +16,7 @@ for (let i = 0; i < 60; i++) {
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: true });
 const page = await browser.newPage();
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-// Headless Chrome reports reduced motion; this suite checks the animations, so turn motion on.
+// The other suites ask for reduced motion; this one checks the animations, so turn motion on.
 await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -45,6 +45,16 @@ const until = async (check, ms = 8000) => {
     await wait(250);
   }
   return false;
+};
+// Compete's tabs: Races, Challenges (with a count), History.
+const tab = async (name) => {
+  const ok = await page.evaluate((n) => {
+    const b = [...document.querySelectorAll('[data-testid="compete-tabs"] [role=radio]')].find((x) => x.innerText.trim().startsWith(n));
+    b?.click();
+    return !!b;
+  }, name);
+  if (!ok) console.log(`FAILED: no tab "${name}"`);
+  await wait(400);
 };
 const fitsPhone = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 const card = (id) => page.evaluate((i) => [...document.querySelectorAll(`[data-testid="${i}"]`)].map((e) => e.innerText).join('\n---\n'), id);
@@ -113,9 +123,11 @@ try {
 
   // ── Paired (Cousin plays the partner) ──
   await hook('pair', 'Cousin');
-  log('Header shows the pair:', await until(async () => (await text()).includes('you vs Cousin')));
+  log('Scoreboard shows the pair:', await until(async () => (await card('scoreboard')).includes('Cousin') && (await card('scoreboard')).includes('Weeks won')));
   log('No numbers from them yet:', (await text()).includes('Cousin hasn’t shared any numbers yet'));
+  await tab('Challenges');
   log('New challenge disabled before a link:', await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.innerText.includes('New challenge'))?.disabled === true));
+  await tab('Races');
 
   await pressText('Link a metric');
   log('Link sheet lists Studying:', (await page.$eval('#l-metric', (e) => e.innerText)).includes('Studying (time)'));
@@ -161,8 +173,53 @@ try {
   await shot('cp-04b-loss-banner');
   await pressText('Ugh, fine');
   log('Dismissed banner stays gone:', !(await text()).includes('took the week'));
+  log('Scoreboard: weeks won 0 to 1:', /0\s*Weeks won\s*1/.test(await card('scoreboard')));
   log('Fits a phone:', await fitsPhone());
   await shot('cp-04-race');
+
+  // ── More than one metric on my side: Network+ joins Studying ──
+  await page.goto('http://localhost:5173/#/metrics');
+  await wait(600);
+  await click('::-p-text(New metric)');
+  await page.type('#m-name', 'Network+');
+  await page.type('#m-target-h', '1');
+  await click('::-p-text(Create metric)');
+  await wait(500);
+  await page.goto('http://localhost:5173/#/today');
+  await wait(600);
+  await click('::-p-aria(Add a custom amount to Network+)');
+  await page.type('#entry-h', '1');
+  await click('dialog[open] button[type=submit]');
+  await wait(400);
+  await page.goto('http://localhost:5173/#/compete');
+  await wait(800);
+  log('Still behind before adding it:', (await card('race-card')).includes('Cousin is 1h ahead'));
+  await pressText('Add metric', '[data-testid="race-card"]');
+  log('Sheet lists my side and theirs:', await until(async () => {
+    const t = await card('team-sheet');
+    return t.includes('Your side') && t.includes('Studying') && t.includes('Cousin’s side') && t.includes('Study');
+  }));
+  log('Network+ offered to add:', (await page.$eval('#t-add', (e) => e.innerText)).includes('Network+'));
+  await shot('cp-04c-team-sheet');
+  await pressText('Add', 'dialog[open]');
+  log('Network+ now on my side:', await until(async () => (await card('team-sheet')).includes('Added today')));
+  await page.keyboard.press('Escape');
+  await wait(400);
+  log('Card names both of mine:', await until(async () => (await card('race-card')).includes('Studying & Network+ vs Study')));
+  log('Both summed this week, level at 3h:', /You\s*3h/.test(await card('race-card')) && (await card('race-verdict')).includes('Level'));
+  log('Both published:', await until(async () => Object.keys((await hook('myScore'))?.metrics ?? {}).length === 2, 6000));
+  log('Last week unchanged (still their win):', (await card('race-card')).includes('Last week: Cousin won'));
+  log('Fits a phone:', await fitsPhone());
+  await shot('cp-04d-two-metrics');
+  // Take it off again: it stops counting this week.
+  await pressText('Add metric', '[data-testid="race-card"]');
+  await pressText('Remove', '[data-testid="team-sheet"]');
+  log('Removing asks first:', (await card('team-sheet')).includes('stops counting toward this week'));
+  await pressText('Remove', '[data-testid="team-sheet"]');
+  log('Network+ off my side:', await until(async () => !(await card('team-sheet')).includes('Added today')));
+  await page.keyboard.press('Escape');
+  await wait(400);
+  log('Back to Studying alone, 1h behind:', await until(async () => (await card('race-verdict')).includes('Cousin is 1h ahead') && !(await card('race-card')).includes('Network+')));
 
   // Their request on a count metric I don't have.
   await hook('proposeLink', 'L-count', 'their-pushups', 'count');
@@ -172,6 +229,7 @@ try {
   log('Declined request goes away:', await until(async () => !(await text()).includes('wants to race')));
 
   // ── Challenges ──
+  await tab('Challenges');
   await pressText('New challenge');
   await page.type('#ch-amount', 'abc');
   await pressText('Send challenge', 'dialog[open]');
@@ -250,9 +308,14 @@ try {
     id: 'C-done', linkId, kind: 'most_total', amount: null, startDate: LAST_MON, endDate: LAST_SUN,
     createdBy: '', createdAt: new Date(Date.now() - 1000).toISOString(), acceptedAt: new Date().toISOString(), declinedAt: null, cancelledAt: null,
   });
-  log('Finished list shows the winner:', await until(async () => (await card('finished-challenges')).includes('Most Studying') && (await card('finished-challenges')).includes('Cousin won')));
   log('Challenge loss banner:', await until(async () => (await card('result-banner')).includes('Cousin won “Most Studying”')));
   await pressText('Ugh, fine');
+  await tab('History');
+  log('History lists the finished challenge and its winner:', await until(async () => (await card('finished-challenges')).includes('Most Studying') && (await card('finished-challenges')).includes('Cousin won')));
+  log('History lists last week:', (await card('past-weeks')).includes('Cousin won'));
+  log('Scoreboard counts the challenge:', /0\s*Challenges won\s*1/.test(await card('scoreboard')));
+  await shot('cp-07c-history');
+  await tab('Challenges');
 
   // A win: I log 2h last Wednesday, then accept "most Studying last week" (they had 1h).
   await page.goto('http://localhost:5173/#/today');
@@ -332,6 +395,7 @@ try {
   log('Called-off challenge gone:', await until(async () => !(await card('challenge-card')).includes('First to')));
 
   // ── Changing my name ──
+  await tab('History');
   log('Shows the name they see:', (await page.$eval('[data-testid="my-name"]', (e) => e.textContent)) === 'Me');
   await page.evaluate(() => {
     const row = document.querySelector('[data-testid="my-name"]').closest('div');

@@ -4,7 +4,7 @@
 invariants, decisions, testing and known gaps. This file is just the short version of the rules.
 
 - Single-user offline-first PWA ("Logbook") for Malek. Live at https://personal-tracker-cec8a.web.app,
-  repo https://github.com/MalekBaghdadi/Personal_tracker (main). Windows 11 machine.
+  repo https://github.com/MalekBaghdadi/Personal_tracker (main). Worked on from a Windows 11 PC and a Mac.
 - Loop for every change: edit → `npx tsc -p .` → `npm test` → `npm run e2e` (look at `e2e/shots/` for UI)
   → `npm run deploy` → confirm the live `index.html` references the new bundle. After touching
   `firestore.rules`, also run `npm run test:rules` (Firestore emulator).
@@ -22,6 +22,7 @@ invariants, decisions, testing and known gaps. This file is just the short versi
   `src/lib/admin.ts` and `firestore.rules`; admin access is read-only and the rules enforce it.
 - Compete (pairs of accounts): neither side can read the other's `users/{uid}`; each app publishes only a
   per-day summary of linked metrics to `pairs/{id}/scores/{uid}`, plus individual logs (with notes) on challenge days
-  only. Results are derived from those, never stored.
+  only. Results are derived from those, never stored. A side can hold several metrics (`Link.extra`, summed; each member
+  edits only their own side).
 - New UI a new user should know about gets a `data-tour` marker and a step in `src/lib/tours.ts`.
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.

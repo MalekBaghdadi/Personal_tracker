@@ -37,8 +37,8 @@ It runs on the free Firebase Spark plan with no recurring cost.
 | **Live app** | https://personal-tracker-cec8a.web.app |
 | **Repo** | https://github.com/MalekBaghdadi/Personal_tracker (branch `main`) |
 | **Firebase project** | `personal-tracker-cec8a` (Spark plan) |
-| **Local checkout** | `C:\Users\Malek Baghdadi\personal-tracker` (Windows 11) |
-| **Last updated** | 15 October 2026 |
+| **Local checkouts** | `C:\Users\Malek Baghdadi\personal-tracker` (Windows 11 PC) and `~/Documents/Personal_tracker` (Mac) |
+| **Last updated** | 18 October 2026 |
 
 **Built and deployed:**
 - The original MVP: Today, History, Stats, Metrics and Settings screens; timers; quick-add and manual entry; targets and streaks; PWA install and offline support; JSON/CSV export; first-run onboarding.
@@ -65,8 +65,10 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Challenge logs: during a challenge both sides see each other's individual logs on that metric (time, amount, how, note), day by day.
 - Challenges can have exact start and end times (e.g. Saturday 18:00 to Sunday 22:00) and an optional prize ("Winner gets …").
 - Trash talk as a speech bubble from whoever is winning, using real names, margins and today's numbers.
+- Several metrics on one side of a race (e.g. Network+ and Study against their Study), summed, added or removed freely from "Add metric".
+- Compete is laid out as a scoreboard (weeks and challenges won) over three tabs: Races, Challenges, History.
 
-**Verified:** type check, 132 unit tests, 17 browser test suites, and 52 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 142 unit tests, 17 browser test suites, and 56 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -99,7 +101,7 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - **GitHub:** pushes go through the `gh` CLI's stored login (`gh auth setup-git` is configured). If a push fails with "Invalid username or token", start `gh auth login -h github.com --git-protocol https --web` in the background. It prints a one-time code; give Malek the code and https://github.com/login/device.
 - **`.env.local`** (git-ignored) holds the Firebase web config: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`. These values are public identifiers, not secrets; the security rules protect the data. On a new machine, copy `.env.example` and fill it in from Firebase console → Project settings → Your apps.
 - **`.firebaserc`** points at `personal-tracker-cec8a`, so no `firebase use` step is needed.
-- **Machine:** Windows 11, Node 22, Java 21 (for emulators), Chrome at the default path. Both PowerShell and Git Bash are available. Mind the quoting differences: several heredoc and `sed` edits with backticks or backslashes were mangled during development, so prefer the file-edit tools or small script files.
+- **Machines:** a Mac (Node 24, Java 22, Chrome in /Applications) since 18 October 2026, and the Windows 11 PC (Node 22, Java 21). On the Mac the e2e runner finds Chrome by itself, and the Firestore emulator jar had to be fetched by hand (see [Gotchas](#gotchas)). On Windows: Both PowerShell and Git Bash are available. Mind the quoting differences: several heredoc and `sed` edits with backticks or backslashes were mangled during development, so prefer the file-edit tools or small script files.
 
 ---
 
@@ -178,6 +180,8 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 
 ### Compete (`src/screens/Compete.tsx`, route `#/compete`, lazy-loaded; logic in `lib/compete.ts`, writes in `lib/competeRepo.ts`, state in `state/CompeteContext.tsx`)
 Built for Malek and his cousin (the only other user), but nothing names either account: any two accounts can pair.
+- **Layout:** a **scoreboard** at the top (each side's initial, the leader's crown, weeks won and challenges won across every race, draws under the label), the freshness line, any result banner, then anything waiting for an answer ("Waiting for you": link and challenge requests), then a sticky **Races / Challenges / History** switch (`Segmented`; the tab is remembered per device in `pt.compete.tab`). Races: one card per link, my pending proposals, "Link a metric". Challenges: live ones and "New challenge". History: past weeks of every race (6, then "Show all"), finished challenges (5, then "Show all"), and the pair itself (the name the other sees, Unlink).
+- **Several metrics on a side** (18 October 2026; Malek wanted his Study hours to count alongside Network+): "Add metric" on a race card, or on a running challenge's card, opens "Metrics in this race" (`TeamForm`): my side (the first metric, then any added, each removable) and theirs (read-only; they change theirs on their phone). **Each member adds and removes their own freely, no acceptance** (his call; the rules enforce own-side only). Choices he made: it's per link, so it counts toward that race's weekly race and every challenge on it; a day is a **target day if any** metric on the side met its target (`combine`, with h > d > r > o > n). Only metrics that can be summed can join: time with time, counts with the same unit (`canJoin`), each on one link at a time. **Which weeks and challenges an added metric counts toward** (`counts`): anything that hadn't finished when it was added (so it counts from the start of this week and of every running challenge), and nothing that had; removing it takes it out of whatever is still running, while finished ones keep it. A timed challenge compares instants (`addedAt`/`removedAt`). Results go through `teamOf` → `sideAt`/`sideForChallenge` → the same `race`/`challengeResult`; challenge logs merge both metrics' logs, each labelled with its metric. **The partner needs this version too:** an older app ignores `extra` and shows only the first metric's numbers.
 - **Pairing:** one person creates a 6-character invite code (no 0/O/1/I/L; expires after 7 days) and sends it with the share sheet; the other enters it under "Got a code?". Joining **needs a connection** (it reads the invite from the server, 15s timeout); creating the pair and deleting the invite are one batch. The pair's id is the code. One active pair per account in the UI. Each side picks the name the other sees (defaults to the email's local part) and can change it any time at the bottom of the tab ("Cousin sees you as … Change"; `renameInPair`; the rules let each member change only their own name, 1–30 characters). "Unlink" sets `endedAt`; nothing more is shared after that.
 - **Linking metrics:** either side proposes one of their own **"at least"** metrics (`canLink`); the other accepts by picking one of theirs of the same type (time or count), or declines. Ceilings (calories) can't be raced. Accepting sets `startDate` to the first day of that week, so this week already counts.
 - **Weekly race** (one card per link): this week's total for each side with a bar, target days met ("target 4/5 days", only for metrics with a target), who's ahead and by how much, the tally of weeks won since the link started, and last week's result. **A week goes to the higher total; equal totals go to more target days; then a draw.** Weeks follow the pair's `weekStartsOn` (the inviter's setting when the code was made).
@@ -264,12 +268,12 @@ users/{uid}/state/timerClosed      { startedAt, closedAt }  (timer race marker, 
 profiles/{uid}                     Profile        (uid, email, joinedAt, lastSeenAt; owner writes, admin reads)
 invites/{code}                     Invite         (Compete: anyone signed in can get one code, never list; inviter creates/deletes)
 pairs/{code}                       Pair           (members [2 uids], names, weekStartsOn, endedAt; members read; joiner creates from a live invite)
-pairs/{code}/links/{id}            Link           (uid → metricId, type, proposedBy, acceptedAt, startDate, endedAt)
+pairs/{code}/links/{id}            Link           (uid → metricId, type, proposedBy, acceptedAt, startDate, endedAt, extra: uid → [{ metricId, addedOn, addedAt, removedOn, removedAt }])
 pairs/{code}/challenges/{id}       Challenge      (linkId, kind, amount, startDate, endDate, createdBy, acceptedAt/declinedAt/cancelledAt)
 pairs/{code}/scores/{uid}          Score          (asOf, updatedAt, per-metric per-day totals; each member writes only their own)
 ```
 
-**Compete rules** (`firestore.rules`): pairing never opens anyone's `users/{uid}`. Only the two members can read a pair and its subcollections; after unlinking they can still read, but nobody can publish, link or challenge. Types are in `lib/compete.ts`.
+**Compete rules** (`firestore.rules`): pairing never opens anyone's `users/{uid}`. Only the two members can read a pair and its subcollections; after unlinking they can still read, but nobody can publish, link or challenge. On a link, each member can change only their own entry in `extra`. Types are in `lib/compete.ts`.
 
 The owner can read and write everything under their `users/{uid}`; the admin account can read it too, never write. `profiles/{uid}` is written only by its owner, with only those four fields.
 
@@ -330,14 +334,15 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (39), goals (30), compete (30), taunts (7), review (7), importer (8), entryRows (6), dates (5)
+npm test              # unit tests: streaks (39), goals (30), compete (40), taunts (7), review (7), importer (8), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
-npm run test:rules    # security rules against the Firestore emulator (52 checks)
+npm run test:rules    # security rules against the Firestore emulator (56 checks)
 ```
 
 **Browser tests (`e2e/`):**
 - `run-all.mjs` starts the **Auth emulator** and a dev server in emulator mode, runs each suite with `puppeteer-core` driving your installed Chrome, then builds the production bundle and serves it for `offline.mjs`. It shuts everything down afterwards and rebuilds `dist/` normally.
-- Set `CHROME_PATH` if Chrome isn't at `C:\Program Files\Google\Chrome\Application\chrome.exe`.
+- Set `CHROME_PATH` if Chrome isn't at `C:\Program Files\Google\Chrome\Application\chrome.exe` (Windows) or `/Applications/Google Chrome.app` (macOS; `run-all.mjs` sets that default).
+- Every suite but `compete` asks for reduced motion (`emulateMediaFeatures`). Headless Chrome reports reduced motion on Windows but not on macOS, and with animations on, clicks time out mid-animation.
 - Screenshots go to `e2e/shots/` (git-ignored).
 - Each suite resets the emulator's accounts and signs up a test account (`e2e@logbook.test`, which exists only in the emulator; see `.env.emulators`).
 
@@ -491,12 +496,15 @@ Newest last. `git log` has the details.
 21. **Polish and trash talk:** springier taps, sliding sheets, rising toasts, tab fades, filling bars and pops on change across the app (all off with reduced motion). Compete got taunts, a crown for the leader, and result banners with confetti for wins and a wobble for losses. Names can be changed in Compete.
 22. **Challenge logs, louder trash talk, a bit more motion:** during a challenge both sides see each other's logs (amount, time, how, note) day by day on the challenge card; taunts became speech bubbles from whoever's winning, using real names, gaps and today's numbers; animations a notch bigger.
 23. **Challenge times and stakes:** challenges can start and end at a set time, counting only what's logged in between (a timer for its part inside); and an optional "Winner gets …" prize shown on the card and the result banner.
+24. **Mac setup, several metrics per side, Compete layout:** the repo now runs on a Mac too (Chrome path, reduced motion in the e2e suites). A side of a race can hold several metrics, summed (Network+ and Study against Study), added and removed freely. Compete became a scoreboard over Races / Challenges / History tabs.
 
 ---
 
 ## Gotchas
 
 - **The CDN caches `index.html` briefly after a deploy.** Verify the live page references the new `assets/index-*.js` before telling Malek it's live.
+- **The Firestore emulator download can stall** (`downloading cloud-firestore-emulator-v1.22.0.jar...` forever; it did on the PC and on the Mac). Fetch it yourself into the cache: `curl -o ~/.cache/firebase/emulators/cloud-firestore-emulator-v1.22.0.jar https://storage.googleapis.com/firebase-preview-drop/emulator/cloud-firestore-emulator-v1.22.0.jar` (adjust the version to what the log names).
+- **Don't edit `src/` while `npm run e2e` runs:** the suites drive a Vite dev server, which reloads the page on a change, and the suite running at that moment can fail.
 - **`npm run e2e` rebuilds `dist/` normally at the end.** If you build in emulator mode by hand (`vite build --mode emulators`), don't deploy that `dist/`. `npm run deploy` always rebuilds first anyway.
 - **E2E date math must follow the 5am rollover.** Between midnight and 5am the app's "today" is the previous calendar date, so suites compute dates from `Date.now() - 5h`.
 - **Puppeteer and the fixed tab bar:** clicking a button near the bottom can land on the tab bar, because the button is scrolled just into view. Click by text through `page.evaluate` instead (see the `press()` helper in `e2e/goals.mjs`).

@@ -60,8 +60,10 @@ export const TOURS: Tour[] = [
     name: 'Compete',
     steps: [
       { target: 'compete-pair', title: 'Race a friend', body: 'Link up with one other person using a code. They only see totals for the metrics you choose to race on, never your notes.' },
+      { target: 'compete-score', title: 'Scoreboard', body: 'Weeks and challenges each of you has won, across every race.' },
+      { target: 'compete-tabs', title: 'Races, challenges, history', body: 'Weekly races, challenges (first to 20 hours, most this month, most target days), and everything already settled.' },
       { target: 'compete-race', title: 'Weekly race', body: 'Your total against theirs this week, and how many days each of you hit your own target. The higher total takes the week.' },
-      { target: 'compete-challenges', title: 'Challenges', body: 'First to 20 hours, most this month, or most target days. Either of you can start one; the other accepts it first.' },
+      { target: 'compete-team', title: 'Add metrics', body: 'Put more of your metrics on your side, like Study next to Network+. They’re added together, from the start of this week and any challenge still running.' },
     ],
   },
   {

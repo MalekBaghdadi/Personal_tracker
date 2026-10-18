@@ -89,6 +89,11 @@ try {
   await check('B accepts it', assertSucceeds(updateDoc(doc(B, 'pairs/AAAAAA/links/l1'), { 'metrics.B': 'x', acceptedAt: 'y', startDate: '2026-10-05' })));
   await check('C can’t read links', assertFails(getDoc(doc(C, 'pairs/AAAAAA/links/l1'))));
   await check('C can’t add a link', assertFails(setDoc(doc(C, 'pairs/AAAAAA/links/l3'), { ...link, id: 'l3', proposedBy: 'C' })));
+  const member = { metricId: 'm2', addedOn: '2026-10-07', addedAt: 'x', removedOn: null, removedAt: null };
+  await check('A adds a metric to its own side', assertSucceeds(updateDoc(doc(A, 'pairs/AAAAAA/links/l1'), { 'extra.A': [member] })));
+  await check('B adds one to its side too', assertSucceeds(updateDoc(doc(B, 'pairs/AAAAAA/links/l1'), { 'extra.B': [{ ...member, metricId: 'x2' }] })));
+  await check('B can’t change A’s side', assertFails(updateDoc(doc(B, 'pairs/AAAAAA/links/l1'), { 'extra.A': [] })));
+  await check('A removes its own (kept, marked removed)', assertSucceeds(updateDoc(doc(A, 'pairs/AAAAAA/links/l1'), { 'extra.A': [{ ...member, removedOn: '2026-10-08', removedAt: 'y' }] })));
   const ch = { id: 'c1', linkId: 'l1', kind: 'most_total', amount: null, startDate: '2026-10-05', endDate: '2026-10-11', createdBy: 'B', createdAt: 'x', acceptedAt: null, declinedAt: null, cancelledAt: null };
   await check('B starts a challenge', assertSucceeds(setDoc(doc(B, 'pairs/AAAAAA/challenges/c1'), ch)));
   await check('Can’t start one as the other member', assertFails(setDoc(doc(B, 'pairs/AAAAAA/challenges/c2'), { ...ch, id: 'c2', createdBy: 'A' })));

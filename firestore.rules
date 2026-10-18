@@ -77,7 +77,10 @@ service cloud.firestore {
       match /links/{linkId} {
         allow read: if isMember(pairId);
         allow create: if isActiveMember(pairId) && request.resource.data.proposedBy == request.auth.uid;
-        allow update: if isActiveMember(pairId);
+        // Metrics added to a side (`extra`): each member changes only their own.
+        allow update: if isActiveMember(pairId)
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['extra'])
+              || request.resource.data.extra.diff(resource.data.get('extra', {})).affectedKeys().hasOnly([request.auth.uid]));
       }
       match /challenges/{challengeId} {
         allow read: if isMember(pairId);
