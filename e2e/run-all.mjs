@@ -4,7 +4,7 @@
 //   npm run e2e -- goals core   # just these (file names without .mjs)
 //
 // Needs Java (for the emulator) and Google Chrome. Set CHROME_PATH if Chrome
-// isn't at the default Windows location. Only the Auth emulator runs:
+// isn't at the default Windows or macOS location. Only the Auth emulator runs:
 // Firestore is unreachable on purpose, so every test exercises the offline
 // path (the Firestore emulator jar wouldn't download on the dev machine).
 // Screenshots land in e2e/shots/ (git-ignored).
@@ -15,6 +15,10 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const here = fileURLToPath(new URL('.', import.meta.url));
 mkdirSync(here + 'shots', { recursive: true });
+// The suites fall back to the Windows path; they inherit this env, so macOS works too.
+if (!process.env.CHROME_PATH && process.platform === 'darwin') {
+  process.env.CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+}
 
 const DEV_SUITES = ['core', 'history-all', 'subtract-toggle', 'subtract-clamp', 'calendar', 'goals', 'session-note', 'extras', 'yesterday', 'day-start', 'first-run', 'admin', 'merge-entries', 'tours', 'rest-days', 'compete'];
 const PREVIEW_SUITES = ['offline']; // needs the production build + service worker

@@ -17,6 +17,8 @@ const browser = await puppeteer.launch({
   args: ['--no-first-run'],
 });
 const page = await browser.newPage();
+// Animations off, like on Windows where headless Chrome reports reduced motion (macOS doesn’t).
+await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const errors = [];
 page.on('console', (m) => {

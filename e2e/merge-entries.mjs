@@ -11,6 +11,8 @@ for (let i = 0; i < 60; i++) {
 }
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', headless: true });
 const page = await browser.newPage();
+// Animations off, like on Windows where headless Chrome reports reduced motion (macOS doesn’t).
+await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
