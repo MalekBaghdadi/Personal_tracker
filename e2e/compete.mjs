@@ -261,8 +261,9 @@ try {
   }, 6000);
   log('My challenge-day logs published:', published2);
   const at = (h) => new Date(Date.now() - h * 3600000).toISOString();
-  await hook('score', TODAY, { 'their-study': { ...theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } })['their-study'],
-    logs: { [TODAY]: [{ v: 2 * H, at: at(4), src: 't', note: 'Subnetting drills, 40 questions' }, { v: H, at: at(1), src: 'q' }] } } });
+  const theirWithLogs = { 'their-study': { ...theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } })['their-study'],
+    logs: { [TODAY]: [{ v: 2 * H, at: at(4), src: 't', note: 'Subnetting drills, 40 questions' }, { v: H, at: at(1), src: 'q' }] } } };
+  await hook('score', TODAY, theirWithLogs);
   log('Their logs with times and the note:', await until(async () => {
     const t = await logs();
     return /Cousin\s*3h · 2 logs/.test(t) && t.includes('Subnetting drills, 40 questions') && t.includes('timer') && t.includes('quick add');
@@ -384,6 +385,32 @@ try {
   log('Fits a phone:', await fitsPhone());
   await page.evaluate(() => [...document.querySelectorAll('[data-testid="challenge-card"]')].at(-1).scrollIntoView({ block: 'center' }));
   await shot('cp-05d-timed-card');
+
+  // ── Ending a challenge early: asks first, then the leader at that moment wins ──
+  const endTimed = () => page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => /\d\d:\d\d – /.test(e.querySelector('[data-testid="challenge-when"]')?.innerText ?? ''));
+    c.querySelector('[data-testid="challenge-end"]').click();
+  });
+  await endTimed();
+  await wait(300);
+  const confirmText = await card('challenge-end-confirm');
+  log('End it now asks first, saying who’d win:', confirmText.includes('Are you sure you want to end it now?') && confirmText.includes('you’re ahead by') && confirmText.includes('so you’d win'));
+  await shot('cp-05e-end-confirm');
+  await pressText('Keep going', '[data-testid="challenge-end-confirm"]');
+  log('Keep going leaves it running:', !(await page.$('[data-testid="challenge-end-confirm"]')) && /You lead by (30|29)m/.test(await timedCard()));
+  await endTimed();
+  await wait(300);
+  await pressText('End it now', '[data-testid="challenge-end-confirm"]');
+  log('Ended: waits for Cousin’s numbers after that moment:', await until(async () => (await text()).includes('Ended early by you') && (await text()).includes('Waiting for Cousin’s numbers to settle it')));
+  log('Ending republishes mine:', await until(async () => {
+    const [sc, now] = [await hook('myScore'), new Date(Date.now() - 10000).toISOString()];
+    return !!sc && sc.updatedAt > now;
+  }, 6000));
+  // Their app publishes again (nothing new): I was ahead at that moment, so I win.
+  await hook('score', TODAY, theirWithLogs);
+  log('Ended early: the leader at that moment wins:', await until(async () => (await card('result-banner')).includes('You won “Most Studying”')));
+  await pressText('Gloat');
+  log('Ended one moves to History:', await until(async () => !(await text()).includes('Ended early by you')));
 
   // Calling one off.
   await page.evaluate(() => {

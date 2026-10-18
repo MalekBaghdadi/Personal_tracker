@@ -4,7 +4,7 @@ import { useData } from './DataContext';
 import { nowIso } from '../lib/dates';
 import { competePaths, publishScore } from '../lib/competeRepo';
 import {
-  challengeDays, everSideMetricIds, isTimed, sharesLogs, shareLogs, shareMetric, teamOf,
+  challengeDays, challengeWindow, everSideMetricIds, sharesLogs, shareLogs, shareMetric, teamOf,
   type Challenge, type Invite, type Link, type Pair, type Score, type SharedMetric, type Team,
 } from '../lib/compete';
 
@@ -143,12 +143,13 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
 
   // Publish when it differs from what's on record, a moment after the last
   // change so a burst of quick adds is one write. Never awaited. Also once a
-  // timed challenge has ended since the last publish: the partner's app
-  // settles it when my updatedAt is past its end.
+  // timed challenge (or one ended early) has ended since the last publish:
+  // the partner's app settles it when my updatedAt is past its end.
   const myScore = scores.get(uid);
-  const endedSincePublish = !!myScore && challenges.some(
-    (c) => isTimed(c) && sharesLogs(c) && myScore.updatedAt < c.endAt && c.endAt <= now,
-  );
+  const endedSincePublish = !!myScore && challenges.some((c) => {
+    const w = challengeWindow(c);
+    return !!w && sharesLogs(c) && myScore.updatedAt < w.endAt && (!!c.endedEarlyAt || w.endAt <= now);
+  });
   useEffect(() => {
     if (!pairId || Object.keys(mine).length === 0) return;
     if (myScore && myScore.asOf === today && !endedSincePublish && JSON.stringify(myScore.metrics) === JSON.stringify(mine)) return;

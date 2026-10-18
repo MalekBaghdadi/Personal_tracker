@@ -176,6 +176,11 @@ export function cancelChallenge(pairId: string, id: string): void {
   fire(updateDoc(competePaths.challenge(pairId, id), { cancelledAt: nowIso() }));
 }
 
+/** "End it now": stop a running challenge at this moment; whoever's ahead then wins. `today` is my tracking day. */
+export function endChallengeNow(pairId: string, id: string, uid: string, today: string): void {
+  fire(updateDoc(competePaths.challenge(pairId, id), { endedEarlyAt: nowIso(), endedEarlyOn: today, endedEarlyBy: uid }));
+}
+
 // ── Publishing ─────────────────────────────────────────────────────────────
 
 /** Replaces this member's summary; only linked metrics are in it. */

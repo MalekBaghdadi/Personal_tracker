@@ -91,6 +91,14 @@ export interface Challenge {
   endAt?: string | null;
   /** What the winner gets, if they put something at stake. */
   stake?: string | null;
+  /**
+   * "End it now": either side stopped it early, at this instant (on the
+   * ender's tracking day). Only what happened before it counts, and whoever
+   * is ahead then wins; see `asRun`. Absent or null: it runs to its end.
+   */
+  endedEarlyAt?: string | null;
+  endedEarlyOn?: string | null;
+  endedEarlyBy?: string | null;
   createdBy: string;
   createdAt: string;
   acceptedAt: string | null;
@@ -271,8 +279,10 @@ export function sideAt(x: SideInput, end: string, endAt?: string): SharedMetric 
 }
 
 /** A side for a challenge: what counts toward it. */
-export const sideForChallenge = (x: SideInput, c: Challenge): SharedMetric | undefined =>
-  sideAt(x, c.endDate, isTimed(c) ? c.endAt : undefined);
+export function sideForChallenge(x: SideInput, c: Challenge): SharedMetric | undefined {
+  const run = asRun(c);
+  return sideAt(x, run.endDate, challengeWindow(run)?.endAt);
+}
 
 /** A challenge both sides agreed to and nobody called off: its days share logs. */
 export const sharesLogs = (c: Challenge): boolean => !!c.acceptedAt && !c.declinedAt && !c.cancelledAt;
@@ -282,12 +292,45 @@ export const isTimed = (c: Challenge): c is Challenge & { startAt: string; endAt
   !!c.startAt && !!c.endAt && c.kind !== 'most_days';
 
 /**
+ * A challenge as it actually runs: ended early, it stops at that instant
+ * (with times, or with whole days on first to and most), or after the day it
+ * was ended on (most days, which counts whole days). Otherwise as set.
+ */
+export function asRun(c: Challenge): Challenge {
+  if (!c.endedEarlyAt || !c.endedEarlyOn) return c;
+  const endDate = c.endedEarlyOn < c.endDate ? c.endedEarlyOn : c.endDate;
+  if (!isTimed(c)) return { ...c, endDate };
+  return { ...c, endDate, endAt: Date.parse(c.endedEarlyAt) < Date.parse(c.endAt) ? c.endedEarlyAt : c.endAt };
+}
+
+/** The stretch of time a challenge counts logs over, when it's cut by instants rather than whole days. */
+export interface ChallengeWindow {
+  /** null: from the start of its first day. */
+  startAt: string | null;
+  endAt: string;
+}
+
+/**
+ * A challenge with times counts what's between its start and end; a whole-day
+ * one ended early, what's on its days before the moment it was ended. Null:
+ * whole days (from the day totals).
+ */
+export function challengeWindow(c: Challenge): ChallengeWindow | null {
+  const run = asRun(c);
+  if (isTimed(run)) return { startAt: run.startAt, endAt: run.endAt };
+  if (run.endedEarlyAt && run.kind !== 'most_days') return { startAt: null, endAt: run.endedEarlyAt };
+  return null;
+}
+
+/**
  * A challenge's tracking days by this account's own day boundary: with times,
  * the days its start and end instants fall on (so every entry inside the
- * window is on one of them); else its dates.
+ * window is on one of them); else its dates. Ended early, through the day it
+ * ended.
  */
 export function challengeSpan(c: Challenge, dayOf: (instant: string) => string): { start: string; end: string } {
-  return isTimed(c) ? { start: dayOf(c.startAt), end: dayOf(c.endAt) } : { start: c.startDate, end: c.endDate };
+  const run = asRun(c);
+  return isTimed(run) ? { start: dayOf(run.startAt), end: dayOf(run.endAt) } : { start: run.startDate, end: run.endDate };
 }
 
 /** The days of a link whose logs are shared: every day of its live challenges, through today. */
@@ -304,20 +347,30 @@ export function challengeDays(challenges: Challenge[], linkId: string, today: st
 
 /**
  * How much of a log falls inside [startAt, endAt): a timer's overlap with the
- * window (in seconds), anything else whole if it was logged inside it.
+ * window (in seconds), anything else whole if it was logged inside it. No
+ * start: everything before the end.
  */
-export function logInWindow(l: SharedLog, startAt: string, endAt: string): number {
-  const s = Date.parse(startAt);
+export function logInWindow(l: SharedLog, startAt: string | null, endAt: string): number {
+  const s = startAt ? Date.parse(startAt) : -Infinity;
   const e = Date.parse(endAt);
   const at = Date.parse(l.at);
   if (l.src !== 't') return at >= s && at < e ? l.v : 0;
   return Math.round(Math.max(0, Math.min(at + l.v * 1000, e) - Math.max(at, s)) / 1000);
 }
 
-/** A metric's logs that count toward a timed challenge, oldest first, each with its amount inside the window. */
-export function windowLogs(m: SharedMetric | undefined, startAt: string, endAt: string): { log: SharedLog; counted: number }[] {
+/**
+ * A metric's logs that count toward a timed challenge, oldest first, each
+ * with its amount inside the window. `days`: only logs on those tracking days.
+ */
+export function windowLogs(
+  m: SharedMetric | undefined,
+  startAt: string | null,
+  endAt: string,
+  days?: { from: string; to: string },
+): { log: SharedLog; counted: number }[] {
   const out: { log: SharedLog; counted: number }[] = [];
-  for (const day of Object.values(m?.logs ?? {})) {
+  for (const [d, day] of Object.entries(m?.logs ?? {})) {
+    if (days && (d < days.from || d > days.to)) continue;
     for (const log of day) {
       const counted = logInWindow(log, startAt, endAt);
       if (counted > 0) out.push({ log, counted });
@@ -475,7 +528,7 @@ function reachedOn(m: SharedMetric | undefined, from: string, to: string, amount
  *  - most_days: more days with the target met (rest days aren't due days).
  */
 export function challengeResult(
-  ch: Challenge,
+  challenge: Challenge,
   mineSide: SideInput,
   theirSide: SideInput,
   today: string,
@@ -483,9 +536,11 @@ export function challengeResult(
   now: string = new Date().toISOString(),
   theirUpdatedAt: string | null = null,
 ): ChallengeResult {
-  const mine = sideForChallenge(mineSide, ch);
-  const theirs = sideForChallenge(theirSide, ch);
-  if (isTimed(ch)) return timedResult(ch, mine, theirs, theirAsOf, now, theirUpdatedAt);
+  const mine = sideForChallenge(mineSide, challenge);
+  const theirs = sideForChallenge(theirSide, challenge);
+  const ch = asRun(challenge);
+  const window = challengeWindow(ch);
+  if (window) return timedResult(ch, window, mine, theirs, theirAsOf, now, theirUpdatedAt);
   const to = today < ch.endDate ? today : ch.endDate;
   const meSide = sideFor(mine, ch.startDate, to, today);
   const themSide = sideFor(theirs, ch.startDate, to, theirAsOf ?? ch.startDate);
@@ -532,12 +587,12 @@ export function challengeResult(
 }
 
 /** First instant the running amount inside the window reaches `amount` (partway through a timer, for a timer). */
-function reachedAt(logs: { log: SharedLog; counted: number }[], startAt: string, amount: number): string | null {
+function reachedAt(logs: { log: SharedLog; counted: number }[], startAt: string | null, amount: number): string | null {
   let sum = 0;
   for (const { log, counted } of logs) {
     if (sum + counted >= amount) {
       if (log.src !== 't') return log.at;
-      const from = Math.max(Date.parse(log.at), Date.parse(startAt));
+      const from = Math.max(Date.parse(log.at), startAt ? Date.parse(startAt) : -Infinity);
       return new Date(from + (amount - sum) * 1000).toISOString();
     }
     sum += counted;
@@ -546,24 +601,27 @@ function reachedAt(logs: { log: SharedLog; counted: number }[], startAt: string,
 }
 
 /**
- * A challenge with times, worked out from both sides' shared logs. The other
- * side's figures are complete up to when they last published (their
- * updatedAt), or through the end once their day has moved past its last day.
- * Until they share logs at all, it can't settle.
+ * A challenge with times (or ended early), worked out from both sides' shared
+ * logs inside its window. The other side's figures are complete up to when
+ * they last published (their updatedAt), or through the end once their day
+ * has moved past its last day. Until they share logs at all, it can't settle.
  *  - first_to: the earlier instant to reach the amount wins; if nobody does
  *    by the end, the higher total.
  *  - most_total: the higher total inside the window.
  */
 function timedResult(
-  ch: Challenge & { startAt: string; endAt: string },
+  ch: Challenge,
+  w: ChallengeWindow,
   mine: SharedMetric | undefined,
   theirs: SharedMetric | undefined,
   theirAsOf: string | null,
   now: string,
   theirUpdatedAt: string | null,
 ): ChallengeResult {
-  const meLogs = windowLogs(mine, ch.startAt, ch.endAt);
-  const themLogs = windowLogs(theirs, ch.startAt, ch.endAt);
+  // Without a start time, only the challenge's own days (the link may share logs for other challenges' days).
+  const days = w.startAt ? undefined : { from: ch.startDate, to: ch.endDate };
+  const meLogs = windowLogs(mine, w.startAt, w.endAt, days);
+  const themLogs = windowLogs(theirs, w.startAt, w.endAt, days);
   const sum = (logs: { counted: number }[]) => logs.reduce((s, x) => s + x.counted, 0);
   const meSide: Side = { total: sum(meLogs), hits: 0, due: 0, hasTarget: mine?.target != null };
   const themSide: Side = { total: sum(themLogs), hits: 0, due: 0, hasTarget: theirs?.target != null };
@@ -579,16 +637,17 @@ function timedResult(
   if (ch.declinedAt) return { ...base, status: 'declined' };
   if (!ch.acceptedAt) return { ...base, status: 'pending' };
   const t = (iso: string) => Date.parse(iso);
-  if (t(now) < t(ch.startAt)) return { ...base, status: 'upcoming' };
+  if (w.startAt && t(now) < t(w.startAt)) return { ...base, status: 'upcoming' };
 
-  const ended = t(now) >= t(ch.endAt);
+  // Ended early is over at once, even if the screen's clock (`now`) hasn't ticked past it yet.
+  const ended = !!ch.endedEarlyAt || t(now) >= t(w.endAt);
   // Their side is known through `at` once they've published after it.
   const theyPast = (at: string) =>
     !!theirs?.logs && ((theirUpdatedAt !== null && t(theirUpdatedAt) > t(at)) || (theirAsOf !== null && theirAsOf > ch.endDate));
   const higher = (a: number, b: number): Outcome => (a === b ? 'draw' : a > b ? 'me' : 'them');
 
   if (ch.kind === 'first_to' && ch.amount != null) {
-    const reached = { me: reachedAt(meLogs, ch.startAt, ch.amount), them: reachedAt(themLogs, ch.startAt, ch.amount) };
+    const reached = { me: reachedAt(meLogs, w.startAt, ch.amount), them: reachedAt(themLogs, w.startAt, ch.amount) };
     const { me, them } = reached;
     // They got there first. My side is live, so I can't turn out to have been earlier.
     if (them && (!me || t(them) < t(me))) return { ...base, reached, status: 'finished', winner: 'them' };
@@ -598,12 +657,12 @@ function timedResult(
       return { ...base, reached, status: ended ? 'awaiting' : 'active' };
     }
     if (!ended) return { ...base, reached, status: 'active' };
-    if (!theyPast(ch.endAt)) return { ...base, reached, status: 'awaiting' };
+    if (!theyPast(w.endAt)) return { ...base, reached, status: 'awaiting' };
     return { ...base, reached, status: 'finished', winner: higher(meSide.total, themSide.total) };
   }
 
   if (!ended) return { ...base, status: 'active' };
-  if (!theyPast(ch.endAt)) return { ...base, status: 'awaiting' };
+  if (!theyPast(w.endAt)) return { ...base, status: 'awaiting' };
   return { ...base, status: 'finished', winner: higher(base.me, base.them) };
 }
 

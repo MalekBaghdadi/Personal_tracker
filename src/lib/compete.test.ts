@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canJoin, challengeDays, challengeResult, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
+import { canJoin, challengeDays, challengeResult, challengeSpan, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
 import type { DayStats, Entry, Metric } from './types';
 
 // 2026-10-05 is a Monday.
@@ -235,6 +235,46 @@ describe('timed challenges', () => {
     const ch = timed({ kind: 'most_days' });
     const r = challengeResult(ch, shared({ '2026-10-10': H, '2026-10-11': H }), shared({ '2026-10-10': H }), '2026-10-13', '2026-10-13');
     expect([r.me, r.them, r.winner]).toEqual([2, 1, 'me']);
+  });
+
+  it('ended early: a timed challenge stops at that moment and settles once they publish after it', () => {
+    const ch = timed({ endedEarlyAt: '2026-10-10T20:00:00.000Z', endedEarlyOn: '2026-10-10', endedEarlyBy: 'a' });
+    const mine = withLogs({ '2026-10-10': [timer('2026-10-10T19:00:00.000Z', 2 * H)] });
+    const theirs = withLogs({ '2026-10-10': [manual('2026-10-10T19:30:00.000Z', 30 * 60)], '2026-10-11': [manual('2026-10-11T10:00:00.000Z', 9 * H)] });
+    // The screen's clock is behind the moment it was ended: it's still over.
+    const waiting = challengeResult(ch, mine, theirs, '2026-10-10', '2026-10-10', '2026-10-10T19:59:00.000Z', '2026-10-10T19:45:00.000Z');
+    expect([waiting.status, waiting.me, waiting.them]).toEqual(['awaiting', H, 30 * 60]);
+    const r = challengeResult(ch, mine, theirs, '2026-10-11', '2026-10-11', '2026-10-11T12:00:00.000Z', '2026-10-11T12:00:00.000Z');
+    expect([r.status, r.winner, r.me, r.them]).toEqual(['finished', 'me', H, 30 * 60]);
+    expect(challengeSpan(ch, (iso) => iso.slice(0, 10))).toEqual({ start: '2026-10-10', end: '2026-10-10' });
+  });
+
+  it('ended early: a whole-day challenge counts its days’ logs up to that moment', () => {
+    const ch = challenge({ endedEarlyAt: '2026-10-07T12:00:00.000Z', endedEarlyOn: '2026-10-07', endedEarlyBy: 'b' });
+    // A log from another challenge's day before the start doesn't count.
+    const mine = withLogs({ '2026-10-04': [manual('2026-10-04T10:00:00.000Z', 9 * H)], '2026-10-06': [manual('2026-10-06T10:00:00.000Z', H)], '2026-10-07': [timer('2026-10-07T11:00:00.000Z', 2 * H)] });
+    const theirs = withLogs({ '2026-10-05': [manual('2026-10-05T10:00:00.000Z', 2 * H)], '2026-10-07': [manual('2026-10-07T13:00:00.000Z', 5 * H)] });
+    const r = challengeResult(ch, mine, theirs, '2026-10-07', '2026-10-07', '2026-10-07T14:00:00.000Z', '2026-10-07T13:30:00.000Z');
+    expect([r.status, r.me, r.them, r.winner]).toEqual(['finished', 2 * H, 2 * H, 'draw']);
+    expect(challengeResult(ch, mine, theirs, '2026-10-07', '2026-10-07', '2026-10-07T14:00:00.000Z', '2026-10-07T11:00:00.000Z').status).toBe('awaiting');
+  });
+
+  it('ended early: first to goes to whoever got there before the moment, else the higher total', () => {
+    const ch = challenge({ kind: 'first_to', amount: 3 * H, endDate: '2026-10-31', endedEarlyAt: '2026-10-08T12:00:00.000Z', endedEarlyOn: '2026-10-08' });
+    const mine = withLogs({ '2026-10-06': [manual('2026-10-06T10:00:00.000Z', 2 * H)] });
+    const theirs = withLogs({ '2026-10-07': [manual('2026-10-07T10:00:00.000Z', H)], '2026-10-08': [manual('2026-10-08T13:00:00.000Z', 5 * H)] });
+    const r = challengeResult(ch, mine, theirs, '2026-10-08', '2026-10-08', '2026-10-08T12:00:00.000Z', '2026-10-08T14:00:00.000Z');
+    expect([r.status, r.winner, r.me, r.them]).toEqual(['finished', 'me', 2 * H, H]);
+  });
+
+  it('ended early: most days runs to the end of the day it was ended', () => {
+    const ch = challenge({ kind: 'most_days', endedEarlyAt: '2026-10-07T12:00:00.000Z', endedEarlyOn: '2026-10-07' });
+    const mine = shared({ '2026-10-05': H, '2026-10-06': H, '2026-10-09': H, '2026-10-10': H });
+    const theirs = shared({ '2026-10-05': H, '2026-10-07': H, '2026-10-08': H });
+    expect(challengeResult(ch, mine, theirs, '2026-10-07', '2026-10-07').status).toBe('active');
+    expect(challengeResult(ch, mine, theirs, '2026-10-08', '2026-10-07').status).toBe('awaiting');
+    const r = challengeResult(ch, mine, theirs, '2026-10-08', '2026-10-08');
+    expect([r.status, r.me, r.them, r.winner]).toEqual(['finished', 2, 2, 'draw']);
   });
 
   it('share logs for the tracking days the start and end fall on', () => {

@@ -9,11 +9,11 @@ import { weekOf } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import {
-  canJoin, canLink, challengeResult, challengeSpan, isTimed, logInWindow, nameFromEmail, normalizeCode, race, sideAt, sideForChallenge, sideMetricIds,
+  asRun, canJoin, canLink, challengeResult, challengeSpan, challengeWindow, isTimed, logInWindow, nameFromEmail, normalizeCode, race, sideAt, sideForChallenge, sideMetricIds,
   type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side,
 } from '../lib/compete';
 import {
-  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, createInvite, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
+  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, createInvite, endChallengeNow, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
   removeFromSide, renameInPair, restoreSide,
   type JoinError,
 } from '../lib/competeRepo';
@@ -947,7 +947,7 @@ function Results() {
     const r = result(c);
     if (!link || !r) continue;
     const first = c.kind === 'first_to' ? [r.reached.me, r.reached.them].filter((d): d is string => !!d).sort()[0] : undefined;
-    const decided = first ? (isTimed(c) ? dayOf(first) : first) : challengeSpan(c, dayOf).end;
+    const decided = first ? (challengeWindow(c) ? dayOf(first) : first) : challengeSpan(c, dayOf).end;
     if (r.status !== 'finished' || !r.winner || decided < recent) continue;
     const m = sideForChallenge(sides(link).mine, c);
     const theirs = partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
@@ -1097,6 +1097,7 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
   const toast = useToast();
   const result = useChallengeResult();
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmEnd, setConfirmEnd] = useState(false);
   const link = links.find((l) => l.id === ch.linkId);
   const metric = link ? metricById.get(link.metrics[uid]) : undefined;
   const theirFirst = link && partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
@@ -1113,7 +1114,12 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
   const max = ch.kind === 'first_to' && ch.amount ? ch.amount : Math.max(r.me, r.them);
   const theirRequest = r.status === 'pending' && ch.createdBy !== uid;
 
-  const when = isTimed(ch)
+  // Ended early: most days still runs to the end of that day; the rest stopped at the moment.
+  const run = asRun(ch);
+  const endedBy = ch.endedEarlyBy === uid ? ' by you' : ch.endedEarlyBy ? ` by ${partnerName}` : '';
+  const when = ch.endedEarlyAt
+    ? r.status === 'active' ? `Ends today · ended early${endedBy}` : `Ended early${endedBy}, ${fmtAt(ch.endedEarlyAt, tz, now)}`
+    : isTimed(ch)
     ? r.status === 'upcoming' ? `Starts ${fmtAt(ch.startAt, tz, now)}`
       : r.status === 'active' || r.status === 'pending' ? `${fmtAt(ch.startAt, tz, now)} – ${fmtAt(ch.endAt, tz, now)}`
       : `Ended ${fmtAt(ch.endAt, tz, now)}`
@@ -1127,7 +1133,7 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
   else if (r.status === 'upcoming') verdict = 'Not started yet';
   else if (r.status === 'awaiting') verdict = `Waiting for ${partnerName}’s numbers to settle it`;
   else if (r.status === 'finished') verdict = r.winner === 'me' ? 'You won' : r.winner === 'them' ? `${partnerName} won` : 'A draw';
-  else if (isTimed(ch) && r.reached.me) verdict = `You got there at ${formatTimeIn(r.reached.me, tz)}. Settled once ${partnerName}’s app catches up`;
+  else if (challengeWindow(ch) && r.reached.me) verdict = `You got there at ${formatTimeIn(r.reached.me, tz)}. Settled once ${partnerName}’s app catches up`;
   else if (ch.kind === 'first_to' && (r.reached.me || r.reached.them)) {
     verdict = r.reached.me && r.reached.them ? 'You both got there today' : r.reached.me ? 'You got there. Settled once the day is over' : `${partnerName} got there. You have until the day is over`;
   } else verdict = r.me === r.them ? 'Level' : r.me > r.them ? `You lead by ${fmt(r.me - r.them)}` : `${partnerName} leads by ${fmt(r.them - r.me, theirs)}`;
@@ -1145,6 +1151,13 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
     : ch.kind === 'first_to' && r.reached.them && !r.reached.me ? 'theyReached'
     : ch.kind === 'first_to' && r.reached.me && !r.reached.them ? 'iReached'
     : raceTaunt(r.me, r.them);
+
+  // "End it now" on a running challenge; on most days it can only bring the end forward to today.
+  const canEnd = r.status === 'active' && !ch.endedEarlyAt && !(ch.kind === 'most_days' && run.endDate <= today);
+  const gap = leader === 'me' && r.me > r.them ? ` by ${fmt(r.me - r.them)}` : leader === 'them' && r.them > r.me ? ` by ${fmt(r.them - r.me, theirs)}` : '';
+  const ifEndedNow = leader === 'me' ? `Right now you’re ahead${gap}, so you’d win.`
+    : leader === 'them' ? `Right now ${partnerName}’s ahead${gap}, so they’d win.`
+    : 'It’s level right now, so it’d be a draw.';
 
   return (
     <article className={cx('rounded-xl border p-4', theirRequest ? 'border-ink-3 bg-s1' : 'border-line bg-s1')} data-testid="challenge-card">
@@ -1184,7 +1197,35 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
           <Button variant="primary" onClick={() => { answerChallenge(pair.id, ch.id, true); toast('Challenge accepted'); }}>Accept</Button>
           <Button onClick={() => answerChallenge(pair.id, ch.id, false)}>Decline</Button>
         </div>
-      ) : r.status === 'finished' ? null : confirmCancel ? (
+      ) : r.status === 'finished' ? null : confirmEnd ? (
+        <div className="mt-3 rounded-lg bg-s2 p-3 text-[14px] text-ink-2" data-testid="challenge-end-confirm">
+          {ch.kind === 'most_days' ? (
+            <>
+              <span className="font-medium text-ink">End this challenge today?</span> Target days through today count, and whoever has more once
+              today is over wins{ch.stake ? ` ${ch.stake}` : ''}. This can’t be undone.
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-ink">Are you sure you want to end it now?</span> Only what’s logged up to this moment counts. {ifEndedNow}
+              {theirScore && ` ${partnerName}’s numbers are from ${ago(theirScore.updatedAt)}; anything they logged before now still counts, so it settles once their app catches up.`}
+              {ch.stake && ` The winner gets ${ch.stake}.`} This can’t be undone.
+            </>
+          )}
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Button
+              variant="danger"
+              onClick={() => {
+                endChallengeNow(pair.id, ch.id, uid, today);
+                setConfirmEnd(false);
+                toast(ch.kind === 'most_days' ? 'Challenge ends today' : 'Challenge ended');
+              }}
+            >
+              {ch.kind === 'most_days' ? 'End today' : 'End it now'}
+            </Button>
+            <Button onClick={() => setConfirmEnd(false)}>Keep going</Button>
+          </div>
+        </div>
+      ) : confirmCancel ? (
         <div className="mt-3 rounded-lg bg-s2 p-3 text-[14px] text-ink-2">
           Call off this challenge? Nobody wins it.
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -1193,9 +1234,16 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
           </div>
         </div>
       ) : (
-        <button type="button" className="mt-2 text-[13px] text-ink-3 underline underline-offset-2" onClick={() => setConfirmCancel(true)}>
-          {r.status === 'pending' ? 'Withdraw' : 'Call it off'}
-        </button>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          {canEnd && (
+            <button type="button" className="text-[13px] text-ink-2 underline underline-offset-2" data-testid="challenge-end" onClick={() => setConfirmEnd(true)}>
+              {ch.kind === 'most_days' ? 'End it today' : 'End it now'}
+            </button>
+          )}
+          <button type="button" className="text-[13px] text-ink-3 underline underline-offset-2" onClick={() => setConfirmCancel(true)}>
+            {r.status === 'pending' ? 'Withdraw' : 'Call it off'}
+          </button>
+        </div>
       )}
     </article>
   );
@@ -1218,8 +1266,9 @@ function ChallengeLogs({ ch, metric, mine, theirs, myHue, theirHue }: {
   const [day, setDay] = useState(last);
   const shown = day > last ? last : day < span.start ? span.start : day;
   const label = shown === today ? 'Today' : shown === addDays(today, -1) ? 'Yesterday' : formatLocalDate(shown, 'EEE d MMM');
-  // With times, only what's inside the window, and a timer only for its part inside.
-  const counted = isTimed(ch) ? (l: SharedLog) => logInWindow(l, ch.startAt, ch.endAt) : (l: SharedLog) => l.v;
+  // With times (or ended early), only what's inside the window, and a timer only for its part inside.
+  const w = challengeWindow(ch);
+  const counted = w ? (l: SharedLog) => logInWindow(l, w.startAt, w.endAt) : (l: SharedLog) => l.v;
   const inside = (logs: SharedLog[] | undefined) => logs?.filter((l) => counted(l) > 0);
   const theirLogs = inside(theirs?.logs?.[shown]);
 
