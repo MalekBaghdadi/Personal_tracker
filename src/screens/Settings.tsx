@@ -9,6 +9,7 @@ import { applyImport, fetchExisting, replayTour, saveSettings } from '../lib/rep
 import { NOT_AN_EXPORT, importIsEmpty, isExport, planImport, type ImportPlan } from '../lib/importer';
 import { deviceTimezone, nowIso } from '../lib/dates';
 import { exportCsv, exportJson } from '../lib/export';
+import { usePlans } from '../state/PlansContext';
 import { formatNumber } from '../lib/format';
 import { Button, Label, Segmented, Sheet, Switch, inputClass, useToast } from '../components/ui';
 import { badgeSupported, useBadgeSetting } from '../state/badge';
@@ -26,7 +27,9 @@ function allTimezones(current: string): string[] {
 }
 
 export function Settings() {
-  const { uid, user, settings, tz, dayStart, metrics, entries, items, goals, timer } = useData();
+  const { uid, user, settings, tz, dayStart, metrics, entries, items, goals, timer, dayOf } = useData();
+  const allPlans = usePlans();
+  const planExport = { plans: allPlans.plans, planSections: allPlans.sections, planTasks: allPlans.tasks };
   const zones = useMemo(() => allTimezones(tz), [tz]);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -92,8 +95,8 @@ export function Settings() {
             {plural(entries.length, 'entry', 'entries')} across {plural(metrics.length, 'metric')}, archived ones included, plus {plural(items.length, 'event or reminder', 'events and reminders')} and {plural(goals.length, 'goal')}. Durations are in seconds.
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button onClick={() => exportJson(metrics, entries, items, goals, settings)}><Download size={17} /> JSON</Button>
-            <Button onClick={() => exportCsv(metrics, entries, items, goals)}><Download size={17} /> CSV</Button>
+            <Button onClick={() => exportJson(metrics, entries, items, goals, settings, planExport)}><Download size={17} /> JSON</Button>
+            <Button onClick={() => exportCsv(metrics, entries, items, goals, planExport, dayOf)}><Download size={17} /> CSV</Button>
           </div>
         </section>
 
@@ -203,9 +206,11 @@ function ImportSection() {
         plan.entries.length && plural(plan.entries.length, 'entry', 'entries'),
         plan.items.length && plural(plan.items.length, 'event or reminder', 'events and reminders'),
         plan.goals.length && plural(plan.goals.length, 'goal'),
+        plan.plans.length && plural(plan.plans.length, 'plan'),
+        plan.planTasks.length && plural(plan.planTasks.length, 'plan task'),
       ].filter(Boolean).join(', ')
     : '';
-  const skipped = plan ? plan.skipped.entries + plan.skipped.items + plan.skipped.goals + plan.skipped.metrics : 0;
+  const skipped = plan ? plan.skipped.entries + plan.skipped.items + plan.skipped.goals + plan.skipped.metrics + plan.skipped.plans : 0;
 
   return (
     <section className="border-t border-line pt-5">

@@ -13,11 +13,11 @@ import type { ActiveTimer, CalendarItem, Entry, EntrySource, Goal, Metric, Setti
  * commits to IndexedDB synchronously enough for the next snapshot to reflect
  * it; the promise only resolves on server ack, which the UI never waits for.
  */
-function fire(p: Promise<unknown>): void {
+export function fire(p: Promise<unknown>): void {
   p.catch((err) => console.error('[repo] write failed', err));
 }
 
-const MAX_BATCH = 450;
+export const MAX_BATCH = 450;
 
 export const paths = {
   metrics: (uid: string) => collection(db, 'users', uid, 'metrics'),
@@ -30,6 +30,12 @@ export const paths = {
   item: (uid: string, id: string) => doc(db, 'users', uid, 'items', id),
   timer: (uid: string) => doc(db, 'users', uid, 'state', 'timer'),
   settings: (uid: string) => doc(db, 'users', uid, 'state', 'settings'),
+  plans: (uid: string) => collection(db, 'users', uid, 'plans'),
+  plan: (uid: string, id: string) => doc(db, 'users', uid, 'plans', id),
+  planSections: (uid: string) => collection(db, 'users', uid, 'planSections'),
+  planSection: (uid: string, id: string) => doc(db, 'users', uid, 'planSections', id),
+  planTasks: (uid: string) => collection(db, 'users', uid, 'planTasks'),
+  planTask: (uid: string, id: string) => doc(db, 'users', uid, 'planTasks', id),
 };
 
 // ── Entries ────────────────────────────────────────────────────────────────
@@ -350,17 +356,23 @@ export function replayTour(uid: string, id: string): void {
  * may not know about documents deleted on another device.
  */
 export async function fetchExisting(uid: string): Promise<ExistingData> {
-  const [metrics, entries, items, goals] = await Promise.all([
+  const [metrics, entries, items, goals, plans, planSections, planTasks] = await Promise.all([
     getDocsFromServer(paths.metrics(uid)),
     getDocsFromServer(paths.entries(uid)),
     getDocsFromServer(paths.items(uid)),
     getDocsFromServer(paths.goals(uid)),
+    getDocsFromServer(paths.plans(uid)),
+    getDocsFromServer(paths.planSections(uid)),
+    getDocsFromServer(paths.planTasks(uid)),
   ]);
   return {
     metrics: metrics.docs.map((d) => d.data() as Metric),
     entryIds: new Set(entries.docs.map((d) => d.id)),
     itemIds: new Set(items.docs.map((d) => d.id)),
     goals: goals.docs.map((d) => d.data() as Goal),
+    planIds: new Set(plans.docs.map((d) => d.id)),
+    planSectionIds: new Set(planSections.docs.map((d) => d.id)),
+    planTaskIds: new Set(planTasks.docs.map((d) => d.id)),
   };
 }
 
@@ -371,6 +383,9 @@ export function applyImport(uid: string, plan: ImportPlan): void {
     ...plan.goals.map((g) => [paths.goal(uid, g.id), g] as [DocumentReference, object]),
     ...plan.entries.map((e) => [paths.entry(uid, e.id), e] as [DocumentReference, object]),
     ...plan.items.map((i) => [paths.item(uid, i.id), i] as [DocumentReference, object]),
+    ...plan.plans.map((p) => [paths.plan(uid, p.id), p] as [DocumentReference, object]),
+    ...plan.planSections.map((s) => [paths.planSection(uid, s.id), s] as [DocumentReference, object]),
+    ...plan.planTasks.map((t) => [paths.planTask(uid, t.id), t] as [DocumentReference, object]),
   ];
   for (let i = 0; i < writes.length; i += MAX_BATCH) {
     const batch = writeBatch(db);

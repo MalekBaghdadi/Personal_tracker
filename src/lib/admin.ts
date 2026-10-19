@@ -1,7 +1,7 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where, type DocumentReference } from 'firebase/firestore';
 import { db } from './firebase';
 import { paths } from './repo';
-import type { DayStats, Entry, Goal, Metric, Settings } from './types';
+import type { DayStats, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Settings } from './types';
 
 /**
  * Malek's account (malekbaghdadi07@gmail.com). It may read every user's data;
@@ -63,6 +63,9 @@ export interface UserData {
   metrics: Metric[];
   entries: Entry[];
   goals: Goal[];
+  plans: Plan[];
+  planSections: PlanSection[];
+  planTasks: PlanTask[];
 }
 
 /**
@@ -80,12 +83,16 @@ async function docOrNull<T>(ref: DocumentReference): Promise<{ value: T | null; 
 }
 
 export async function fetchUserData(uid: string): Promise<Loaded<UserData>> {
-  const [profile, settings, metrics, entries, goals] = await Promise.all([
+  const live = where('deletedAt', '==', null);
+  const [profile, settings, metrics, entries, goals, plans, planSections, planTasks] = await Promise.all([
     docOrNull<Profile>(profileRef(uid)),
     docOrNull<Settings>(paths.settings(uid)),
     getDocs(paths.metrics(uid)),
-    getDocs(query(paths.entries(uid), where('deletedAt', '==', null))),
+    getDocs(query(paths.entries(uid), live)),
     getDocs(paths.goals(uid)),
+    getDocs(query(paths.plans(uid), live)),
+    getDocs(query(paths.planSections(uid), live)),
+    getDocs(query(paths.planTasks(uid), live)),
   ]);
   return {
     data: {
@@ -94,8 +101,11 @@ export async function fetchUserData(uid: string): Promise<Loaded<UserData>> {
       metrics: metrics.docs.map((d) => d.data() as Metric).sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt)),
       entries: entries.docs.map((d) => d.data() as Entry),
       goals: goals.docs.map((d) => d.data() as Goal),
+      plans: plans.docs.map((d) => d.data() as Plan),
+      planSections: planSections.docs.map((d) => d.data() as PlanSection),
+      planTasks: planTasks.docs.map((d) => d.data() as PlanTask),
     },
-    fromCache: profile.fromCache || settings.fromCache || [metrics, entries, goals].some((s) => s.metadata.fromCache),
+    fromCache: profile.fromCache || settings.fromCache || [metrics, entries, goals, plans, planSections, planTasks].some((s) => s.metadata.fromCache),
   };
 }
 

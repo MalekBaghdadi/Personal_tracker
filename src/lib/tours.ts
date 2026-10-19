@@ -29,6 +29,7 @@ export const TOURS: Tour[] = [
       { target: 'today-date', title: 'Today’s date', body: 'Tap it to open today in History, with your events, reminders and everything logged.' },
       { target: 'today-yesterday', title: 'Forgot yesterday?', body: 'Catch up on yesterday here. Logging what you missed restores a broken streak.' },
       { target: 'today-goals', title: 'Deadline goals', body: 'How far along each goal is, whether you’re ahead or behind, and what today needs.' },
+      { target: 'today-plan', title: 'Plans', body: 'A plan shows its next task, whatever its date. Tick it and the next one comes up. Tap the card for details, notes and what’s next.' },
       { target: 'today-row', title: 'Your metrics', body: 'Each one due today: today’s total, the target, a progress bar and your streak.' },
       { target: 'today-chip', title: 'Quick add', body: 'Tap a chip to log that amount in one go. Tap several and they add up.' },
       { target: 'today-custom', title: 'Any amount', body: 'Type an exact amount, or log it to another day.' },
@@ -73,7 +74,7 @@ export const TOURS: Tour[] = [
     steps: [
       { target: 'metrics-new', title: 'Track something new', body: 'Time or a count, a daily target (at least or at most), which days, and your quick-add amounts.' },
       { target: 'metrics-list', title: 'Your metrics', body: 'Tap one to change it, or drag to reorder. Archive what you’ve stopped tracking without losing its history.' },
-      { target: 'metrics-goals', title: 'Deadline goals', body: 'Aim for a total by a date, like 120 hours by 15 December. The app works out the pace you need each day.' },
+      { target: 'metrics-goals', title: 'Deadline goals', body: 'Aim for a total by a date, like 120 hours by 15 December, or a plan of tasks. Paste a plan’s Markdown checklist and it becomes one, with its sections and dates.' },
     ],
   },
   {

@@ -44,6 +44,29 @@ try {
   await check('Admin can read it', assertSucceeds(getDoc(doc(as(ADMIN), 'users/A/metrics/m1'))));
   await check('Admin can’t write it', assertFails(setDoc(doc(as(ADMIN), 'users/A/metrics/m2'), { name: 'x' })));
 
+  // ── Plans (users/{uid}/plans, planSections, planTasks): private, admin read-only ──
+  const plan = { id: 'p1', name: 'Uptime Monitor', startDate: '2026-10-19', deadline: '2026-11-27', schedule: { kind: 'daily' }, metricId: null, color: '#5b8def', icon: 'Target', archivedAt: null, createdAt: 'x', updatedAt: 'x', deletedAt: null };
+  const task = { id: 't1', planId: 'p1', sectionId: null, order: 0, title: 'Create the repo', details: null, targetDate: '2026-10-19', doneAt: null, note: null, createdAt: 'x', updatedAt: 'x', deletedAt: null };
+  await check('Owner creates a plan, section and task in one batch', assertSucceeds((() => {
+    const b = writeBatch(A);
+    b.set(doc(A, 'users/A/plans/p1'), plan);
+    b.set(doc(A, 'users/A/planSections/s1'), { id: 's1', planId: 'p1', title: 'Week 1', order: 0, checkpoint: null, checkpointDoneAt: null, createdAt: 'x', updatedAt: 'x', deletedAt: null });
+    b.set(doc(A, 'users/A/planTasks/t1'), task);
+    return b.commit();
+  })()));
+  await check('Owner ticks a task', assertSucceeds(updateDoc(doc(A, 'users/A/planTasks/t1'), { doneAt: '2026-10-19T15:00:00Z' })));
+  await check('Owner lists live tasks', assertSucceeds(getDocs(query(collection(A, 'users/A/planTasks'), where('deletedAt', '==', null)))));
+  await check('Another user can’t read the plan', assertFails(getDoc(doc(B, 'users/A/plans/p1'))));
+  await check('Another user can’t list the tasks', assertFails(getDocs(collection(B, 'users/A/planTasks'))));
+  await check('Another user can’t tick a task', assertFails(updateDoc(doc(B, 'users/A/planTasks/t1'), { doneAt: null })));
+  await check('Another user can’t add a task', assertFails(setDoc(doc(B, 'users/A/planTasks/t2'), { ...task, id: 't2' })));
+  await check('Signed out can’t read a plan', assertFails(getDoc(doc(anon, 'users/A/plans/p1'))));
+  await check('Admin reads the plan', assertSucceeds(getDoc(doc(as(ADMIN), 'users/A/plans/p1'))));
+  await check('Admin lists the tasks', assertSucceeds(getDocs(query(collection(as(ADMIN), 'users/A/planTasks'), where('deletedAt', '==', null)))));
+  await check('Admin can’t tick a task', assertFails(updateDoc(doc(as(ADMIN), 'users/A/planTasks/t1'), { doneAt: null })));
+  await check('Admin can’t edit the plan', assertFails(updateDoc(doc(as(ADMIN), 'users/A/plans/p1'), { name: 'x' })));
+  await check('A paired partner can’t read plans either', assertFails(getDoc(doc(B, 'users/A/planSections/s1'))));
+
   // ── Invites ──
   await check('A creates an invite', assertSucceeds(setDoc(doc(A, 'invites/AAAAAA'), invite('AAAAAA', 'A'))));
   await check('Can’t create an invite as someone else', assertFails(setDoc(doc(C, 'invites/CCCCCC'), invite('CCCCCC', 'A'))));

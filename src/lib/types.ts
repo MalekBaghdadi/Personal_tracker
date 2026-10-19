@@ -125,3 +125,62 @@ export interface DayStat {
 }
 
 export type DayStats = Map<string, DayStat>;
+
+/**
+ * A Plan: a deadline goal counted in tasks done. Inputs only, like Goal:
+ * progress, the current task, pace and the end state are derived
+ * (lib/plans.ts). Lives at users/{uid}/plans/{id}; its sections and tasks are
+ * their own docs (planSections, planTasks), so ticking two different tasks
+ * on two offline devices touches two different records.
+ */
+export interface Plan {
+  id: string;
+  name: string;
+  /** 'YYYY-MM-DD', inclusive. */
+  startDate: string;
+  /** 'YYYY-MM-DD', inclusive. May be after the last task's date (a buffer). */
+  deadline: string;
+  /** Days that count for pace. Default Mon–Fri. */
+  schedule: Schedule;
+  /** Optional linked metric: its timer's note prompt offers to tick the current task. */
+  metricId: string | null;
+  color: string;
+  icon: string;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+/** An ordered group of tasks ("Week 1"), with an optional checkpoint at its end. */
+export interface PlanSection {
+  id: string;
+  planId: string;
+  title: string;
+  order: number;
+  /** A milestone at the end of the section. Doesn't count toward task totals or pace. */
+  checkpoint: string | null;
+  checkpointDoneAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface PlanTask {
+  id: string;
+  planId: string;
+  /** null: not in a section (listed before any sections). */
+  sectionId: string | null;
+  /** Position within its section. */
+  order: number;
+  title: string;
+  details: string | null;
+  /** Only shapes the pace line; never decides what's shown. */
+  targetDate: string | null;
+  /** When it was ticked; null while undone. */
+  doneAt: string | null;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}

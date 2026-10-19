@@ -4,14 +4,16 @@ import { formatDistanceToNowStrict } from 'date-fns';
 import { useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
 import { buildDayStats, fetchProfiles, fetchUserData, isAdmin, type UserData } from '../lib/admin';
-import { DEFAULT_DAY_START_HOUR, addDays, deviceTimezone, formatLocalDate, todayIn, weekdayOf } from '../lib/dates';
+import { DEFAULT_DAY_START_HOUR, addDays, dayOf, deviceTimezone, formatLocalDate, todayIn, weekdayOf } from '../lib/dates';
+import { computePlan, planStatusLabel } from '../lib/plans';
+import { PlanBar } from '../components/Plans';
 import { computeStreaks, isHit, isScheduled } from '../lib/streaks';
 import { computeGoal } from '../lib/goals';
 import { formatTarget, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import { WEEKDAYS, cx } from '../components/ui';
 import { GoalBar, fmtGoal, statusLabel } from '../components/Goals';
-import type { DayStats, Goal, Metric } from '../lib/types';
+import type { DayStats, Goal, Metric, Plan } from '../lib/types';
 
 /**
  * See-only admin view: every user's metrics, recent totals, streaks and goals.
@@ -176,6 +178,17 @@ function UserDetail({ data }: { data: UserData }) {
           ))}
         </ul>
       )}
+
+      <h2 className="mt-6 mb-2 text-[15px] font-medium">Plans</h2>
+      {data.plans.filter((p) => !p.archivedAt).length === 0 ? (
+        <p className="text-[14px] text-ink-3">No active plans.</p>
+      ) : (
+        <ul className="flex flex-col gap-2" data-testid="admin-plans">
+          {data.plans.filter((p) => !p.archivedAt).sort((a, b) => a.deadline.localeCompare(b.deadline)).map((p) => (
+            <PlanRow key={p.id} plan={p} data={data} today={today} tz={tz} />
+          ))}
+        </ul>
+      )}
     </>
   );
 }
@@ -237,6 +250,24 @@ function MetricCard({ metric, stats, today, weekStartsOn }: { metric: Metric; st
           );
         })}
       </ol>
+    </li>
+  );
+}
+
+/** Figures from the same pure function as the user's own screens, in their timezone and day start. */
+function PlanRow({ plan, data, today, tz }: { plan: Plan; data: UserData; today: string; tz: string }) {
+  const hue = useHue(plan.color);
+  const dayStart = data.settings?.dayStartHour ?? DEFAULT_DAY_START_HOUR;
+  const r = useMemo(
+    () => computePlan(plan, data.planSections.filter((s) => s.planId === plan.id), data.planTasks.filter((t) => t.planId === plan.id), today, (iso) => dayOf(iso, tz, dayStart)),
+    [plan, data, today, tz, dayStart],
+  );
+  return (
+    <li className="rounded-xl border border-line p-3">
+      <p className="text-[15px] font-medium">{plan.name}</p>
+      <p className="mt-0.5 text-[13px] text-ink-3">{r.done} of {r.total} tasks · due {formatLocalDate(plan.deadline, 'd MMM yyyy')}</p>
+      <div className="mt-2"><PlanBar r={r} color={hue} /></div>
+      <p className="mt-1.5 text-[13px] text-ink-2">{planStatusLabel(r)}</p>
     </li>
   );
 }

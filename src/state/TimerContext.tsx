@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useData } from './DataContext';
 import { useCompete } from './CompeteContext';
+import { usePlans } from './PlansContext';
 import { addEntry, discardTimer, softDeleteEntry, startTimer, stopTimer, updateEntry } from '../lib/repo';
+import { setTaskDone, updateTask } from '../lib/plansRepo';
 import { formatDuration } from '../lib/format';
 import { Button, Sheet, useToast } from '../components/ui';
 import { DurationInput, parseDuration } from '../components/inputs';
@@ -59,6 +61,7 @@ export function useTimerActions(): TimerActions {
 export function TimerProvider({ children }: { children: ReactNode }) {
   const { uid, timer, metricById, tz, dayOf } = useData();
   const { sharedWith } = useCompete();
+  const { plans, resultOf } = usePlans();
   const toast = useToast();
   const [switchTo, setSwitchTo] = useState<{ metricId: string; startedAt?: string } | null>(null);
   const [recovering, setRecovering] = useState(false);
@@ -83,15 +86,25 @@ export function TimerProvider({ children }: { children: ReactNode }) {
     const id = stopTimer(uid, timer, raw, dayOf);
     const name = metricName(timer.metricId);
     const partner = sharedWith(timer.metricId, dayOf(timer.startedAt));
+    // A Plan linked to this metric offers its current task in the note prompt.
+    const linked = plans.find((p) => p.metricId === timer.metricId && !p.archivedAt && resultOf(p.id).current);
+    const current = linked ? resultOf(linked.id).current : null;
+    const task = linked && current
+      ? {
+        title: `${current.title.replace(/[*`_]/g, '')}`,
+        mark: (done: boolean) => setTaskDone(uid, current.id, done),
+        saveNote: (note: string) => updateTask(uid, current.id, { note }),
+      }
+      : undefined;
     if (id)
       toast(
         `Logged ${formatDuration(raw)} to ${name}`,
         { label: 'Undo', run: () => softDeleteEntry(uid, id) },
-        raw > NOTE_PROMPT_AFTER_S ? { note: { prompt: 'What did you accomplish?', hint: partner ? `${partner} sees this note (challenge day)` : undefined, save: (note) => updateEntry(uid, id, { note }) } } : undefined,
+        raw > NOTE_PROMPT_AFTER_S ? { note: { prompt: 'What did you accomplish?', hint: partner ? `${partner} sees this note (challenge day)` : undefined, save: (note) => updateEntry(uid, id, { note }), task } } : undefined,
       );
     else toast('Timer stopped. Under a second, so nothing was logged.');
     return true;
-  }, [timer, uid, dayOf, toast, metricById, sharedWith]);
+  }, [timer, uid, dayOf, toast, metricById, sharedWith, plans, resultOf]);
 
   const start = useCallback(
     (metricId: string, startedAt?: string) => {

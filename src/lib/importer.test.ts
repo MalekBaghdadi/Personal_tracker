@@ -29,6 +29,28 @@ function plan(b: unknown, e: ExistingData) {
 }
 
 describe('planImport', () => {
+  it('adds plans, sections and tasks; skips ids already here; drops orphans', () => {
+    const planDoc = { id: 'p1', name: 'Uptime', startDate: '2026-10-19', deadline: '2026-11-27', schedule: { kind: 'daily' }, metricId: 'm1', color: '#fff', icon: 'Target', archivedAt: null };
+    const p = plan(backup({
+      metrics: [metric('m1', 'Studying')],
+      plans: [planDoc, { ...planDoc, id: 'old' }],
+      planSections: [{ id: 's1', planId: 'p1', title: 'Week 1', order: 0, checkpoint: 'Demo' }, { id: 's9', planId: 'nope', title: 'x', order: 0 }],
+      planTasks: [
+        { id: 't1', planId: 'p1', sectionId: 's1', order: 0, title: 'First', targetDate: '2026-10-19', doneAt: '2026-10-19T15:00:00Z' },
+        { id: 't2', planId: 'p1', sectionId: 'gone', order: 1, title: 'Second', targetDate: 'soon' },
+        { id: 't3', planId: 'p1', order: 2, title: 'Kept already' },
+      ],
+    }), empty({ planIds: new Set(['old']), planTaskIds: new Set(['t3']) }));
+    expect(p.plans.map((x) => [x.id, x.metricId, x.deletedAt])).toEqual([['p1', 'm1', null]]);
+    expect(p.skipped.plans).toBe(1);
+    expect(p.planSections.map((x) => [x.id, x.checkpoint])).toEqual([['s1', 'Demo']]);
+    expect(p.planTasks.map((x) => [x.id, x.sectionId, x.targetDate, x.doneAt])).toEqual([
+      ['t1', 's1', '2026-10-19', '2026-10-19T15:00:00Z'],
+      ['t2', null, null, null],
+    ]);
+    expect(p.invalid).toBe(1);
+  });
+
   it('keeps check-off metrics and ranges, and drops a stray lower end', () => {
     const p = plan(backup({
       metrics: [

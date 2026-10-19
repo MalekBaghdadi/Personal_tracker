@@ -4,6 +4,7 @@ import { auth, firebaseConfigured } from './lib/firebase';
 import { DataProvider, useData } from './state/DataContext';
 import { TimerProvider } from './state/TimerContext';
 import { CompeteProvider } from './state/CompeteContext';
+import { PlansProvider } from './state/PlansContext';
 import { ThemeProvider } from './state/theme';
 import { useAppBadge } from './state/badge';
 import { SideNav, TabBar, TimerBar, UpdatePrompt } from './components/Chrome';
@@ -16,21 +17,22 @@ import { History } from './screens/History';
 // is still precached, so Stats opens offline.
 const Stats = lazy(() => import('./screens/Stats').then((m) => ({ default: m.Stats })));
 const GoalDetail = lazy(() => import('./screens/GoalDetail').then((m) => ({ default: m.GoalDetail })));
+const PlanDetail = lazy(() => import('./screens/PlanDetail').then((m) => ({ default: m.PlanDetail })));
 const Admin = lazy(() => import('./screens/Admin').then((m) => ({ default: m.Admin })));
 const Compete = lazy(() => import('./screens/Compete').then((m) => ({ default: m.Compete })));
 import { Metrics } from './screens/Metrics';
 import { TourHost } from './components/Tour';
 import { Settings } from './screens/Settings';
 
-export type Route = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'settings' | 'goals' | 'admin';
-const ROUTES: Route[] = ['today', 'history', 'stats', 'compete', 'metrics', 'settings', 'goals', 'admin'];
+export type Route = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'settings' | 'goals' | 'plans' | 'admin';
+const ROUTES: Route[] = ['today', 'history', 'stats', 'compete', 'metrics', 'settings', 'goals', 'plans', 'admin'];
 
-/** `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id; `#/admin/<uid>` → user id. */
+/** `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id; `#/plans/<id>` → plan id; `#/admin/<uid>` → user id. */
 function readRoute(): { route: Route; day: string | null; id: string | null } {
   const [r, param] = window.location.hash.replace(/^#\/?/, '').split('/') as [Route, string | undefined];
   const route = ROUTES.includes(r) ? r : 'today';
   const day = route === 'history' && param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : null;
-  const id = (route === 'goals' || route === 'admin') && param ? param : null;
+  const id = (route === 'goals' || route === 'plans' || route === 'admin') && param ? param : null;
   return { route, day, id };
 }
 
@@ -74,7 +76,7 @@ function Shell() {
   const { route, day, id } = useRoute();
   useAppBadge();
   // The goal screen hangs off Metrics, where the Goals list lives; admin off Settings.
-  const tab: Route = route === 'goals' ? 'metrics' : route === 'admin' ? 'settings' : route;
+  const tab: Route = route === 'goals' || route === 'plans' ? 'metrics' : route === 'admin' ? 'settings' : route;
 
   // Only a freshly seeded account has onboardedAt === null. A settings doc
   // created later by a partial write (field absent) must never re-trigger it.
@@ -84,6 +86,7 @@ function Shell() {
   return (
     <ThemeProvider pref={settings?.theme}>
       <ToastProvider>
+        <PlansProvider>
         <CompeteProvider>
           <TimerProvider>
             {!ready ? (
@@ -106,6 +109,7 @@ function Shell() {
                     {route === 'metrics' && <Metrics />}
                     {route === 'settings' && <Settings />}
                     {route === 'goals' && <Suspense fallback={null}><GoalDetail id={id} /></Suspense>}
+                    {route === 'plans' && <Suspense fallback={null}><PlanDetail id={id} /></Suspense>}
                     {route === 'admin' && <Suspense fallback={null}><Admin id={id} /></Suspense>}
                   </main>
                 </div>
@@ -116,6 +120,7 @@ function Shell() {
             <UpdatePrompt />
           </TimerProvider>
         </CompeteProvider>
+        </PlansProvider>
       </ToastProvider>
     </ThemeProvider>
   );

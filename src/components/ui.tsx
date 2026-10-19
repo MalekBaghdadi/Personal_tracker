@@ -2,7 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState,
   type ButtonHTMLAttributes, type ReactNode,
 } from 'react';
-import { PencilLine, X } from 'lucide-react';
+import { Check, PencilLine, X } from 'lucide-react';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 export { cx };
@@ -263,7 +263,14 @@ export function DayPicker({ days, onChange, weekStartsOn }: { days: number[]; on
 
 interface ToastOptions {
   /** Adds a "What did you accomplish?" row with a pen. The toast then stays until dismissed or saved. */
-  note?: { prompt: string; save: (text: string) => void; /** A small line under the field, e.g. who else sees the note. */ hint?: string };
+  note?: {
+    prompt: string;
+    save: (text: string) => void;
+    /** A small line under the field, e.g. who else sees the note. */
+    hint?: string;
+    /** A linked Plan's current task: "Mark done" ticks it, and a saved note goes on it too. */
+    task?: { title: string; mark: (done: boolean) => void; saveNote: (text: string) => void };
+  };
 }
 
 interface ToastMsg extends ToastOptions {
@@ -316,44 +323,73 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 function NoteRow({ note, onDone }: { note: NonNullable<ToastOptions['note']>; onDone: () => void }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState('');
+  const [marked, setMarked] = useState(false);
+  const task = note.task;
+  const taskRow = task && (
+    <button
+      type="button"
+      aria-pressed={marked}
+      onClick={() => {
+        task.mark(!marked);
+        setMarked(!marked);
+      }}
+      className="flex min-h-9 w-full items-center gap-2 border-t border-line pt-1 text-left"
+    >
+      <span className={cx('grid size-5 shrink-0 place-items-center rounded-full border-2', marked ? 'border-ink bg-ink text-bg' : 'border-ink-3')}>
+        {marked && <Check size={12} strokeWidth={3} aria-hidden />}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-ink-2">
+        <span className="font-medium text-ink">{marked ? 'Done: ' : 'Mark done: '}</span>{task.title}
+      </span>
+    </button>
+  );
   if (!editing) {
     return (
-      <div className="flex min-h-9 items-center justify-between gap-2 border-t border-line pt-1">
-        <button type="button" className="min-h-9 flex-1 text-left text-ink-2" onClick={() => setEditing(true)}>
-          {note.prompt}
-        </button>
-        <div className="flex">
-          <button type="button" aria-label="Add a note to this session" className="press grid size-9 place-items-center rounded-lg text-ink hover:bg-s2" onClick={() => setEditing(true)}>
-            <PencilLine size={17} aria-hidden />
+      <>
+        <div className="flex min-h-9 items-center justify-between gap-2 border-t border-line pt-1">
+          <button type="button" className="min-h-9 flex-1 text-left text-ink-2" onClick={() => setEditing(true)}>
+            {note.prompt}
           </button>
-          <button type="button" aria-label="Dismiss" className="press grid size-9 place-items-center rounded-lg text-ink-3 hover:bg-s2" onClick={onDone}>
-            <X size={17} aria-hidden />
-          </button>
+          <div className="flex">
+            <button type="button" aria-label="Add a note to this session" className="press grid size-9 place-items-center rounded-lg text-ink hover:bg-s2" onClick={() => setEditing(true)}>
+              <PencilLine size={17} aria-hidden />
+            </button>
+            <button type="button" aria-label="Dismiss" className="press grid size-9 place-items-center rounded-lg text-ink-3 hover:bg-s2" onClick={onDone}>
+              <X size={17} aria-hidden />
+            </button>
+          </div>
         </div>
-      </div>
+        {taskRow}
+      </>
     );
   }
   return (
-    <form
-      className="flex flex-wrap items-center gap-1.5 border-t border-line pt-1.5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (text.trim()) note.save(text.trim());
-        onDone();
-      }}
-    >
-      <input
-        autoFocus
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => e.key === 'Escape' && onDone()}
-        placeholder={note.prompt}
-        aria-label={note.prompt}
-        maxLength={280}
-        className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-bg px-2.5 text-[16px] text-ink placeholder:text-ink-3 focus:border-focus focus:outline-none"
-      />
-      <button type="submit" className="press min-h-9 rounded-lg px-3 font-semibold text-ink hover:bg-s2">Save</button>
-      {note.hint && <p className="basis-full pb-1 text-[12px] text-ink-3">{note.hint}</p>}
-    </form>
+    <>
+      <form
+        className="flex flex-wrap items-center gap-1.5 border-t border-line pt-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (text.trim()) {
+            note.save(text.trim());
+            if (marked) task?.saveNote(text.trim());
+          }
+          onDone();
+        }}
+      >
+        <input
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Escape' && onDone()}
+          placeholder={note.prompt}
+          aria-label={note.prompt}
+          maxLength={280}
+          className="h-9 min-w-0 flex-1 rounded-lg border border-line bg-bg px-2.5 text-[16px] text-ink placeholder:text-ink-3 focus:border-focus focus:outline-none"
+        />
+        <button type="submit" className="press min-h-9 rounded-lg px-3 font-semibold text-ink hover:bg-s2">Save</button>
+        {note.hint && <p className="basis-full pb-1 text-[12px] text-ink-3">{note.hint}</p>}
+      </form>
+      {taskRow}
+    </>
   );
 }

@@ -92,6 +92,7 @@ try {
   // A goal that started two weeks ago, so last week counts toward it.
   await click('nav.fixed a[href="#/metrics"]');
   await click('::-p-text(New goal)');
+  await click('::-p-text(Amount goal)');
   await page.type('#g-target', '100');
   await setVal('#g-start', day(-14));
   await setVal('#g-deadline', day(60));

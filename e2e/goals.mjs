@@ -48,6 +48,7 @@ try {
 
   // Create from the Goals list.
   await click('::-p-text(New goal)');
+  await click('::-p-text(Amount goal)');
   const options = await page.$$eval('#g-metric option', (os) => os.map((o) => o.textContent));
   log('Metric choices (no at_most metrics):', options.join(', '));
   await page.type('#g-target', '120');
@@ -98,6 +99,7 @@ try {
   // One active goal per metric.
   await click('nav.fixed a[href="#/metrics"]');
   await click('::-p-text(New goal)');
+  await click('::-p-text(Amount goal)');
   d = await dialog();
   log('Second goal on same metric blocked:', d.includes('already has an active goal'));
   await page.keyboard.press('Escape');
@@ -118,6 +120,7 @@ try {
   await press('Archive');
   await click('nav.fixed a[href="#/metrics"]');
   await click('::-p-text(New goal)');
+  await click('::-p-text(Amount goal)');
   await page.type('#g-target', '10');
   await page.type('#g-prior', '12');
   await setVal('#g-deadline', '2026-10-30');

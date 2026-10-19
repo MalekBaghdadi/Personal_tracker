@@ -1,4 +1,4 @@
-import type { CalendarItem, Entry, Goal, Metric } from './types';
+import type { CalendarItem, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Schedule } from './types';
 
 /**
  * Restoring a JSON export. Import only ever adds: a document whose id is
@@ -15,6 +15,10 @@ export interface ExistingData {
   entryIds: Set<string>;
   itemIds: Set<string>;
   goals: Goal[];
+  /** Every plan, section and task id on the server, deleted ones included. */
+  planIds?: Set<string>;
+  planSectionIds?: Set<string>;
+  planTaskIds?: Set<string>;
 }
 
 export interface ImportPlan {
@@ -22,10 +26,13 @@ export interface ImportPlan {
   entries: Entry[];
   items: CalendarItem[];
   goals: Goal[];
+  plans: Plan[];
+  planSections: PlanSection[];
+  planTasks: PlanTask[];
   /** Backup metrics folded into an existing metric of the same name. */
   mergedMetrics: number;
   /** Already in the account (or deleted from it). */
-  skipped: { metrics: number; entries: number; items: number; goals: number };
+  skipped: { metrics: number; entries: number; items: number; goals: number; plans: number };
   /** Malformed, or pointing at a metric that isn't there. */
   invalid: number;
   /** Goals imported as archived because their metric already has an active one. */
@@ -51,8 +58,8 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
   if (!isExport(backup)) return { ok: false, error: NOT_AN_EXPORT };
 
   const plan: ImportPlan = {
-    metrics: [], entries: [], items: [], goals: [],
-    mergedMetrics: 0, skipped: { metrics: 0, entries: 0, items: 0, goals: 0 }, invalid: 0, archivedGoals: 0,
+    metrics: [], entries: [], items: [], goals: [], plans: [], planSections: [], planTasks: [],
+    mergedMetrics: 0, skipped: { metrics: 0, entries: 0, items: 0, goals: 0, plans: 0 }, invalid: 0, archivedGoals: 0,
   };
 
   // ── Metrics: backup id → id in the account ──
@@ -203,9 +210,84 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
     });
   }
 
+  // ── Plans, then their sections and tasks (skipped ones count once, as plans) ──
+  const planIds = new Set(existing.planIds ?? []);
+  const known = new Set(existing.planIds ?? []);
+  const isSchedule = (v: unknown): v is Schedule => isObj(v) && (v.kind === 'daily' || (v.kind === 'days_of_week' && Array.isArray(v.days)));
+  for (const raw of arr(backup.plans)) {
+    if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.name) || !isStr(raw.startDate) || !DATE.test(raw.startDate) || !isStr(raw.deadline) || !DATE.test(raw.deadline)) {
+      plan.invalid++;
+      continue;
+    }
+    if (planIds.has(raw.id)) {
+      plan.skipped.plans++;
+      continue;
+    }
+    planIds.add(raw.id);
+    known.add(raw.id);
+    const p = raw as unknown as Plan;
+    plan.plans.push({
+      id: p.id,
+      name: p.name,
+      startDate: p.startDate,
+      deadline: p.deadline,
+      schedule: isSchedule(p.schedule) ? p.schedule : { kind: 'days_of_week', days: [1, 2, 3, 4, 5] },
+      metricId: metricFor(p.metricId)?.id ?? null,
+      color: isStr(p.color) ? p.color : '#5b8def',
+      icon: isStr(p.icon) ? p.icon : 'Target',
+      archivedAt: strOrNull(p.archivedAt),
+      createdAt: isStr(p.createdAt) ? p.createdAt : now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+  }
+  const sectionIds = new Set(existing.planSectionIds ?? []);
+  const knownSections = new Set<string>();
+  for (const raw of arr(backup.planSections)) {
+    if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.planId) || typeof raw.title !== 'string') {
+      plan.invalid++;
+      continue;
+    }
+    if (sectionIds.has(raw.id)) continue;
+    if (!known.has(raw.planId)) {
+      plan.invalid++;
+      continue;
+    }
+    sectionIds.add(raw.id);
+    knownSections.add(raw.id);
+    const s = raw as unknown as PlanSection;
+    plan.planSections.push({
+      id: s.id, planId: s.planId, title: s.title, order: typeof s.order === 'number' ? s.order : 0,
+      checkpoint: strOrNull(s.checkpoint), checkpointDoneAt: strOrNull(s.checkpointDoneAt),
+      createdAt: isStr(s.createdAt) ? s.createdAt : now, updatedAt: now, deletedAt: null,
+    });
+  }
+  const taskIds = new Set(existing.planTaskIds ?? []);
+  for (const raw of arr(backup.planTasks)) {
+    if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.planId) || !isStr(raw.title)) {
+      plan.invalid++;
+      continue;
+    }
+    if (taskIds.has(raw.id)) continue;
+    if (!known.has(raw.planId)) {
+      plan.invalid++;
+      continue;
+    }
+    taskIds.add(raw.id);
+    const t = raw as unknown as PlanTask;
+    // A section that wasn't brought along (or was deleted here) leaves the task outside any section.
+    const sectionOk = t.sectionId != null && (knownSections.has(t.sectionId) || (existing.planSectionIds?.has(t.sectionId) ?? false));
+    plan.planTasks.push({
+      id: t.id, planId: t.planId, sectionId: sectionOk ? t.sectionId : null, order: typeof t.order === 'number' ? t.order : 0,
+      title: t.title, details: strOrNull(t.details), targetDate: isStr(t.targetDate) && DATE.test(t.targetDate) ? t.targetDate : null,
+      doneAt: strOrNull(t.doneAt), note: strOrNull(t.note),
+      createdAt: isStr(t.createdAt) ? t.createdAt : now, updatedAt: now, deletedAt: null,
+    });
+  }
+
   return { ok: true, plan };
 }
 
 export function importIsEmpty(p: ImportPlan): boolean {
-  return p.metrics.length + p.entries.length + p.items.length + p.goals.length === 0;
+  return p.metrics.length + p.entries.length + p.items.length + p.goals.length + p.plans.length + p.planSections.length + p.planTasks.length === 0;
 }

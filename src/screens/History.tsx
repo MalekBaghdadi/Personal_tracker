@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Pencil, Plus } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Pencil, Plus } from 'lucide-react';
 import { itemsOn, statsFor, useData } from '../state/DataContext';
+import { usePlans } from '../state/PlansContext';
+import { Inline, TaskSheet, TickButton } from '../components/Plans';
 import { useHue } from '../state/theme';
 import { addDays, formatLocalDate, formatTimeIn, weekdayOf } from '../lib/dates';
 import { isHit, isScheduled, restDays, streakDays, streakLevel } from '../lib/streaks';
@@ -10,7 +12,7 @@ import { EntrySheet, sourceLabel, type EntrySheetState } from '../components/Ent
 import { Button, IconButton, Sheet, WEEKDAYS, cx } from '../components/ui';
 import { ALL, MetricPicker } from '../components/MetricPicker';
 import { AddItemButtons, ItemList, ItemSheet, type ItemSheetState } from '../components/Items';
-import type { DayStats, Entry, Metric } from '../lib/types';
+import type { DayStats, Entry, Metric, Plan, PlanTask } from '../lib/types';
 
 function monthStart(localDate: string): string {
   return `${localDate.slice(0, 8)}01`;
@@ -327,6 +329,13 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
     () => new Map(shown.map((m) => [m.id, streakDays(m, dayStats.get(m.id) ?? new Map(), days[0], days[days.length - 1], today, weekStartsOn)])),
     [shown, dayStats, days, today, weekStartsOn],
   );
+  // Plan tasks completed per day: a small tick on the cell.
+  const { tasks } = usePlans();
+  const tasksDone = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const t of tasks) if (t.doneAt) out.set(dayOf(t.doneAt), (out.get(dayOf(t.doneAt)) ?? 0) + 1);
+    return out;
+  }, [tasks, dayOf]);
 
   return (
     <>
@@ -359,9 +368,11 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
           const fill = pct > 0 ? `color-mix(in oklab, var(--ink) ${pct}%, var(--s2))` : undefined;
           const parts = logged.map((l) => `${l.metric.name} ${formatValue(l.metric, l.total)}`);
           const logText = parts.length ? `: ${parts.join(', ')}` : d > today ? '' : ': nothing logged';
-          const label = `${formatLocalDate(d, 'EEEE d MMMM')}${logText}${due > 0 ? `; ${met} of ${due} targets met; average streak ${Math.round(avg * 10) / 10} days` : ''}`;
+          const doneTasks = tasksDone.get(d) ?? 0;
+          const label = `${formatLocalDate(d, 'EEEE d MMMM')}${logText}${due > 0 ? `; ${met} of ${due} targets met; average streak ${Math.round(avg * 10) / 10} days` : ''}${doneTasks ? `; ${doneTasks} plan ${doneTasks === 1 ? 'task' : 'tasks'} done` : ''}`;
           return (
             <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} onFill={level >= 6 ? 'bg' : undefined} allowFuture>
+              {doneTasks > 0 && <Check aria-hidden size={11} strokeWidth={3} className={cx('absolute top-1 right-[18px]', level >= 6 ? 'text-bg' : 'text-ink-2')} />}
               {logged.length > 0 && (
                 <span className="absolute inset-x-1.5 bottom-1.5 flex flex-wrap gap-[3px]">
                   {logged.slice(0, 6).map((l) => (
@@ -530,6 +541,8 @@ function AllDaySheet({ date, onClose }: { date: string | null; onClose: () => vo
           </div>
         </section>
 
+        {date && <PlanTasksSection date={date} />}
+
         {loggable && (
           <section aria-labelledby="day-entries-h" className="mt-6">
             <h3 id="day-entries-h" className="mb-1.5 text-[13px] font-medium text-ink-2">Logged</h3>
@@ -558,6 +571,48 @@ function AllDaySheet({ date, onClose }: { date: string | null; onClose: () => vo
       <EntrySheet state={edit} onClose={() => setEdit(null)} />
       <ItemSheet state={itemEdit} onClose={() => setItemEdit(null)} />
     </>
+  );
+}
+
+/**
+ * Plan tasks on a day: the ones completed that day, and (today and later)
+ * the undone ones planned for it. Tapping one opens it.
+ */
+function PlanTasksSection({ date }: { date: string }) {
+  const { today, dayOf } = useData();
+  const { plans, resultOf, planById } = usePlans();
+  const [open, setOpen] = useState<{ task: PlanTask; plan: Plan } | null>(null);
+  const done: { task: PlanTask; plan: Plan }[] = [];
+  const planned: { task: PlanTask; plan: Plan }[] = [];
+  for (const p of plans) {
+    const r = resultOf(p.id);
+    for (const t of r.ordered) {
+      if (t.doneAt && dayOf(t.doneAt) === date) done.push({ task: t, plan: p });
+      else if (!t.doneAt && date >= today && !p.archivedAt && r.planned.get(t.id) === date) planned.push({ task: t, plan: p });
+    }
+  }
+  if (done.length === 0 && planned.length === 0) return null;
+  const row = ({ task, plan }: { task: PlanTask; plan: Plan }) => (
+    <li key={task.id} className="flex items-start gap-1">
+      <span className="-ml-2"><TickButton task={task} color={plan.color} size="sm" /></span>
+      <button type="button" onClick={() => setOpen({ task, plan })} className="min-h-11 min-w-0 flex-1 py-1.5 text-left">
+        <span className={cx('block text-[14px]', task.doneAt && 'text-ink-2')}><Inline text={task.title} /></span>
+        <span className="block text-[12px] text-ink-3">{plan.name}</span>
+      </button>
+    </li>
+  );
+  return (
+    <section aria-labelledby="day-plans-h" className="mt-6">
+      <h3 id="day-plans-h" className="mb-1.5 text-[13px] font-medium text-ink-2">Plan tasks</h3>
+      {done.length > 0 && <ul aria-label="Done this day">{done.map(row)}</ul>}
+      {planned.length > 0 && (
+        <>
+          <p className="mt-1 text-[12px] text-ink-3">Planned for this day</p>
+          <ul aria-label="Planned for this day">{planned.map(row)}</ul>
+        </>
+      )}
+      {open && planById.get(open.plan.id) && <TaskSheet task={open.task} plan={open.plan} onClose={() => setOpen(null)} />}
+    </section>
   );
 }
 

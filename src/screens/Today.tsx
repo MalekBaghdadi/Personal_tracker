@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { ChevronRight, History as HistoryIcon, Keyboard, Minus, Moon, Play, Plus, Square } from 'lucide-react';
 import { itemsOn, statsFor, useData } from '../state/DataContext';
+import { usePlans } from '../state/PlansContext';
+import { PlanCard } from '../components/Plans';
 import { useTimerActions } from '../state/TimerContext';
 import { useHue } from '../state/theme';
 import { addEntry, setRestDay, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
@@ -27,6 +29,13 @@ export function Today() {
   const active = metrics.filter((m) => !m.archivedAt);
   // Already ordered by nearest deadline.
   const activeGoals = data.goals.filter((g) => !g.archivedAt);
+  // Plans with tasks left (or finished today, to show the finished card once); archived, missed and older achieved ones stay off Today.
+  const { plans, resultOf } = usePlans();
+  const todaysPlans = plans.filter((p) => {
+    if (p.archivedAt) return false;
+    const r = resultOf(p.id);
+    return r.status === 'achieved' ? r.achievedDate === today : r.status !== 'missed' && r.status !== 'empty';
+  });
   const scheduled = active.filter((m) => isScheduled(m.schedule, today));
 
   // "Network+ exam 14:00 · Dentist · 2 reminders": events by name, open reminders as a count.
@@ -78,9 +87,10 @@ export function Today() {
 
       <InstallCard />
 
-      {activeGoals.length > 0 && (
+      {(activeGoals.length > 0 || todaysPlans.length > 0) && (
         <section aria-label="Deadline goals" data-tour="today-goals" className="mb-4 flex flex-col gap-2">
           {activeGoals.map((g) => <GoalCard key={g.id} goal={g} />)}
+          {todaysPlans.map((p) => <PlanCard key={p.id} plan={p} />)}
         </section>
       )}
 

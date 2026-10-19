@@ -70,8 +70,9 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - "End it now" on a running challenge (with an "Are you sure?" step): whoever's ahead at that moment wins.
 - **Check-off metrics** (e.g. Gym): done or not done, one tap on Today. An existing time or count metric can switch to check off and keeps its history.
 - **Range targets** (e.g. Calories 1,800–2,200 kcal): a day counts when its total ends up between the two.
+- **Plans:** deadline goals counted in tasks, imported from a pasted Markdown checklist or built in the app. Today shows the next undone task (a queue); dates only shape the pace line.
 
-**Verified:** type check, 157 unit tests, 18 browser test suites, and 56 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 190 unit tests, 19 browser test suites, and 69 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -179,6 +180,20 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - **Session notes** for entries between the goal's start and deadline (`components/SessionNotes.tsx`), with a hint when there are none yet.
 - Terminal states: **Achieved** (date, days early; Archive or Raise the target) and **Missed** (final total and shortfall; Extend deadline or Archive). No confetti, no scolding.
 
+### Plans (`lib/plans.ts`, `lib/planMarkdown.ts`, `lib/plansRepo.ts`, `state/PlansContext.tsx`, `components/Plans.tsx`, `components/PlanImport.tsx`, `screens/PlanDetail.tsx`, route `#/plans/<id>`)
+From Malek's "Plans" spec (19 October 2026; it isn't in the repo, he pasted it). A Plan is a deadline goal measured in **tasks done**: an ordered checklist, optionally in sections (weeks), each section with an optional **checkpoint** (a milestone that doesn't count toward tasks or pace). General: nothing about any plan, weeks or Mon–Fri is special-cased.
+- **Where:** in the Metrics tab's goals list beside amount goals. "New goal" now asks: **Amount goal** (unchanged), **Plan: import from Markdown**, or **Plan: start empty**. Amount goals are untouched (separate collections and code).
+- **The queue:** the current task is always the first undone one in order (loose tasks first, then sections in order). Dates never decide what's shown. Several tasks a day is fine; tasks can be ticked in any order from the detail screen.
+- **Pace** (`computePlan`, unit-tested): each task gets a pace-line date (`plannedDates`): its own target date, or, for a run of undated tasks, spread evenly over the scheduled days between the dated tasks around it (start date and deadline at the ends; the last of a run lands on the last day). **Expected** = tasks planned before today; **due through today** = planned up to today. Status: done < expected → "N tasks behind"; done > due through today → "N tasks ahead"; else "On pace". So doing today's own task is on pace, the next one is ahead, and today never counts against you. **Today's need** = due through today − done ("2 today to get back on pace", "1 today", "Today's done"). **Projection** from the last 14 days' rate per scheduled day (needs 3 scheduled days), walking scheduled days to a finish date ("At this rate: done 20 Nov" / "after the deadline"). **Overload**: behind and what's left needs more than double the planned rate (or no days left). Unscheduled days: the card still shows, nothing is due. **No overdue state**, ever; slipping only shows as behind.
+- **End states** (derived, like amount goals): achieved when every task is done (the day of the last tick), missed once the deadline passes with tasks left (Extend deadline or Archive), archived (stored).
+- **Push remaining** (`pushRemaining`): every undone dated task moves N scheduled days later, optionally the deadline too; the sheet previews the status after. Undo puts the old dates back.
+- **Today card** (`PlanCard`), in the goals area: collapsed shows plan name · section, the current task on one line with a tick, done/total and status (plus the linked metric's total today). Tap to expand (remembered per plan per device, `pt.plan.open.<id>`): full title and details, note, need and projection, the section's checkpoint, the next two tasks, "Open the plan". Ticking moves to the next task, with Undo. Finishing the last task shows confetti and a finished card that day; archived, missed, empty and older achieved plans stay off Today.
+- **Detail screen:** progress with the pace marker, status, need, projection, figures, burn-up (tasks; planned line from the pace-line dates, step lines), the task list by section (the current task's section open, others folded with done/total), checkpoints at the end of their section, notes from tasks. Tasks: tick, title, target date, done date; tap for the task sheet (title, details, note, target date, section, delete). **Edit tasks** mode: drag handles to reorder within a section (`components/DragOrder.tsx`, the Metrics list's pointer approach, arrow keys too), add tasks per section, add/rename/move up-down/delete sections (deleting asks whether to keep the tasks outside any section), section checkpoint text. Also Edit plan (name, dates, schedule, linked metric, colour, icon), **From Markdown** (append, same preview), Archive, Delete (soft, with Undo). Everything has Undo.
+- **Markdown import** (`parsePlanMarkdown`, unit-tested on `e2e/fixtures/uptime-plan.md`): paste is the main path (file picking in an installed iPhone app is awkward), a .md/.txt file is the fallback. Understands `# Title` (first: the default name), `## Heading` (a section; headings with no tasks under them are dropped), `- [ ]`/`* [ ]`/`- [x]` tasks, a bold date at the start of a task (`**Mon Oct 19:**`, `Oct 19`, `19 Oct`, `2026-10-19`; a weekday alone isn't a date; no year → the first date's year, rolling into the next year after December), indented lines under a task (details; sub-bullets become "•"), `**Checkpoint:** text` inside a section. Long text with no details: the first sentence is the title, the rest details. Code fences, tables, paragraphs and `###` headings are ignored. Inline bold/italic/`code` are kept and rendered (`Inline`), never shown as asterisks. **Preview** before anything is written: counts line ("6 sections · 30 tasks · 5 checkpoints · 19 Oct – 27 Nov · Mon–Fri"), sections expandable to their tasks, warnings (tasks without dates among dated ones, dates out of order, duplicate dates, dates outside the schedule, unreadable checkbox lines), and the editable fields: name, start (earliest date or today), deadline (latest date, or four weeks), schedule (the weekdays the dates fall on; all Mon–Fri → Mon–Fri), linked metric, colour, icon. Create writes it all (offline too); Cancel writes nothing; the Markdown itself isn't stored.
+- **Linked metric:** optional. When that metric's timer stops after more than 10 minutes, the "What did you accomplish?" toast also shows "Mark done: <current task>". Tapping it ticks the task (again unticks); a note saved then goes on both the entry and the task. Skipping changes nothing.
+- **Elsewhere:** History's day sheet lists "Plan tasks" done that day and (today or later) the ones planned for it, each tickable and tappable; the All calendar puts a small tick on days with tasks done. Stats' "Last week" adds a line per plan: tasks done, the week before, and ahead/behind going in → coming out (`planWeek`). JSON export includes `plans`, `planSections`, `planTasks`; CSV adds a plan-tasks file; restore adds them add-only like everything else; the admin view lists each user's active plans with progress and status. Tours: Today ("Plans", on `today-plan`) and the Metrics goals step mention them.
+- **The fixture is a stand-in** written to the spec's description (same shape and dates); swap in the real Uptime Monitor plan when Malek provides it and re-run `npm test`.
+
 ### Settings (`src/screens/Settings.tsx`)
 - Timezone (IANA, fixed; defaults to the device's on first run), **day starts at** (midnight to 6am, default 5am), week start and theme.
 - Export: **JSON** (everything, raw) and **CSV**, which downloads four files: entries, metrics, calendar, goals.
@@ -276,6 +291,9 @@ users/{uid}/items/{itemId}         CalendarItem   (soft-deleted via deletedAt)
 users/{uid}/state/timer            ActiveTimer    (absent when no timer runs)
 users/{uid}/state/settings         Settings
 users/{uid}/state/timerClosed      { startedAt, closedAt }  (timer race marker, see below)
+users/{uid}/plans/{planId}         Plan           (soft-deleted via deletedAt)
+users/{uid}/planSections/{id}      PlanSection    (soft-deleted; planId, order, checkpoint, checkpointDoneAt)
+users/{uid}/planTasks/{id}         PlanTask       (soft-deleted; planId, sectionId, order, targetDate, doneAt, note)
 profiles/{uid}                     Profile        (uid, email, joinedAt, lastSeenAt; owner writes, admin reads)
 invites/{code}                     Invite         (Compete: anyone signed in can get one code, never list; inviter creates/deletes)
 pairs/{code}                       Pair           (members [2 uids], names, weekStartsOn, endedAt; members read; joiner creates from a live invite)
@@ -294,6 +312,9 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
 - **Entry:** `metricId`, `localDate` ('YYYY-MM-DD' in the configured timezone), `value` (always > 0; 1 for a check-off tick), `source` ('timer', 'manual' or 'quick_add'), `note`, `occurredAt`, `deletedAt`.
 - **Goal:** `metricId` (an at_least metric), `name`, `nameEdited`, `targetTotal`, `priorProgress`, `startDate`, `deadline` (both inclusive), `paceSchedule`, `archivedAt`. **Inputs only.** Progress, status, pace, projection and achieved date are never stored.
 - **CalendarItem:** `kind` ('event' or 'reminder'), `title`, `localDate`, `time` ('HH:mm' or null for all day), `note`, `doneAt` (reminders), `deletedAt`.
+- **Plan:** `name`, `startDate`, `deadline` (inclusive; may be after the last task, a buffer), `schedule` (pace days, default Mon–Fri), `metricId` (optional link), `color`, `icon`, `archivedAt`, `deletedAt`. **Inputs only**: progress, current task, pace, projection and achieved/missed are derived.
+- **PlanSection:** `planId`, `title`, `order`, `checkpoint` (text or null), `checkpointDoneAt`, `deletedAt`.
+- **PlanTask:** `planId`, `sectionId` (null: not in a section), `order` (within its section), `title`, `details`, `targetDate` (pace only), `doneAt` (the tick), `note`, `deletedAt`. Each task is its own doc, so ticking two different tasks on two offline devices merges, and ticking one twice is the same result.
 - **Settings:** `timezone`, `weekStartsOn`, `theme`, `dayStartHour` (optional, 0–6; absent means 5), `onboardedAt` (null only on a freshly seeded account), `toursSeen` (optional list of tour ids).
 
 ---
@@ -323,7 +344,8 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
     - Pace is rounded **up** for display. One active goal per metric. Goals never change daily targets or streaks.
 11. **Reminders never send notifications.** There's no server; Malek chose in-app only.
 12. **Compete scores are the one stored derived figure,** and only because the other account can't read your data. Their `logs` (challenge days only) are a copy of entries for the partner, never read back by your own screens. They're a published copy for the partner: your own screens never read your score doc, and results (weeks won, challenge winners) are still derived each time, never stored.
-13. **Zero recurring cost:** nothing that needs the Blaze plan, no Cloud Storage, no native iOS app.
+13. **A plan task's tick is state on the task (`doneAt`), never an entry.** Entries stay what they are for metrics. Everything about a plan except its inputs is derived (`lib/plans.ts`), and dates only shape the pace line: the current task is the first undone one, and nothing is ever overdue.
+14. **Zero recurring cost:** nothing that needs the Blaze plan, no Cloud Storage, no native iOS app.
 
 ---
 
@@ -346,9 +368,9 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (43), goals (30), compete (40), taunts (7), review (7), importer (9), checkoff (6), entryRows (6), dates (5)
+npm test              # unit tests: streaks (43), compete (40), plans (32), goals (30), importer (10), taunts (7), review (7), checkoff (6), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
-npm run test:rules    # security rules against the Firestore emulator (56 checks)
+npm run test:rules    # security rules against the Firestore emulator (69 checks)
 ```
 
 **Browser tests (`e2e/`):**
@@ -375,6 +397,7 @@ npm run test:rules    # security rules against the Firestore emulator (56 checks
 | `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
 | `tours` | (emulator-only `logbook:e2e-tours` flag; tours are off in every other suite) none during first run; Today tour skips missing steps; spotlight lines up with its target; taps underneath blocked; Skip, Next, Back, Done, Escape; seen tours stay seen after reload; Settings replays Today with all 8 steps; nothing logged by the tour |
 | `check-range` | Check off offered for new metrics; a timed Gym with yesterday logged switches to check off (explains history is kept, hides target/one-tap/timer); Today row: Not yet → tap → Done, streak 2, toast, untick, Undo, survives reload; Yesterday sheet shows it done; History day sheet reads Done with no add button; Calories range: upper below lower refused, list shows 1,800–2,200 kcal, 300 to go / in range / 300 over; Stats legend says Range, Gym shows Days done and no chart; fresh check-off metric has no goal button |
+| `plans` | (clock pinned to the plan's dates through `localStorage['e2e.day']`) New goal asks for a type; pasting the Uptime Monitor fixture previews "6 sections · 30 tasks · 5 checkpoints · 19 Oct – 27 Nov · Mon–Fri" with the name and no warnings; Cancel saves nothing; Create; Today on 19 Oct: collapsed card, Monday's task, On pace; tick → Tuesday, on pace; tick → Wednesday, 1 ahead; Undo; expanded card (details, need, checkpoint, next, link) and the tick survive a reload; Wed 21 Oct: Tuesday's task still current, 1 task behind, 2 today to get back on pace, nothing red; detail: current section open, others folded, burn-up draws both lines; Push remaining 1 day → On pace, Undo, push again; task sheet, note, Undo; linked timer stopped after 25m offers Mark done, which ticks it and puts the note on entry and task; History day sheet lists the task; Start empty with two undated tasks: on pace Wednesday, 1 behind Thursday |
 | `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
 | `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared (notes during challenges); taunt is a 16px+ bubble from the leader; challenge logs: mine listed, theirs wait for their update, then show with times, timer span and note, day picker can't go before the start, mine published with notes only on challenge days, entry sheet says Cousin sees the note; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; stake on the card; timed challenge: no time fields until switched on, end before start refused, only logs inside the window count, a part-inside timer shows "+1h of 2h"; first to, most days (their request, accepted), finished list; end it now (asks first and says who'd win, Keep going backs out, waits for their next publish, then the leader at that moment wins); call off; change my name (empty refused); unlink. Runs **with motion on**: taunts, crown on the leader, loss banner wobbles, win banner with confetti that cleans itself up |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
@@ -468,6 +491,7 @@ About 15 minutes with the phone and the laptop, both signed in. **All nine passe
 **Ideas not built** (only if Malek asks):
 - repeating events
 - multi-metric goals
+- Plans: sharing with the paired account or in Compete, repeating tasks, sub-tasks, exporting a plan back to Markdown (all out of scope in the spec)
 
 ---
 
@@ -510,6 +534,7 @@ Newest last. `git log` has the details.
 24. **Mac setup, several metrics per side, Compete layout:** the repo now runs on a Mac too (Chrome path, reduced motion in the e2e suites). A side of a race can hold several metrics, summed (Network+ and Study against Study), added and removed freely. Compete became a scoreboard over Races / Challenges / History tabs.
 25. **End a challenge now:** "End it now" on a running challenge, behind an "Are you sure?" panel: only what's logged up to that moment counts and whoever's ahead wins (most days: ends after today).
 26. **Check-off metrics and ranges:** a third metric kind, Check off (done or not, one tap), which a time or count metric with history can switch to (Malek's Gym); and Range targets (Calories 1,800–2,200 kcal). Check-offs can't be raced in Compete or have deadline goals.
+27. **Plans** (from Malek's spec): task-based deadline goals with sections and checkpoints, imported from pasted Markdown with a preview or built in the app; a queue on Today with pace, push remaining, a linked timer's Mark done, History, Stats, export/restore and admin.
 
 ---
 

@@ -1,4 +1,11 @@
-import type { CalendarItem, Entry, Goal, Metric, Settings } from './types';
+import type { CalendarItem, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Settings } from './types';
+
+/** Plans travel together: the plan docs, their sections and tasks. */
+export interface PlanExport {
+  plans: Plan[];
+  planSections: PlanSection[];
+  planTasks: PlanTask[];
+}
 
 function download(filename: string, mime: string, content: string): void {
   const blob = new Blob([content], { type: mime });
@@ -16,7 +23,7 @@ function stamp(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarItem[], goals: Goal[], settings: Settings | null): void {
+export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarItem[], goals: Goal[], settings: Settings | null, plans?: PlanExport): void {
   const payload = {
     format: 'personal-tracker/1',
     exportedAt: new Date().toISOString(),
@@ -27,6 +34,9 @@ export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarI
     items,
     // Raw inputs only; progress and status are derived, never exported.
     goals,
+    plans: plans?.plans ?? [],
+    planSections: plans?.planSections ?? [],
+    planTasks: plans?.planTasks ?? [],
   };
   download(`logbook-${stamp()}.json`, 'application/json', JSON.stringify(payload, null, 2));
 }
@@ -90,10 +100,25 @@ export function goalsCsv(metrics: Metric[], goals: Goal[]): string {
   return toCsv([header, ...rows]);
 }
 
-export function exportCsv(metrics: Metric[], entries: Entry[], items: CalendarItem[], goals: Goal[]): void {
+/** One row per task: plan, section, task, target date, done date and note. */
+export function tasksCsv(p: PlanExport, dayOf: (iso: string) => string): string {
+  const plans = new Map(p.plans.map((x) => [x.id, x]));
+  const sections = new Map(p.planSections.map((x) => [x.id, x]));
+  const header = ['task_id', 'plan', 'plan_id', 'section', 'position', 'task', 'details', 'target_date', 'done_date', 'done_at', 'note', 'created_at', 'updated_at'];
+  const rows = [...p.planTasks]
+    .sort((a, b) => a.planId.localeCompare(b.planId) || (sections.get(a.sectionId ?? '')?.order ?? -1) - (sections.get(b.sectionId ?? '')?.order ?? -1) || a.order - b.order)
+    .map((t) => [
+      t.id, plans.get(t.planId)?.name ?? '', t.planId, sections.get(t.sectionId ?? '')?.title ?? '', t.order, t.title, t.details,
+      t.targetDate, t.doneAt ? dayOf(t.doneAt) : '', t.doneAt, t.note, t.createdAt, t.updatedAt,
+    ]);
+  return toCsv([header, ...rows]);
+}
+
+export function exportCsv(metrics: Metric[], entries: Entry[], items: CalendarItem[], goals: Goal[], plans?: PlanExport, dayOf?: (iso: string) => string): void {
   download(`logbook-entries-${stamp()}.csv`, 'text/csv', entriesCsv(metrics, entries));
   // Separate file so each CSV is a plain rectangular table.
   setTimeout(() => download(`logbook-metrics-${stamp()}.csv`, 'text/csv', metricsCsv(metrics)), 300);
   setTimeout(() => download(`logbook-calendar-${stamp()}.csv`, 'text/csv', itemsCsv(items)), 600);
   setTimeout(() => download(`logbook-goals-${stamp()}.csv`, 'text/csv', goalsCsv(metrics, goals)), 900);
+  if (plans && dayOf && plans.planTasks.length) setTimeout(() => download(`logbook-plan-tasks-${stamp()}.csv`, 'text/csv', tasksCsv(plans, dayOf)), 1200);
 }

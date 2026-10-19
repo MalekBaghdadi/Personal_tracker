@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import { ChevronRight, Flag, GripVertical, Plus } from 'lucide-react';
+import { ChevronRight, FileText, Flag, GripVertical, ListChecks, Plus } from 'lucide-react';
 import { useData } from '../state/DataContext';
+import { usePlans } from '../state/PlansContext';
 import { useHue } from '../state/theme';
 import { reorderMetrics } from '../lib/repo';
 import { iconFor } from '../lib/icons';
 import { formatTarget } from '../lib/format';
-import { WEEKDAYS, cx } from '../components/ui';
+import { Sheet, WEEKDAYS, cx } from '../components/ui';
+import { PlanFormSheet, PlanLine } from '../components/Plans';
+import { PlanImportSheet } from '../components/PlanImport';
 import { MetricEditor } from '../components/MetricEditor';
 import { GoalSheet, fmtGoal, statusLabel, useGoalResult, type GoalSheetState } from '../components/Goals';
 import type { Goal, Metric } from '../lib/types';
@@ -14,6 +17,9 @@ export function Metrics() {
   const { metrics } = useData();
   const [editing, setEditing] = useState<Metric | 'new' | null>(null);
   const [goalSheet, setGoalSheet] = useState<GoalSheetState | null>(null);
+  // "New goal" asks which kind first: an amount by a date, or a Plan of tasks.
+  const [newKind, setNewKind] = useState(false);
+  const [planSheet, setPlanSheet] = useState<'import' | 'empty' | null>(null);
   const active = metrics.filter((m) => !m.archivedAt);
   const archived = metrics.filter((m) => m.archivedAt);
 
@@ -40,7 +46,7 @@ export function Metrics() {
       )}
       {active.length > 1 && <p className="mt-2 text-[12px] text-ink-3">Drag the handle to change the order on Today.</p>}
 
-      <GoalsSection onNew={() => setGoalSheet({ mode: 'new' })} />
+      <GoalsSection onNew={() => setNewKind(true)} />
 
       {archived.length > 0 && (
         <section className="mt-8">
@@ -63,13 +69,37 @@ export function Metrics() {
         }}
       />
       <GoalSheet state={goalSheet} onClose={() => setGoalSheet(null)} onSwitch={setGoalSheet} />
+      <Sheet open={newKind} onClose={() => setNewKind(false)} title="New goal">
+        <div className="mt-2 flex flex-col gap-2" data-testid="goal-kinds">
+          <KindButton icon={<Flag size={18} />} title="Amount goal" body="A total to reach by a date, like 120 hours of Network+ by 15 December." onClick={() => { setNewKind(false); setGoalSheet({ mode: 'new' }); }} />
+          <KindButton icon={<FileText size={18} />} title="Plan: import from Markdown" body="Paste a plan’s checklist. Its sections, tasks, dates and checkpoints come along." onClick={() => { setNewKind(false); setPlanSheet('import'); }} />
+          <KindButton icon={<ListChecks size={18} />} title="Plan: start empty" body="A list of tasks to get through by a date. Add the tasks yourself." onClick={() => { setNewKind(false); setPlanSheet('empty'); }} />
+        </div>
+      </Sheet>
+      <PlanImportSheet open={planSheet === 'import'} onClose={() => setPlanSheet(null)} />
+      <PlanFormSheet plan={null} open={planSheet === 'empty'} onClose={() => setPlanSheet(null)} />
     </div>
   );
 }
 
-/** Active goals first (nearest deadline), then archived ones with how they ended. */
+function KindButton({ icon, title, body, onClick }: { icon: ReactNode; title: string; body: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="press flex w-full items-start gap-3 rounded-xl border border-line px-3 py-3 text-left hover:bg-s2">
+      <span className="mt-0.5 text-ink-2">{icon}</span>
+      <span>
+        <span className="block text-[15px] font-medium">{title}</span>
+        <span className="block text-[13px] text-ink-3">{body}</span>
+      </span>
+    </button>
+  );
+}
+
+/** Active goals and plans first (nearest deadline), then archived ones with how they ended. */
 function GoalsSection({ onNew }: { onNew: () => void }) {
   const { goals } = useData();
+  const { plans } = usePlans();
+  const activePlans = plans.filter((p) => !p.archivedAt);
+  const archivedPlans = plans.filter((p) => p.archivedAt);
   const active = goals.filter((g) => !g.archivedAt);
   const archived = goals.filter((g) => g.archivedAt).sort((a, b) => b.deadline.localeCompare(a.deadline));
   return (
@@ -80,14 +110,16 @@ function GoalsSection({ onNew }: { onNew: () => void }) {
           <Plus size={16} /> New goal
         </button>
       </div>
-      {goals.length === 0 ? (
+      {goals.length === 0 && plans.length === 0 ? (
         <p className="text-[14px] text-ink-3">
-          A total to reach by a date, like 120 hours of Network+ by 15 December. The app tracks whether you’re on pace.
+          A total to reach by a date, like 120 hours of Network+ by 15 December, or a plan of tasks to get through. The app tracks whether you’re on pace.
         </p>
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {active.map((g) => <GoalLine key={g.id} goal={g} />)}
+          {activePlans.map((p) => <PlanLine key={p.id} plan={p} />)}
           {archived.map((g) => <GoalLine key={g.id} goal={g} />)}
+          {archivedPlans.map((p) => <PlanLine key={p.id} plan={p} />)}
         </ul>
       )}
     </section>

@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import { useData } from '../state/DataContext';
+import { usePlans } from '../state/PlansContext';
+import { planWeek } from '../lib/plans';
 import { useHue } from '../state/theme';
 import { addDays, formatLocalDate } from '../lib/dates';
 import { formatValue } from '../lib/format';
@@ -26,7 +28,13 @@ export function WeekReviewCard() {
     return reviewWeek(lastWeek, metrics, dayStats, goals, createdOn);
   }, [lastWeek, metrics, dayStats, goals, dayOf]);
 
-  if (metrics.length === 0) return null;
+  // Plans running during the week: tasks done and how ahead/behind moved.
+  const { plans, sectionsOf, tasksOf } = usePlans();
+  const planWeeks = plans
+    .filter((p) => !p.archivedAt && p.startDate <= addDays(lastWeek, 6) && p.deadline >= lastWeek && tasksOf(p.id).length > 0)
+    .map((p) => ({ plan: p, w: planWeek(p, sectionsOf(p.id), tasksOf(p.id), lastWeek, dayOf) }));
+
+  if (metrics.length === 0 && planWeeks.length === 0) return null;
   const range = `${formatLocalDate(review.start, 'd MMM')} – ${formatLocalDate(review.end, 'd MMM')}`;
 
   return (
@@ -55,9 +63,21 @@ export function WeekReviewCard() {
           })}
         </ul>
       )}
+
+      {planWeeks.length > 0 && (
+        <ul className="mt-2 border-t border-line pt-2.5 text-[13px] text-ink-2" aria-label="Plans">
+          {planWeeks.map(({ plan, w }) => (
+            <li key={plan.id} className="py-0.5">
+              <span className="font-medium text-ink">{plan.name}</span>: {w.done} {w.done === 1 ? 'task' : 'tasks'} done (week before {w.previous}), {paceWord(w.deltaBefore)} → {paceWord(w.deltaAfter)}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
+
+const paceWord = (d: number) => (d === 0 ? 'on pace' : `${Math.abs(d)} ${d > 0 ? 'ahead' : 'behind'}`);
 
 function MetricLine({ w }: { w: MetricWeek }) {
   const hue = useHue(w.metric.color);
