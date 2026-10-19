@@ -54,7 +54,7 @@ function Detail({ goal, metric }: { goal: Goal; metric: Metric }) {
         </p>
       </header>
 
-      <section className="mt-5" aria-label="Progress">
+      <section className="mt-5" aria-label="Progress" data-tour="goal-progress">
         <p>
           <span className="text-[34px] leading-none font-medium tracking-tight">{fmtGoal(metric, r.done)}</span>
           <span className="text-[16px] text-ink-3"> of {fmtGoal(metric, goal.targetTotal)}</span>
@@ -91,7 +91,7 @@ function Detail({ goal, metric }: { goal: Goal; metric: Metric }) {
       />
 
       <div className="mt-6 grid grid-cols-2 gap-2">
-        <Button onClick={() => setSheet({ mode: 'edit', goal })}><Pencil size={16} /> Edit</Button>
+        <Button onClick={() => setSheet({ mode: 'edit', goal })} data-tour="goal-edit"><Pencil size={16} /> Edit</Button>
         {goal.archivedAt ? (
           <Button onClick={() => archive(false)}><ArchiveRestore size={16} /> Unarchive</Button>
         ) : (
@@ -226,7 +226,7 @@ function BurnUp({ goal, metric, r, hue }: { goal: Goal; metric: Metric; r: GoalR
   const todayInRange = today >= goal.startDate && today <= goal.deadline;
 
   return (
-    <section className="mt-6" aria-labelledby="burnup-h">
+    <section className="mt-6" aria-labelledby="burnup-h" data-tour="goal-burnup">
       <h2 id="burnup-h" className="text-[15px] font-medium">Progress over time</h2>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-3" aria-hidden>
         <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded" style={{ background: hue }} />Done</span>

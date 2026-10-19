@@ -57,7 +57,7 @@ function Detail({ plan }: { plan: Plan }) {
         </p>
       </header>
 
-      <section className="mt-5" aria-label="Progress">
+      <section className="mt-5" aria-label="Progress" data-tour="plan-progress">
         <p>
           <span className="text-[34px] leading-none font-medium tracking-tight">{r.done}</span>
           <span className="text-[16px] text-ink-3"> of {r.total} {r.total === 1 ? 'task' : 'tasks'}</span>
@@ -102,9 +102,9 @@ function Detail({ plan }: { plan: Plan }) {
       <Figures plan={plan} r={r} />
 
       <div className="mt-5 grid grid-cols-2 gap-2">
-        <Button onClick={() => setSheet('push')} disabled={!live}><FastForward size={16} /> Push remaining</Button>
-        <Button onClick={() => setSheet('append')}><FileText size={16} /> From Markdown</Button>
-        <Button onClick={() => setSheet('edit')}><Pencil size={16} /> Edit plan</Button>
+        <Button onClick={() => setSheet('push')} disabled={!live} data-tour="plan-push"><FastForward size={16} /> Push remaining</Button>
+        <Button onClick={() => setSheet('append')} data-tour="plan-markdown"><FileText size={16} /> From Markdown</Button>
+        <Button onClick={() => setSheet('edit')} data-tour="plan-edit"><Pencil size={16} /> Edit plan</Button>
         {plan.archivedAt ? (
           <Button onClick={() => archive(false)}><ArchiveRestore size={16} /> Unarchive</Button>
         ) : (
@@ -115,7 +115,7 @@ function Detail({ plan }: { plan: Plan }) {
       {r.total > 0 && <BurnUp plan={plan} r={r} hue={hue} />}
 
       <section className="mt-7" aria-labelledby="tasks-h">
-        <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="mb-2 flex items-center justify-between gap-3" data-tour="plan-tasks">
           <h2 id="tasks-h" className="text-[16px] font-medium">Tasks</h2>
           <button type="button" onClick={() => setEditing((v) => !v)} aria-pressed={editing} className="press inline-flex min-h-10 items-center rounded-lg bg-s2 px-3 text-[14px] font-medium hover:bg-s3">
             {editing ? 'Done editing' : 'Edit tasks'}

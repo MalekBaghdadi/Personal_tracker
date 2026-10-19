@@ -1,11 +1,11 @@
 /*
- * One spotlight tour per tab, shown the first time that tab opens and
+ * One spotlight tour per tab (and for the goal and plan screens), shown the first time it opens and
  * replayable from Settings. Steps point at [data-tour] markers in the screens;
  * a step whose marker isn't on screen (no timers, no goals yet…) is skipped.
  * A step without a target is a centred card.
  */
 
-export type TourId = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'settings';
+export type TourId = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'settings' | 'goals' | 'plans';
 
 export interface TourStep {
   /** data-tour value to spotlight; the first match on the page. */
@@ -29,9 +29,9 @@ export const TOURS: Tour[] = [
       { target: 'today-date', title: 'Today’s date', body: 'Tap it to open today in History, with your events, reminders and everything logged.' },
       { target: 'today-yesterday', title: 'Forgot yesterday?', body: 'Catch up on yesterday here. Logging what you missed restores a broken streak.' },
       { target: 'today-goals', title: 'Deadline goals', body: 'How far along each goal is, whether you’re ahead or behind, and what today needs.' },
-      { target: 'today-plan', title: 'Plans', body: 'A plan shows its next task, whatever its date. Tick it and the next one comes up. Tap the card for details, notes and what’s next.' },
+      { target: 'today-plan', title: 'Plans', body: 'A plan shows its next task, whatever its date. Tick it and the next one comes up. Tap it for details, notes and what’s next.' },
       { target: 'today-row', title: 'Your metrics', body: 'Each one due today: today’s total, the target, a progress bar and your streak.' },
-      { target: 'today-linked', title: 'Goals under a metric', body: 'A deadline goal or plan linked to a metric shows inside that metric’s row, so the day’s work and the goal sit together. Pick the linked metric in the goal’s settings.' },
+      { target: 'today-linked', title: 'Goals under a metric', body: 'A deadline goal or plan linked to a metric sits inside that metric’s row, so the day’s work and the goal it feeds are together. Time you log here counts toward the goal. Change the link under Edit on the goal or plan.' },
       { target: 'today-chip', title: 'Quick add', body: 'Tap a chip to log that amount in one go. Tap several and they add up.' },
       { target: 'today-custom', title: 'Any amount', body: 'Type an exact amount, or log it to another day.' },
       { target: 'today-toggle', title: 'Add or take away', body: 'Switch to − and the chips subtract instead, for when you logged too much.' },
@@ -76,6 +76,28 @@ export const TOURS: Tour[] = [
       { target: 'metrics-new', title: 'Track something new', body: 'Time or a count, a daily target (at least or at most), which days, and your quick-add amounts.' },
       { target: 'metrics-list', title: 'Your metrics', body: 'Tap one to change it, or drag to reorder. Archive what you’ve stopped tracking without losing its history.' },
       { target: 'metrics-goals', title: 'Deadline goals', body: 'Aim for a total by a date, like 120 hours by 15 December, or a plan of tasks. Paste a plan’s Markdown checklist and it becomes one, with its sections and dates. Link a goal to a metric and Today shows it under that metric.' },
+    ],
+  },
+  {
+    id: 'goals',
+    name: 'Deadline goal',
+    steps: [
+      { title: 'A deadline goal', body: 'A total by a date, like 120 hours by 15 December, counted from its linked metric’s logged time.' },
+      { target: 'goal-progress', title: 'Ahead or behind', body: 'Done so far, the thin mark where steady pace would have you by now, and what today needs to stay on pace.' },
+      { target: 'goal-edit', title: 'Linked metric', body: 'The goal counts its linked metric and shows inside that metric’s row on Today. Change the metric, target or deadline here.' },
+      { target: 'goal-burnup', title: 'Progress over time', body: 'What you’ve done against the steady line to the deadline, with a projection once there’s enough data.' },
+    ],
+  },
+  {
+    id: 'plans',
+    name: 'Plan',
+    steps: [
+      { title: 'A plan', body: 'A deadline goal counted in tasks: an ordered checklist, in sections, with dates that only set the pace. Make one from Metrics → New goal, by pasting a Markdown checklist or starting empty.' },
+      { target: 'plan-progress', title: 'On pace?', body: 'Tasks done, the mark where the plan expected you by today, and how many tasks ahead or behind you are. Nothing is ever overdue; slipping just shows as behind.' },
+      { target: 'plan-edit', title: 'Link it to a metric', body: 'Edit plan → Linked metric, e.g. the metric you time this project with. The plan then sits inside that metric’s row on Today, and stopping its timer after 10 minutes offers to tick the current task.' },
+      { target: 'plan-push', title: 'Fell behind?', body: 'Push remaining moves every task left a few work days later, and the deadline too if you like. Undo puts them back.' },
+      { target: 'plan-markdown', title: 'Add from Markdown', body: 'Paste more of the checklist any time; new tasks and sections go after the ones you have.' },
+      { target: 'plan-tasks', title: 'Your tasks', body: 'Tick any task, or tap one for its details, note and date. Edit tasks to drag them into order, add tasks and sections, or set a section’s checkpoint.' },
     ],
   },
   {

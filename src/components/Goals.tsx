@@ -151,7 +151,7 @@ export function GoalInline({ goal, metric }: { goal: Goal; metric: Metric }) {
     <a
       href={`#/goals/${goal.id}`}
       data-testid="goal-inline"
-      className="press block rounded-r-lg border-l-2 py-1 pr-1 pl-3 hover:bg-s1"
+      className="press block rounded-r-lg border-l-2 bg-s1 py-3 pr-3 pl-3.5 hover:bg-s2"
       style={{ borderColor: hue }}
       aria-label={`${goal.name}. ${fmtGoal(metric, r.done)} of ${fmtGoal(metric, goal.targetTotal)}. ${status}. ${need ?? ''}. Open goal`}
     >
@@ -161,18 +161,18 @@ export function GoalInline({ goal, metric }: { goal: Goal; metric: Metric }) {
         </span>
         <ChevronRight size={15} className="shrink-0" aria-hidden />
       </div>
-      <div className="mt-1.5 flex items-center gap-3 text-[13px]">
+      <div className="mt-2.5 flex items-center gap-3 text-[13px]">
         <span className="shrink-0 text-ink-3">
           <span className="text-[15px] font-medium text-ink">{fmtGoal(metric, r.done)}</span> of {fmtGoal(metric, goal.targetTotal)}
         </span>
         <div className="min-w-0 flex-1"><GoalBar goal={goal} r={r} color={hue} /></div>
       </div>
-      <div className="mt-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[13px]">
+      <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[13px]">
         <span className={cx('font-medium', r.status === 'behind' ? 'text-ink' : 'text-ink-2')}>{status}</span>
         {need && <span className="text-ink-3">{need}</span>}
       </div>
       {r.overloaded && (
-        <p className="mt-1.5 flex items-center gap-1.5 text-[13px] text-ink-2">
+        <p className="mt-2 flex items-center gap-1.5 text-[13px] text-ink-2">
           <TriangleAlert size={14} className="shrink-0" aria-hidden />
           The pace needed has doubled. Open the goal to change the deadline or target.
         </p>

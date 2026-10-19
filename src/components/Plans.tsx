@@ -158,7 +158,7 @@ export function PlanCard({ plan, inline }: { plan: Plan; inline?: Metric }) {
   if (r.status === 'achieved') {
     return (
       <section
-        className={inline ? 'rounded-r-lg border-l-2 py-1 pr-1 pl-3' : 'rounded-xl border border-line bg-s1 px-4 py-3.5'}
+        className={inline ? 'rounded-r-lg border-l-2 bg-s1 py-3 pr-3 pl-3.5' : 'rounded-xl border border-line bg-s1 px-4 py-3.5'}
         style={rule}
         aria-label={`${plan.name}: achieved`}
         data-tour="today-plan"
@@ -176,7 +176,7 @@ export function PlanCard({ plan, inline }: { plan: Plan; inline?: Metric }) {
   }
 
   return (
-    <section className={inline ? 'border-l-2' : 'rounded-xl border border-line bg-s1'} style={rule} aria-label={plan.name} data-tour="today-plan">
+    <section className={inline ? 'rounded-r-lg border-l-2 bg-s1' : 'rounded-xl border border-line bg-s1'} style={rule} aria-label={plan.name} data-tour="today-plan">
       {celebrate && <Confetti onDone={() => setCelebrate(false)} />}
       <div
         role="button"
@@ -184,7 +184,7 @@ export function PlanCard({ plan, inline }: { plan: Plan; inline?: Metric }) {
         aria-expanded={open}
         onClick={toggle}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), toggle())}
-        className={cx('cursor-pointer', inline ? 'rounded-r-lg py-1 pr-1 pl-3 hover:bg-s1' : 'px-4 pt-3 pb-3')}
+        className={cx('cursor-pointer', inline ? 'py-3 pr-3 pl-3.5' : 'px-4 pt-3 pb-3')}
       >
         <div className="flex items-center gap-2 text-[13px] text-ink-3">
           {!inline && <Icon size={15} style={{ color: hue }} aria-hidden className="shrink-0" />}
@@ -214,7 +214,7 @@ export function PlanCard({ plan, inline }: { plan: Plan; inline?: Metric }) {
       </div>
 
       {open && current && (
-        <div className={cx('text-[14px]', inline ? 'pt-1 pr-1 pb-1 pl-3' : 'border-t border-line px-4 pt-3 pb-3.5')}>
+        <div className={cx('border-t border-line text-[14px]', inline ? 'pt-3 pr-3 pb-3 pl-3.5' : 'px-4 pt-3 pb-3.5')}>
           {current.details && <p className="whitespace-pre-line text-ink-2"><Inline text={current.details} /></p>}
           {current.note && <p className="mt-2 text-ink-2"><span className="text-ink-3">Note: </span>{current.note}</p>}
           <button type="button" onClick={() => setNoteFor(current)} className="press mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-s2 px-3 text-[13px] font-medium hover:bg-s3">

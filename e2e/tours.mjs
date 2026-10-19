@@ -151,6 +151,100 @@ try {
   await go('#/stats');
   log('Stats tour still to come:', (await tour()) !== null);
   await shot('to-05-stats');
+  await page.keyboard.press('Escape');
+  await wait(300);
+
+  // ── Goal and plan tours: the first time each screen opens; replayable once one exists ──
+  const pressIn = async (label) => {
+    await page.evaluate((l) => {
+      const all = [...document.querySelectorAll('dialog[open] button, main button')];
+      (all.find((b) => b.innerText.trim() === l) ?? all.find((b) => b.innerText.trim().startsWith(l)))?.click();
+    }, label);
+    await wait(500);
+  };
+  const setVal = (sel, v) => page.$eval(sel, (el, val) => {
+    const proto = el.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, val);
+    el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  }, v);
+  await go('#/settings');
+  const replayNames = () => page.evaluate(() => [...document.querySelectorAll('[data-tour=settings-tours] button')].map((b) => b.textContent.trim()));
+  log('No goal or plan yet: no replay buttons for them:', !(await replayNames()).some((n) => n === 'Plan' || n === 'Deadline goal'));
+
+  await go('#/metrics');
+  await click('::-p-text(New goal)');
+  await pressIn('Plan: start empty');
+  await setVal('#p-name', 'Uptime Monitor');
+  await setVal('#p-metric', await page.$eval('#p-metric', (sel) => [...sel.options].find((o) => o.text === 'Studying').value));
+  await pressIn('Create plan');
+  await wait(1300);
+  t = await tour();
+  log('Plan tour on first open:', t?.title === 'A plan' && t?.count === '1 of 6');
+  const planTitles = [t?.title];
+  for (let i = 0; i < 5; i++) {
+    await tourBtn('Next');
+    const now = await tour();
+    planTitles.push(now?.title);
+    if (now?.title === 'Link it to a metric') {
+      log('Link step spotlights Edit plan:', await spotOnTarget('plan-edit'));
+      await shot('to-06-plan-link');
+    }
+  }
+  log('Plan tour steps:', planTitles.join(' → '));
+  await tourBtn('Done');
+  log('Plan tour done:', (await tour()) === null);
+
+  // One task so the plan shows on Today, inside the Studying row.
+  await pressIn('Edit tasks');
+  await pressIn('Add a task');
+  await page.type('input[aria-label="New task"]', 'Write the health-check worker');
+  await page.keyboard.press('Enter');
+  await wait(500);
+  await pressIn('Done editing');
+
+  // An amount goal on Studying: its tour on first open.
+  await go('#/metrics');
+  await click('::-p-text(New goal)');
+  await pressIn('Amount goal');
+  await page.type('#g-target', '40');
+  await setVal('#g-deadline', '2026-12-15');
+  await click('dialog[open] button[type=submit]');
+  await wait(600);
+  await page.evaluate(() => document.querySelector('a[href^="#/goals/"]')?.click());
+  await wait(1500);
+  t = await tour();
+  log('Goal tour on first open:', t?.title === 'A deadline goal');
+  await tourBtn('Next');
+  await tourBtn('Next');
+  log('Goal tour: Linked metric step on Edit:', (await tour())?.title === 'Linked metric' && (await spotOnTarget('goal-edit')));
+  await page.keyboard.press('Escape');
+  await wait(300);
+
+  // Today's tour now has the linked-goals step, spotlighting the goals inside the Studying row.
+  await go('#/settings');
+  log('Replay buttons for Deadline goal and Plan now shown:', (await replayNames()).includes('Plan') && (await replayNames()).includes('Deadline goal'));
+  await page.evaluate(() => [...document.querySelectorAll('[data-tour=settings-tours] button')].find((b) => b.textContent.trim() === 'Today')?.click());
+  await wait(1500);
+  let linkedSeen = false;
+  for (let i = 0; i < 14 && (await tour()); i++) {
+    if ((await tour())?.title === 'Goals under a metric') {
+      linkedSeen = await spotOnTarget('today-linked');
+      await shot('to-07-today-linked');
+      break;
+    }
+    await tourBtn('Next');
+  }
+  log('Today tour: Goals under a metric step on the linked goals:', linkedSeen);
+  await page.keyboard.press('Escape');
+  await wait(300);
+
+  // Replay the plan tour from Settings: opens the plan.
+  await go('#/settings');
+  await page.evaluate(() => [...document.querySelectorAll('[data-tour=settings-tours] button')].find((b) => b.textContent.trim() === 'Plan')?.click());
+  await wait(1500);
+  log('Replay Plan opens the plan with its tour:', (await page.evaluate(() => location.hash)).startsWith('#/plans/') && (await tour())?.title === 'A plan');
+  await page.keyboard.press('Escape');
+  await wait(300);
 
   log('No page errors:', errors.length === 0);
   if (errors.length) console.log(errors);

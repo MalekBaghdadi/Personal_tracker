@@ -293,7 +293,7 @@ function MetricRow({ metric, offDay, goal, plans, onManual }: {
           )}
           {/* Goals linked to this metric, under its bar and before its buttons. */}
           {(goal || plans.length > 0) && (
-            <div className="mt-3 flex flex-col gap-2" data-tour="today-linked">
+            <div className="mt-4 mb-1.5 flex flex-col gap-3" data-tour="today-linked">
               {goal && <GoalInline goal={goal} metric={metric} />}
               {plans.map((p) => <PlanCard key={p.id} plan={p} inline={metric} />)}
             </div>

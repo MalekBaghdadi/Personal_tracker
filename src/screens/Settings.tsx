@@ -30,6 +30,18 @@ export function Settings() {
   const { uid, user, settings, tz, dayStart, metrics, entries, items, goals, timer, dayOf } = useData();
   const allPlans = usePlans();
   const planExport = { plans: allPlans.plans, planSections: allPlans.sections, planTasks: allPlans.tasks };
+  // Tabs replay on their tab; the goal and plan tours on the nearest active one (none yet: no button).
+  const tourHref = (id: string): string | null => {
+    if (id === 'goals') {
+      const g = goals.find((x) => !x.archivedAt);
+      return g ? `#/goals/${g.id}` : null;
+    }
+    if (id === 'plans') {
+      const p = allPlans.plans.find((x) => !x.archivedAt);
+      return p ? `#/plans/${p.id}` : null;
+    }
+    return `#/${id}`;
+  };
   const zones = useMemo(() => allTimezones(tz), [tz]);
   const [persisted, setPersisted] = useState<boolean | null>(null);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -104,14 +116,14 @@ export function Settings() {
 
         <section className="border-t border-line pt-5" data-tour="settings-tours">
           <h2 className="text-[15px] font-medium">Tutorials</h2>
-          <p className="mt-1 text-[13px] text-ink-3">Each tab has a short tour that shows the first time you open it. Replay one here.</p>
+          <p className="mt-1 text-[13px] text-ink-3">Each tab, deadline goal and plan has a short tour that shows the first time you open it. Replay one here.</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {TOURS.map((t) => (
+            {TOURS.filter((t) => tourHref(t.id)).map((t) => (
               <Button
                 key={t.id}
                 onClick={() => {
                   replayTour(uid, t.id);
-                  window.location.hash = `#/${t.id}`;
+                  window.location.hash = tourHref(t.id)!;
                 }}
               >
                 <PlayCircle size={17} aria-hidden /> {t.name}
