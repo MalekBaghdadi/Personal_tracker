@@ -13,7 +13,7 @@ import { PALETTE, hueFor } from '../lib/palette';
 import { Confetti } from './Confetti';
 import { fmtDay } from './Goals';
 import { Button, DayPicker, FieldError, Label, Segmented, Sheet, cx, inputClass, useToast } from './ui';
-import type { Plan, PlanSection, PlanTask, Schedule } from '../lib/types';
+import type { Metric, Plan, PlanSection, PlanTask, Schedule } from '../lib/types';
 
 // ── Inline formatting ──────────────────────────────────────────────────────
 
@@ -122,10 +122,14 @@ export function sectionLabel(section: PlanSection | undefined): string | null {
 
 // ── Today card ─────────────────────────────────────────────────────────────
 
-export function PlanCard({ plan }: { plan: Plan }) {
+/**
+ * A plan on Today. On its own it's a card in the goals area; with `inline` (its linked metric) it sits inside
+ * that metric's row instead, indented under the metric's bar with a rule in the metric's colour.
+ */
+export function PlanCard({ plan, inline }: { plan: Plan; inline?: Metric }) {
   const { today, entries, metricById } = useData();
   const { sectionsOf, resultOf } = usePlans();
-  const hue = useHue(plan.color);
+  const hue = useHue(inline ? inline.color : plan.color);
   const r = resultOf(plan.id);
   const sections = sectionsOf(plan.id);
   const key = `pt.plan.open.${plan.id}`;
@@ -148,13 +152,21 @@ export function PlanCard({ plan }: { plan: Plan }) {
   const next = r.currentIndex >= 0 ? r.ordered.slice(r.currentIndex + 1).filter((t) => !t.doneAt).slice(0, 2) : [];
   const checkpoint = section?.checkpoint ? section : undefined;
 
+  // Inside a metric row: no card chrome, just the rule. The metric's own total is right above, so no "logged today".
+  const rule = inline ? { borderColor: hue } : undefined;
+
   if (r.status === 'achieved') {
     return (
-      <section className="rounded-xl border border-line bg-s1 px-4 py-3.5" aria-label={`${plan.name}: achieved`} data-tour="today-plan">
+      <section
+        className={inline ? 'rounded-r-lg border-l-2 py-1 pr-1 pl-3' : 'rounded-xl border border-line bg-s1 px-4 py-3.5'}
+        style={rule}
+        aria-label={`${plan.name}: achieved`}
+        data-tour="today-plan"
+      >
         {celebrate && <Confetti onDone={() => setCelebrate(false)} />}
         <div className="flex items-center gap-2">
-          <Icon size={17} style={{ color: hue }} aria-hidden />
-          <h2 className="min-w-0 flex-1 truncate text-[15px] font-medium">{plan.name}</h2>
+          {!inline && <Icon size={17} style={{ color: hue }} aria-hidden />}
+          <h2 className={cx('min-w-0 flex-1 truncate font-medium', inline ? 'text-[14px]' : 'text-[15px]')}>{plan.name}</h2>
           <span className="text-[13px] text-ink-3">{r.done}/{r.total}</span>
         </div>
         <p className="mt-2 text-[15px]">All {r.total} tasks done. Plan achieved.</p>
@@ -164,7 +176,7 @@ export function PlanCard({ plan }: { plan: Plan }) {
   }
 
   return (
-    <section className="rounded-xl border border-line bg-s1" aria-label={plan.name} data-tour="today-plan">
+    <section className={inline ? 'border-l-2' : 'rounded-xl border border-line bg-s1'} style={rule} aria-label={plan.name} data-tour="today-plan">
       {celebrate && <Confetti onDone={() => setCelebrate(false)} />}
       <div
         role="button"
@@ -172,10 +184,10 @@ export function PlanCard({ plan }: { plan: Plan }) {
         aria-expanded={open}
         onClick={toggle}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget && (e.preventDefault(), toggle())}
-        className="cursor-pointer px-4 pt-3 pb-3"
+        className={cx('cursor-pointer', inline ? 'rounded-r-lg py-1 pr-1 pl-3 hover:bg-s1' : 'px-4 pt-3 pb-3')}
       >
         <div className="flex items-center gap-2 text-[13px] text-ink-3">
-          <Icon size={15} style={{ color: hue }} aria-hidden className="shrink-0" />
+          {!inline && <Icon size={15} style={{ color: hue }} aria-hidden className="shrink-0" />}
           <span className="min-w-0 flex-1 truncate">
             <span className="font-medium text-ink-2">{plan.name}</span>
             {sectionLabel(section) && <> · {sectionLabel(section)}</>}
@@ -195,19 +207,22 @@ export function PlanCard({ plan }: { plan: Plan }) {
         )}
         <div className="mt-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[13px]">
           <span className={cx('font-medium', r.status === 'behind' ? 'text-ink' : 'text-ink-2')} data-testid="plan-status">{status}</span>
-          {linkedMetric && linked > 0 && <span className="text-ink-3">{linkedMetric.type === 'check' ? 'Done today' : `${formatValue(linkedMetric, linked)} logged today`}</span>}
+          {inline
+            ? need && <span className="text-ink-3">{need}</span>
+            : linkedMetric && linked > 0 && <span className="text-ink-3">{linkedMetric.type === 'check' ? 'Done today' : `${formatValue(linkedMetric, linked)} logged today`}</span>}
         </div>
       </div>
 
       {open && current && (
-        <div className="border-t border-line px-4 pt-3 pb-3.5 text-[14px]">
+        <div className={cx('text-[14px]', inline ? 'pt-1 pr-1 pb-1 pl-3' : 'border-t border-line px-4 pt-3 pb-3.5')}>
           {current.details && <p className="whitespace-pre-line text-ink-2"><Inline text={current.details} /></p>}
           {current.note && <p className="mt-2 text-ink-2"><span className="text-ink-3">Note: </span>{current.note}</p>}
           <button type="button" onClick={() => setNoteFor(current)} className="press mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-s2 px-3 text-[13px] font-medium hover:bg-s3">
             <NotebookPen size={14} aria-hidden /> {current.note ? 'Edit note' : 'Add a note'}
           </button>
-          {(need || projectionText(r, plan, today)) && (
-            <p className="mt-3 text-ink-2">{[need, projectionText(r, plan, today)].filter(Boolean).join(' · ')}</p>
+          {/* Inline, today's need is already on the collapsed line. */}
+          {((!inline && need) || projectionText(r, plan, today)) && (
+            <p className="mt-3 text-ink-2">{[inline ? null : need, projectionText(r, plan, today)].filter(Boolean).join(' · ')}</p>
           )}
           {r.overloaded && (
             <p className="mt-2 flex items-center gap-1.5 text-[13px] text-ink-2">
@@ -367,7 +382,7 @@ export function PlanFieldsForm({ value, onChange, errors }: { value: PlanFields;
           <option value="">None</option>
           {linkable.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
-        <p className="mt-1.5 text-[13px] text-ink-3">Optional. Stopping its timer after more than 10 minutes offers to tick the current task.</p>
+        <p className="mt-1.5 text-[13px] text-ink-3">Optional. The plan shows inside that metric’s row on Today, and stopping its timer after more than 10 minutes offers to tick the current task.</p>
       </div>
       <div>
         <Label>Colour</Label>

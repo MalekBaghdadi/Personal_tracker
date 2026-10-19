@@ -227,7 +227,15 @@ try {
   await page.keyboard.press('Enter');
   await wait(600);
   log('Mark done ticked it: Wednesday’s task is current:', (await current()).startsWith('Design the target model'));
-  log('Card shows the logged time:', (await card()).includes('25m logged today'));
+  const uptimeRow = () => page.evaluate(() => [...document.querySelectorAll('li')].find((li) => li.querySelector('h2')?.textContent.includes('Uptime work'))?.innerText ?? '');
+  log('Linked: the plan sits inside the Uptime work row, no card up top:', (await uptimeRow()).includes('Uptime Monitor') && !(await page.$('section[aria-label="Deadline goals"]')));
+  log('…between the bar and the buttons:', await page.evaluate(() => {
+    const li = [...document.querySelectorAll('li')].find((l) => l.querySelector('h2')?.textContent.includes('Uptime work'));
+    const plan = li?.querySelector('[data-tour=today-plan]');
+    const timer = li?.querySelector('[data-tour=today-timer]');
+    return !!plan && !!timer && !!(plan.compareDocumentPosition(timer) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }));
+  await shot('pl-07b-linked');
 
   // ── History: tasks done that day, and the note on the task ──
   await page.goto('http://localhost:5173/#/history/2026-10-21');
@@ -243,6 +251,23 @@ try {
   await page.evaluate(() => [...document.querySelectorAll('a')].find((a) => a.innerText.includes('Uptime Monitor'))?.click());
   await wait(600);
   log('The note landed on the task too:', (await text()).includes('Endpoint and test written'));
+
+  // ── Linked days: the row shows when either side is scheduled; saved days don't change ──
+  await page.goto('http://localhost:5173/#/metrics');
+  await wait(500);
+  await page.evaluate(() => [...document.querySelectorAll('main li')].find((li) => li.innerText.includes('Uptime work'))?.querySelector('button.text-left')?.click());
+  await wait(500);
+  await click('dialog[open] [role=radio]::-p-text(Some days)');
+  await press('Save changes', 'dialog');
+  await wait(400);
+  await setDay('2026-10-22');
+  await page.goto('http://localhost:5173/#/today');
+  await wait(800);
+  log('Thursday (metric Mon/Wed/Fri, plan Mon–Fri): row shows as an off day with the plan:', (await uptimeRow()).includes('Off day · streak not affected') && (await uptimeRow()).includes('Uptime Monitor'));
+  await shot('pl-07c-off-day');
+  await setDay('2026-10-24');
+  log('Saturday (both off): no row and no plan on Today:', !(await uptimeRow()) && !(await card()));
+  await setDay('2026-10-21');
 
   // ── Start empty, no dates: an even pace line ──
   await page.goto('http://localhost:5173/#/metrics');

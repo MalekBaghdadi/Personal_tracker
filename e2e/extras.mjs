@@ -117,7 +117,7 @@ try {
   // Session notes on the goal and in Stats.
   await click('nav.fixed a[href="#/today"]');
   await wait(500);
-  await click('section[aria-label="Deadline goals"] a');
+  await click('[data-testid=goal-inline]');
   await wait(1500);
   let t = await text();
   log('Goal detail lists the note:', /Session notes · 1[\s\S]*Read chapter 4/.test(t));

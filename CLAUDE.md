@@ -27,5 +27,7 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - Plans (task-based deadline goals, `lib/plans.ts`): a tick is `doneAt` on its own task doc, never an entry; progress,
   the current task (first undone) and pace are derived; dates only shape the pace line, nothing is ever overdue.
   The parser (`lib/planMarkdown.ts`) is tested against `e2e/fixtures/uptime-plan.md`.
+- A deadline goal or plan linked to a metric is drawn inside that metric's Today row (between bar and buttons), not as a
+  card; the row also shows on days only the goal is scheduled, without changing either side's saved days or the streak.
 - New UI a new user should know about gets a `data-tour` marker and a step in `src/lib/tours.ts`.
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.

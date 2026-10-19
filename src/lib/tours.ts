@@ -31,6 +31,7 @@ export const TOURS: Tour[] = [
       { target: 'today-goals', title: 'Deadline goals', body: 'How far along each goal is, whether you’re ahead or behind, and what today needs.' },
       { target: 'today-plan', title: 'Plans', body: 'A plan shows its next task, whatever its date. Tick it and the next one comes up. Tap the card for details, notes and what’s next.' },
       { target: 'today-row', title: 'Your metrics', body: 'Each one due today: today’s total, the target, a progress bar and your streak.' },
+      { target: 'today-linked', title: 'Goals under a metric', body: 'A deadline goal or plan linked to a metric shows inside that metric’s row, so the day’s work and the goal sit together. Pick the linked metric in the goal’s settings.' },
       { target: 'today-chip', title: 'Quick add', body: 'Tap a chip to log that amount in one go. Tap several and they add up.' },
       { target: 'today-custom', title: 'Any amount', body: 'Type an exact amount, or log it to another day.' },
       { target: 'today-toggle', title: 'Add or take away', body: 'Switch to − and the chips subtract instead, for when you logged too much.' },
@@ -74,7 +75,7 @@ export const TOURS: Tour[] = [
     steps: [
       { target: 'metrics-new', title: 'Track something new', body: 'Time or a count, a daily target (at least or at most), which days, and your quick-add amounts.' },
       { target: 'metrics-list', title: 'Your metrics', body: 'Tap one to change it, or drag to reorder. Archive what you’ve stopped tracking without losing its history.' },
-      { target: 'metrics-goals', title: 'Deadline goals', body: 'Aim for a total by a date, like 120 hours by 15 December, or a plan of tasks. Paste a plan’s Markdown checklist and it becomes one, with its sections and dates.' },
+      { target: 'metrics-goals', title: 'Deadline goals', body: 'Aim for a total by a date, like 120 hours by 15 December, or a plan of tasks. Paste a plan’s Markdown checklist and it becomes one, with its sections and dates. Link a goal to a metric and Today shows it under that metric.' },
     ],
   },
   {

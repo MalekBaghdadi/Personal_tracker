@@ -13,12 +13,12 @@ import { iconFor } from '../lib/icons';
 import { EntrySheet, type EntrySheetState } from '../components/EntrySheet';
 import { InstallCard, SyncDot } from '../components/Chrome';
 import { itemSummary } from '../components/Items';
-import { GoalCard, GoalPaceLine } from '../components/Goals';
+import { GoalCard, GoalInline } from '../components/Goals';
 import { StartEarlierSheet, useLongPress } from '../components/StartEarlier';
 import { YesterdaySheet } from '../components/YesterdaySheet';
 import { CheckButton } from '../components/CheckButton';
 import { cx, useBump, useToast } from '../components/ui';
-import type { Metric } from '../lib/types';
+import type { Goal, Metric, Plan } from '../lib/types';
 
 export function Today() {
   const data = useData();
@@ -36,7 +36,16 @@ export function Today() {
     const r = resultOf(p.id);
     return r.status === 'achieved' ? r.achievedDate === today : r.status !== 'missed' && r.status !== 'empty';
   });
-  const scheduled = active.filter((m) => isScheduled(m.schedule, today));
+  // A goal linked to a metric lives in that metric's row; with the metric archived it falls back to a card up top.
+  const activeIds = new Set(active.map((m) => m.id));
+  const topGoals = activeGoals.filter((g) => !activeIds.has(g.metricId));
+  const topPlans = todaysPlans.filter((p) => !p.metricId || !activeIds.has(p.metricId));
+  // A metric shows on its own days, and on any day a goal linked to it is scheduled. Only what Today shows:
+  // neither side's saved days change, so that day still isn't one of the metric's streak days.
+  const goalDay = (m: Metric) =>
+    activeGoals.some((g) => g.metricId === m.id && isScheduled(g.paceSchedule, today)) ||
+    todaysPlans.some((p) => p.metricId === m.id && isScheduled(p.schedule, today));
+  const scheduled = active.filter((m) => isScheduled(m.schedule, today) || goalDay(m));
 
   // "Network+ exam 14:00 · Dentist · 2 reminders": events by name, open reminders as a count.
   const todaysItems = itemsOn(data, today);
@@ -87,10 +96,10 @@ export function Today() {
 
       <InstallCard />
 
-      {(activeGoals.length > 0 || todaysPlans.length > 0) && (
+      {(topGoals.length > 0 || topPlans.length > 0) && (
         <section aria-label="Deadline goals" data-tour="today-goals" className="mb-4 flex flex-col gap-2">
-          {activeGoals.map((g) => <GoalCard key={g.id} goal={g} />)}
-          {todaysPlans.map((p) => <PlanCard key={p.id} plan={p} />)}
+          {topGoals.map((g) => <GoalCard key={g.id} goal={g} />)}
+          {topPlans.map((p) => <PlanCard key={p.id} plan={p} />)}
         </section>
       )}
 
@@ -111,7 +120,14 @@ export function Today() {
           ) : (
             <ul className="divide-y divide-line border-y border-line">
               {scheduled.map((m) => (
-                <MetricRow key={m.id} metric={m} onManual={(subtract) => setSheet({ mode: 'add', metric: m, subtract })} />
+                <MetricRow
+                  key={m.id}
+                  metric={m}
+                  offDay={!isScheduled(m.schedule, today)}
+                  goal={activeGoals.find((g) => g.metricId === m.id)}
+                  plans={todaysPlans.filter((p) => p.metricId === m.id)}
+                  onManual={(subtract) => setSheet({ mode: 'add', metric: m, subtract })}
+                />
               ))}
             </ul>
           )}
@@ -124,7 +140,14 @@ export function Today() {
   );
 }
 
-function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: boolean) => void }) {
+function MetricRow({ metric, offDay, goal, plans, onManual }: {
+  metric: Metric;
+  /** Shown only because a linked goal is scheduled today: no target, and the streak isn't affected. */
+  offDay: boolean;
+  goal: Goal | undefined;
+  plans: Plan[];
+  onManual: (subtract: boolean) => void;
+}) {
   const data = useData();
   const { uid, today, timer } = data;
   const { start, stop } = useTimerActions();
@@ -149,14 +172,13 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
     return restDays(metric, stats, since > week ? since : week, today, today, weekStartsOn);
   }, [allowance, metric, stats, today, weekStartsOn, data.dayOf]);
   const restingToday = restThisWeek.has(today);
-  const canRest = allowance > 0 && !restingToday && restThisWeek.size < allowance && isHit(metric, total, count) !== true;
+  const canRest = !offDay && allowance > 0 && !restingToday && restThisWeek.size < allowance && isHit(metric, total, count) !== true;
   const markRest = (on: boolean) => {
     setRestDay(uid, metric.id, today, on);
     if (on) toast(`Rest day: ${metric.name} streak kept`, { label: 'Undo', run: () => setRestDay(uid, metric.id, today, false) });
   };
   const hit = isHit(metric, total, count);
   const running = timer?.metricId === metric.id;
-  const goal = data.goals.find((g) => g.metricId === metric.id && !g.archivedAt);
   const parts = formatValueParts(metric, total);
   const bumped = useBump(total);
 
@@ -199,7 +221,8 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
   const progress = metric.target ? Math.min(1, total / metric.target) : 0;
   const over = metric.targetDirection !== 'at_least' && metric.target != null && total > metric.target;
   let targetText: string;
-  if (check) targetText = 'Check off';
+  if (offDay) targetText = 'Off day · streak not affected';
+  else if (check) targetText = 'Check off';
   else if (metric.target == null) targetText = 'No target';
   else if (range) targetText = `Range ${formatRange(metric, rangeMin, metric.target)}`;
   else targetText = `${metric.targetDirection === 'at_most' ? 'Under' : 'Target'} ${formatValue(metric, metric.target)}`;
@@ -229,12 +252,15 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
           <div className="mt-1 flex items-center justify-between gap-3 text-[13px] text-ink-3">
             <span>
               {targetText}
+              {/* On an off day there's no target to be over, in range or done. */}
+              {!offDay && <>
               {over && <span className="text-ink-2"> · {formatValue(metric, total - metric.target!)} over</span>}
               {/* A range shows what's left to reach it, then that it's in range (not "done": more can still overshoot). */}
               {range && total > 0 && total < rangeMin && <span className="text-ink-2"> · {formatValue(metric, rangeMin - total)} to go</span>}
               {range && hit && <span className="text-ink-2"> · in range</span>}
               {/* A ceiling isn't "done" until the day is; only floors get this. */}
               {hit && metric.targetDirection === 'at_least' && !check && <span className="text-ink-2"> · <span className={bumped > 0 ? 'bump' : undefined}>done</span></span>}
+              </>}
             </span>
             <span className="flex shrink-0 items-center gap-2">
               {canRest && (
@@ -258,12 +284,18 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
               </button>
             </p>
           )}
-          {goal && <GoalPaceLine goal={goal} metric={metric} />}
-          {metric.target != null && (
+          {metric.target != null && !offDay && (
             <div className="relative mt-2 h-[3px] rounded-full bg-s3" role="presentation">
               <div className="bar-fill h-full rounded-full" style={{ width: `${progress * 100}%`, background: over ? 'var(--danger)' : hue }} />
               {/* A range's lower end: past this tick and not over the end of the bar is in range. */}
               {range && rangeMin > 0 && <span className="absolute -top-[3px] h-[9px] w-[2px] rounded-full bg-ink-3" style={{ left: `${(rangeMin / metric.target!) * 100}%` }} />}
+            </div>
+          )}
+          {/* Goals linked to this metric, under its bar and before its buttons. */}
+          {(goal || plans.length > 0) && (
+            <div className="mt-3 flex flex-col gap-2" data-tour="today-linked">
+              {goal && <GoalInline goal={goal} metric={metric} />}
+              {plans.map((p) => <PlanCard key={p.id} plan={p} inline={metric} />)}
             </div>
           )}
         </div>

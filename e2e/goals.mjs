@@ -22,7 +22,8 @@ const setVal = (sel, v) => page.$eval(sel, (el, val) => {
   Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, val);
   el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
 }, v);
-const card = () => page.evaluate(() => document.querySelector('section[aria-label="Deadline goals"]')?.innerText ?? '(no card)');
+// The goal is linked to Network+, so it sits inside that row rather than as a card up top.
+const card = () => page.evaluate(() => document.querySelector('[data-testid=goal-inline]')?.innerText ?? '(no card)');
 const log = (...a) => console.log('•', ...a);
 const press = async (label) => { await page.evaluate((l) => [...document.querySelectorAll('main button, dialog[open] button')].find((b) => b.textContent.trim() === l).click(), label); await wait(400); };
 
@@ -68,7 +69,8 @@ try {
   log('Card:', JSON.stringify(await card()));
   log('Card on day one reads exactly on schedule:', /Exactly on schedule/.test(await card()));
   const row = await page.evaluate(() => [...document.querySelectorAll('li')].find((li) => li.querySelector('h2')?.textContent.includes('Network+'))?.innerText);
-  log('Metric row has goal pace line:', (row ?? '').includes(`Goal pace: ${pace} today`), '|', (row ?? '').match(/Goal pace:[^\n]*/)?.[0]);
+  log('Goal sits inside the Network+ row, no card up top:', (row ?? '').includes('Network+ — 120h by 15 Dec') && !(await page.$('section[aria-label="Deadline goals"]')));
+  log('Inline goal shows today’s pace:', (await card()).includes(`of ${pace}`), '|', (await card()).match(/Today[^\n]*/)?.[0]);
   await page.screenshot({ path: `${OUT}71-today-goal.png` });
 
   // Log 1h: card updates, required pace for today doesn't move.
@@ -78,7 +80,7 @@ try {
   log('Card shows the amount ahead, not just "On track":', /1h ahead/.test(await card()));
 
   // Detail screen with chart.
-  await click('section[aria-label="Deadline goals"] a');
+  await click('[data-testid=goal-inline]');
   await wait(1500);
   log('URL:', await page.evaluate(() => location.hash));
   const lines = await page.$$eval('.recharts-line path.recharts-curve', (ps) => ps.length);

@@ -137,18 +137,48 @@ export function GoalCard({ goal }: { goal: Goal }) {
   );
 }
 
-/** "Goal pace: 1h 35m today" under a metric's daily target. Never touches the streak. */
-export function GoalPaceLine({ goal, metric }: { goal: Goal; metric: Metric }) {
+/**
+ * The goal inside its linked metric's row on Today, between the metric's bar and its buttons:
+ * the card's figures, drawn as an indented block with a rule in the metric's colour. Never touches the streak.
+ */
+export function GoalInline({ goal, metric }: { goal: Goal; metric: Metric }) {
   const { today } = useData();
   const r = useGoalResult(goal);
-  if (r.status === 'achieved' || r.status === 'missed' || r.status === 'not_started' || r.status === 'no_days_left') return null;
-  let text: string;
-  if (r.todayIsPaceDay && r.requiredPerDay !== null) {
-    text = r.neededToday <= 0 ? 'Goal pace: done today' : `Goal pace: ${fmtGoal(metric, r.requiredPerDay, 'up')} today`;
-  } else {
-    text = todayNeedLabel(goal, metric, r, today)?.replace(/^Next:/, 'Goal pace: next') ?? '';
-  }
-  return text ? <p className="mt-0.5 text-[13px] text-ink-3">{text}</p> : null;
+  const hue = useHue(metric.color);
+  const need = todayNeedLabel(goal, metric, r, today);
+  const status = statusLabel(goal, metric, r, today);
+  return (
+    <a
+      href={`#/goals/${goal.id}`}
+      data-testid="goal-inline"
+      className="press block rounded-r-lg border-l-2 py-1 pr-1 pl-3 hover:bg-s1"
+      style={{ borderColor: hue }}
+      aria-label={`${goal.name}. ${fmtGoal(metric, r.done)} of ${fmtGoal(metric, goal.targetTotal)}. ${status}. ${need ?? ''}. Open goal`}
+    >
+      <div className="flex items-center gap-2 text-[13px] text-ink-3">
+        <span className="min-w-0 flex-1 truncate">
+          <span className="font-medium text-ink-2">{goal.name}</span> · {r.status === 'achieved' ? 'Done' : daysLeftLabel(r)}
+        </span>
+        <ChevronRight size={15} className="shrink-0" aria-hidden />
+      </div>
+      <div className="mt-1.5 flex items-center gap-3 text-[13px]">
+        <span className="shrink-0 text-ink-3">
+          <span className="text-[15px] font-medium text-ink">{fmtGoal(metric, r.done)}</span> of {fmtGoal(metric, goal.targetTotal)}
+        </span>
+        <div className="min-w-0 flex-1"><GoalBar goal={goal} r={r} color={hue} /></div>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[13px]">
+        <span className={cx('font-medium', r.status === 'behind' ? 'text-ink' : 'text-ink-2')}>{status}</span>
+        {need && <span className="text-ink-3">{need}</span>}
+      </div>
+      {r.overloaded && (
+        <p className="mt-1.5 flex items-center gap-1.5 text-[13px] text-ink-2">
+          <TriangleAlert size={14} className="shrink-0" aria-hidden />
+          The pace needed has doubled. Open the goal to change the deadline or target.
+        </p>
+      )}
+    </a>
+  );
 }
 
 // ── Create / edit ──────────────────────────────────────────────────────────
@@ -290,10 +320,11 @@ function GoalForm({ state, onDone, onSwitch }: { state: GoalSheetState; onDone: 
   return (
     <form noValidate className="mt-2 flex flex-col gap-5" onSubmit={(e) => { e.preventDefault(); save(); }}>
       <div>
-        <Label htmlFor="g-metric">Metric</Label>
+        <Label htmlFor="g-metric">Linked metric</Label>
         <select id="g-metric" className={inputClass} value={metricId} onChange={(e) => changeMetric(e.target.value)}>
           {options.map((m) => <option key={m.id} value={m.id}>{m.name}{m.archivedAt ? ' (archived)' : ''}</option>)}
         </select>
+        <p className="mt-1.5 text-[13px] text-ink-3">The goal counts this metric’s logged time and shows inside its row on Today.</p>
         <FieldError>{errors.metric}</FieldError>
         {conflict && (
           <div role="alert" className="mt-2 rounded-lg bg-s2 p-3 text-[14px] text-ink-2">
