@@ -3,7 +3,8 @@
 **Read `README.md` first.** It's the full handoff: status, how we work, architecture, data model,
 invariants, decisions, testing and known gaps. This file is just the short version of the rules.
 
-- Single-user offline-first PWA ("Logbook") for Malek. Live at https://personal-tracker-cec8a.web.app,
+- Offline-first PWA ("Logbook") built and run by Malek, used by him and by friends and family (each with their own
+  account; every deploy reaches them). Live at https://personal-tracker-cec8a.web.app,
   repo https://github.com/MalekBaghdadi/Personal_tracker (main). Worked on from a Windows 11 PC and a Mac.
 - Loop for every change: edit → `npx tsc -p .` → `npm test` → `npm run e2e` (look at `e2e/shots/` for UI)
   → `npm run deploy` → confirm the live `index.html` references the new bundle. After touching

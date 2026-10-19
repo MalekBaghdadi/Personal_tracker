@@ -2,7 +2,8 @@
 
 Personal project to track daily habits across Android, desktop/laptop, and iOS devices.
 
-The app is called **Logbook**: a private, single-user, offline-first daily tracker, installed as a PWA.
+The app is called **Logbook**: a private, offline-first daily tracker, installed as a PWA. Malek built it and runs it
+(his account is the admin); friends and family use it too, each with their own account and their own private data.
 It runs on the free Firebase Spark plan with no recurring cost.
 
 > **New session? Start here.** This README is the handoff document. Read [Status](#status) and
@@ -84,7 +85,9 @@ The two specs this was built from (the MVP spec and the "Deadline goals" addendu
 
 ## How we work
 
-Malek is the only user. He tests on his phone, so the loop for every change is:
+Malek owns the app and tests every change on his phone. **Friends and family use the live app too**, so every deploy
+reaches them: never break existing data, keep nothing account-specific hardcoded, and remember their installed apps
+update on their own schedule. The loop for every change is:
 
 1. **Make the change.** Match the surrounding code; read the files you touch first.
 2. **Check it:** `npx tsc -p .` → `npm test` → `npm run e2e` (or the relevant suites, e.g. `npm run e2e -- goals`).
@@ -205,7 +208,7 @@ From Malek's "Plans" spec (19 October 2026; it isn't in the repo, he pasted it).
 - Sign out, with a confirmation.
 
 ### Compete (`src/screens/Compete.tsx`, route `#/compete`, lazy-loaded; logic in `lib/compete.ts`, writes in `lib/competeRepo.ts`, state in `state/CompeteContext.tsx`)
-Built for Malek and his cousin (the only other user), but nothing names either account: any two accounts can pair.
+First built for Malek and his cousin, but nothing names either account: any two accounts can pair.
 - **Layout:** a **scoreboard** at the top (each side's initial, the leader's crown, weeks won and challenges won across every race, draws under the label), the freshness line, any result banner, then anything waiting for an answer ("Waiting for you": link and challenge requests), then a sticky **Races / Challenges / History** switch (`Segmented`; the tab is remembered per device in `pt.compete.tab`). Races: one card per link, my pending proposals, "Link a metric". Challenges: live ones and "New challenge". History: past weeks of every race (6, then "Show all"), finished challenges (5, then "Show all"), and the pair itself (the name the other sees, Unlink).
 - **Several metrics on a side** (18 October 2026; Malek wanted his Study hours to count alongside Network+): "Add metric" on a race card, or on a running challenge's card, opens "Metrics in this race" (`TeamForm`): my side (the first metric, then any added, each removable) and theirs (read-only; they change theirs on their phone). **Each member adds and removes their own freely, no acceptance** (his call; the rules enforce own-side only). Choices he made: it's per link, so it counts toward that race's weekly race and every challenge on it; a day is a **target day if any** metric on the side met its target (`combine`, with h > d > r > o > n). Only metrics that can be summed can join: time with time, counts with the same unit (`canJoin`), each on one link at a time. **Which weeks and challenges an added metric counts toward** (`counts`): anything that hadn't finished when it was added (so it counts from the start of this week and of every running challenge), and nothing that had; removing it takes it out of whatever is still running, while finished ones keep it. A timed challenge compares instants (`addedAt`/`removedAt`). Results go through `teamOf` → `sideAt`/`sideForChallenge` → the same `race`/`challengeResult`; challenge logs merge both metrics' logs, each labelled with its metric. **The partner needs this version too:** an older app ignores `extra` and shows only the first metric's numbers.
 - **Pairing:** one person creates a 6-character invite code (no 0/O/1/I/L; expires after 7 days) and sends it with the share sheet; the other enters it under "Got a code?". Joining **needs a connection** (it reads the invite from the server, 15s timeout); creating the pair and deleting the invite are one batch. The pair's id is the code. One active pair per account in the UI. Each side picks the name the other sees (defaults to the email's local part) and can change it any time at the bottom of the tab ("Cousin sees you as … Change"; `renameInPair`; the rules let each member change only their own name, 1–30 characters). "Unlink" sets `endedAt`; nothing more is shared after that.
