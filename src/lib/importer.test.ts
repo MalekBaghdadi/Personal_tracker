@@ -29,6 +29,21 @@ function plan(b: unknown, e: ExistingData) {
 }
 
 describe('planImport', () => {
+  it('keeps check-off metrics and ranges, and drops a stray lower end', () => {
+    const p = plan(backup({
+      metrics: [
+        metric('g', 'Gym', { type: 'check', unit: 'days', target: 1, timerEnabled: false, quickAdd: [] }),
+        metric('k', 'Calories', { type: 'count', unit: 'kcal', target: 2200, targetMin: 1800, targetDirection: 'between' }),
+        metric('w', 'Water', { type: 'count', unit: 'glasses', target: 8, targetMin: 3 }),
+      ],
+    }), empty());
+    expect(p.metrics.map((m) => [m.name, m.type, m.targetDirection, m.targetMin])).toEqual([
+      ['Gym', 'check', 'at_least', null],
+      ['Calories', 'count', 'between', 1800],
+      ['Water', 'count', 'at_least', null],
+    ]);
+  });
+
   it('rejects files that are not exports', () => {
     expect(planImport({ hello: 1 }, empty(), NOW).ok).toBe(false);
     expect(planImport([], empty(), NOW).ok).toBe(false);

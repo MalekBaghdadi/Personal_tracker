@@ -65,7 +65,7 @@ export function SessionNotes({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[15px] break-words">{e.note}</span>
-                  <span className="block text-[13px] text-ink-3">{formatValue(metric, e.value)}</span>
+                  <span className="block text-[13px] text-ink-3">{metric.type === 'check' ? 'Done' : formatValue(metric, e.value)}</span>
                 </span>
                 <Pencil size={15} className="mt-1 shrink-0 text-ink-3" aria-label="Edit" />
               </button>

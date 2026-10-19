@@ -149,8 +149,12 @@ export interface Score {
   metrics: Record<string, SharedMetric>;
 }
 
-/** A metric can be raced on when more is better; a ceiling (calories) has no sensible winner. */
-export const canLink = (m: Metric): boolean => !m.archivedAt && m.targetDirection === 'at_least';
+/**
+ * A metric can be raced on when more is better; a ceiling or a range
+ * (calories) has no sensible winner. Check-offs aren't raced (yet): their
+ * days are 0 or 1, and an older partner app wouldn't know the type.
+ */
+export const canLink = (m: Metric): boolean => !m.archivedAt && m.targetDirection === 'at_least' && m.type !== 'check';
 
 /** A metric can be added to a side when it can be summed with it: time with time, or counts of the same unit. */
 export const canJoin = (m: Metric, link: Pick<Link, 'type'>, unit: string): boolean =>

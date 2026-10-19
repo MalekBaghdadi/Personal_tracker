@@ -62,7 +62,7 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
   let order = existing.metrics.reduce((max, m) => Math.max(max, m.order), -1);
 
   for (const raw of arr(backup.metrics)) {
-    if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.name) || (raw.type !== 'duration' && raw.type !== 'count') || !isObj(raw.schedule)) {
+    if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.name) || (raw.type !== 'duration' && raw.type !== 'count' && raw.type !== 'check') || !isObj(raw.schedule)) {
       plan.invalid++;
       continue;
     }
@@ -83,7 +83,8 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
       ...m,
       unit: typeof m.unit === 'string' ? m.unit : '',
       target: typeof m.target === 'number' ? m.target : null,
-      targetDirection: m.targetDirection === 'at_most' ? 'at_most' : 'at_least',
+      targetDirection: m.targetDirection === 'at_most' || m.targetDirection === 'between' ? m.targetDirection : 'at_least',
+      targetMin: m.targetDirection === 'between' && typeof m.targetMin === 'number' ? m.targetMin : null,
       timerEnabled: m.type === 'duration' && m.timerEnabled !== false,
       quickAdd: Array.isArray(m.quickAdd) ? m.quickAdd.filter((v) => typeof v === 'number' && v > 0) : [],
       order: ++order,

@@ -83,6 +83,9 @@ function MetricStats({ metric }: { metric: Metric }) {
   }, [metric, stats, today, dayOf, data.weekStartsOn]);
   const ticks = useMemo(() => niceTicks(metric, Math.max(metric.target ?? 0, ...rows.map((r) => r.total))), [metric, rows]);
   const fmt = (v: number) => (metric.type === 'duration' ? formatDuration(v) : `${formatNumber(Math.round(v))} ${metric.unit}`);
+  // A check-off's days are 0 or 1: History's calendar shows them; a bar chart wouldn't add anything.
+  const check = metric.type === 'check';
+  const range = metric.targetDirection === 'between' && metric.target != null;
 
   return (
     <section className="py-5" data-tour="stats-metric" aria-labelledby={`stats-${metric.id}`}>
@@ -95,19 +98,20 @@ function MetricStats({ metric }: { metric: Metric }) {
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
         <Stat label="Current streak" value={streaks ? String(streaks.current) : '–'} />
         <Stat label="Longest streak" value={streaks ? String(streaks.longest) : '–'} />
-        <Stat label={`${PERIOD}-day total`} value={formatValue(metric, periodTotal)} />
+        <Stat label={check ? 'Days done' : `${PERIOD}-day total`} value={check ? String(periodTotal) : formatValue(metric, periodTotal)} />
         <Stat
-          label="Target met"
+          label={check ? 'Due days done' : metric.targetDirection === 'between' ? 'In range' : 'Target met'}
           value={rate && rate.scheduled > 0 ? `${Math.round((rate.hits / rate.scheduled) * 100)}%` : '–'}
           suffix={rate && rate.scheduled > 0 ? `${rate.hits} of ${rate.scheduled}` : undefined}
         />
       </dl>
 
+      {!check && <>
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-3" aria-hidden>
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-1.5 rounded-sm" style={{ background: hue }} />Daily total</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 rounded bg-ink-2" />7-day average</span>
         {metric.target != null && (
-          <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t border-dashed border-ink-3" />{metric.targetDirection === 'at_most' ? 'Ceiling' : 'Target'}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-4 border-t border-dashed border-ink-3" />{range ? 'Range' : metric.targetDirection === 'at_most' ? 'Ceiling' : 'Target'}</span>
         )}
       </div>
 
@@ -148,11 +152,13 @@ function MetricStats({ metric }: { metric: Metric }) {
               }}
             />
             {metric.target != null && <ReferenceLine y={metric.target} stroke="var(--ink-3)" strokeDasharray="4 3" />}
+            {range && metric.targetMin != null && <ReferenceLine y={metric.targetMin} stroke="var(--ink-3)" strokeDasharray="4 3" />}
             <Bar dataKey="total" fill={hue} radius={[3, 3, 0, 0]} maxBarSize={14} isAnimationActive={false} />
             <Line dataKey="avg" type="monotone" stroke="var(--ink-2)" strokeWidth={2} dot={false} activeDot={false} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      </>}
       <SessionNotes metric={metric} title="Notes" />
     </section>
   );

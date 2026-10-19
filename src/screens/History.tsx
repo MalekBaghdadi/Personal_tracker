@@ -261,7 +261,7 @@ function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; 
           else if (pos > 0) pct = LEVEL_PCT[streakLevel(pos)];
           else if (total > 0) pct = 14;
           const fill = pct > 0 ? `color-mix(in oklab, ${hue} ${Math.round(pct)}%, var(--s2))` : undefined;
-          const label = `${formatLocalDate(d, 'EEEE d MMMM')}: ${total > 0 ? formatValue(metric, total) : 'nothing logged'}${hit ? ', target met' : ''}${pos > 0 ? `, day ${pos} of a streak` : ''}${isRest ? ', rest day' : !scheduled ? ', not scheduled' : ''}`;
+          const label = `${formatLocalDate(d, 'EEEE d MMMM')}: ${total > 0 ? (metric.type === 'check' ? 'done' : formatValue(metric, total)) : 'nothing logged'}${hit ? ', target met' : ''}${pos > 0 ? `, day ${pos} of a streak` : ''}${isRest ? ', rest day' : !scheduled ? ', not scheduled' : ''}`;
           return (
             <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} onFill={pct >= 70 ? 'dark' : undefined} muted={!scheduled}>
               {hit && <span aria-hidden className="absolute right-1.5 bottom-1.5 size-1.5 rounded-full bg-[#0e1420]/70" />}
@@ -429,7 +429,8 @@ function SummaryRow({ metric, total, hits, scheduled }: { metric: Metric; total:
 /** Quick adds and manual amounts show as one summed row; see lib/entryRows.ts. */
 function EntryList({ metric, entries, onEdit }: { metric: Metric; entries: Entry[]; onEdit: (s: EntrySheetState) => void }) {
   const { tz } = useData();
-  const rows = useMemo(() => entryRows(entries), [entries]);
+  // A check metric's entries each just mean "done"; there's no total to edit.
+  const rows = useMemo(() => (metric.type === 'check' ? entries.map((entry) => ({ kind: 'single' as const, entry })) : entryRows(entries)), [entries, metric.type]);
   return (
     <ul className="divide-y divide-line border-y border-line">
       {rows.map((r) => {
@@ -445,7 +446,7 @@ function EntryList({ metric, entries, onEdit }: { metric: Metric; entries: Entry
             >
               <span className="w-12 shrink-0 text-[14px] text-ink-3">{formatTimeIn(first.occurredAt, tz)}</span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[15px] font-medium">{formatValue(metric, merged ? r.total : r.entry.value)}</span>
+                <span className="block text-[15px] font-medium">{metric.type === 'check' ? 'Done' : formatValue(metric, merged ? r.total : r.entry.value)}</span>
                 <span className="block truncate text-[13px] text-ink-3">
                   {merged
                     ? `${mergedLabel(r.entries)} · last at ${formatTimeIn(last.occurredAt, tz)}`
@@ -470,7 +471,7 @@ function DaySheet({ metric, date, onClose }: { metric: Metric; date: string | nu
     () => (date ? entries.filter((e) => e.metricId === metric.id && e.localDate === date).sort(byTime) : []),
     [entries, metric.id, date],
   );
-  const total = dayEntries.reduce((s, e) => s + e.value, 0);
+  const total = metric.type === 'check' ? Math.min(1, dayEntries.length) : dayEntries.reduce((s, e) => s + e.value, 0);
 
   return (
     <>
@@ -480,14 +481,17 @@ function DaySheet({ metric, date, onClose }: { metric: Metric; date: string | nu
         ) : (
           <>
             <p className="mb-2 text-[14px] text-ink-2">
-              Total <span className="font-medium text-ink">{formatValue(metric, total)}</span> from {dayEntries.length} {dayEntries.length === 1 ? 'entry' : 'entries'}
+              {metric.type === 'check' ? <span className="font-medium text-ink">Done</span> : <>Total <span className="font-medium text-ink">{formatValue(metric, total)}</span></>} from {dayEntries.length} {dayEntries.length === 1 ? 'entry' : 'entries'}
             </p>
             <EntryList metric={metric} entries={dayEntries} onEdit={setEdit} />
           </>
         )}
-        <Button className="mt-4 w-full" onClick={() => date && setEdit({ mode: 'add', metric, date })}>
-          <Plus size={18} /> Add an entry for this day
-        </Button>
+        {/* A check metric is done or not: once it is, there's nothing more to add. */}
+        {!(metric.type === 'check' && dayEntries.length > 0) && (
+          <Button className="mt-4 w-full" onClick={() => date && setEdit({ mode: 'add', metric, date })}>
+            <Plus size={18} /> {metric.type === 'check' ? 'Mark done on this day' : 'Add an entry for this day'}
+          </Button>
+        )}
       </Sheet>
       <EntrySheet state={edit} onClose={() => setEdit(null)} />
     </>
@@ -559,7 +563,7 @@ function AllDaySheet({ date, onClose }: { date: string | null; onClose: () => vo
 
 function DayGroup({ metric, entries, date, onEdit }: { metric: Metric; entries: Entry[]; date: string; onEdit: (s: EntrySheetState) => void }) {
   const hue = useHue(metric.color);
-  const total = entries.reduce((s, e) => s + e.value, 0);
+  const total = metric.type === 'check' ? Math.min(1, entries.length) : entries.reduce((s, e) => s + e.value, 0);
   const hit = isHit(metric, total, entries.length);
   const { today } = useData();
   return (
@@ -570,9 +574,9 @@ function DayGroup({ metric, entries, date, onEdit }: { metric: Metric; entries: 
           {metric.name}
         </h3>
         <span className="text-[14px]">
-          <span className="font-medium">{formatValue(metric, total)}</span>
-          {hit === true && (metric.targetDirection === 'at_least' || date < today) && <span className="text-ink-3"> · target met</span>}
-          {hit === false && date < today && <span className="text-ink-3"> · target missed</span>}
+          <span className="font-medium">{metric.type === 'check' ? 'Done' : formatValue(metric, total)}</span>
+          {hit === true && metric.type !== 'check' && (metric.targetDirection === 'at_least' || date < today) && <span className="text-ink-3"> · {metric.targetDirection === 'between' ? 'in range' : 'target met'}</span>}
+          {hit === false && date < today && <span className="text-ink-3"> · {metric.targetDirection === 'between' ? 'out of range' : 'target missed'}</span>}
         </span>
       </div>
       <EntryList metric={metric} entries={entries} onEdit={onEdit} />

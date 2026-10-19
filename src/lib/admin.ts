@@ -99,8 +99,13 @@ export async function fetchUserData(uid: string): Promise<Loaded<UserData>> {
   };
 }
 
-/** metricId → localDate → aggregate. The same figures DataContext derives for the signed-in user. */
-export function buildDayStats(entries: Entry[]): Map<string, DayStats> {
+/**
+ * metricId → localDate → aggregate. The same figures DataContext derives for
+ * the signed-in user. A check metric's day total is 1 if anything is logged:
+ * two taps from two offline devices are still one done day, and a metric
+ * switched to check keeps its old entries (minutes, say) as done days.
+ */
+export function buildDayStats(entries: Entry[], metrics: Pick<Metric, 'id' | 'type'>[] = []): Map<string, DayStats> {
   const out = new Map<string, DayStats>();
   for (const e of entries) {
     let m = out.get(e.metricId);
@@ -110,6 +115,10 @@ export function buildDayStats(entries: Entry[]): Map<string, DayStats> {
       s.total += e.value;
       s.count += 1;
     } else m.set(e.localDate, { total: e.value, count: 1 });
+  }
+  for (const metric of metrics) {
+    if (metric.type !== 'check') continue;
+    for (const s of out.get(metric.id)?.values() ?? []) s.total = 1;
   }
   return out;
 }

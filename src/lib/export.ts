@@ -50,7 +50,7 @@ export function entriesCsv(metrics: Metric[], entries: Entry[]): string {
       const m = byId.get(e.metricId);
       return [
         e.id, e.localDate, m?.name ?? '', e.metricId, m?.archivedAt ? 'yes' : 'no', m?.type ?? '',
-        e.value, m?.type === 'duration' ? 'seconds' : (m?.unit ?? ''), e.source, e.occurredAt,
+        e.value, m?.type === 'duration' ? 'seconds' : m?.type === 'check' ? 'done' : (m?.unit ?? ''), e.source, e.occurredAt,
         e.note, e.createdAt, e.updatedAt,
       ];
     });
@@ -58,9 +58,9 @@ export function entriesCsv(metrics: Metric[], entries: Entry[]): string {
 }
 
 export function metricsCsv(metrics: Metric[]): string {
-  const header = ['metric_id', 'name', 'type', 'unit', 'target', 'target_direction', 'schedule', 'timer_enabled', 'quick_add', 'color', 'icon', 'order', 'archived_at', 'created_at', 'updated_at'];
+  const header = ['metric_id', 'name', 'type', 'unit', 'target', 'target_direction', 'target_min', 'schedule', 'timer_enabled', 'quick_add', 'color', 'icon', 'order', 'archived_at', 'created_at', 'updated_at'];
   const rows = metrics.map((m) => [
-    m.id, m.name, m.type, m.unit, m.target, m.targetDirection,
+    m.id, m.name, m.type, m.unit, m.target, m.targetDirection, m.targetMin ?? null,
     m.schedule.kind === 'daily' ? 'daily' : `days:${m.schedule.days.join(' ')}`,
     m.timerEnabled, m.quickAdd.join(' '), m.color, m.icon, m.order, m.archivedAt, m.createdAt, m.updatedAt,
   ]);

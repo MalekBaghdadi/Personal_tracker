@@ -5,7 +5,7 @@ import { useTimerActions } from '../state/TimerContext';
 import { useHue } from '../state/theme';
 import { addEntry, setRestDay, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
 import { computeStreaks, isHit, isScheduled, restDays, weekOf } from '../lib/streaks';
-import { formatChip, formatValue, formatValueParts } from '../lib/format';
+import { formatChip, formatRange, formatValue, formatValueParts } from '../lib/format';
 import { formatLocalDate } from '../lib/dates';
 import { iconFor } from '../lib/icons';
 import { EntrySheet, type EntrySheetState } from '../components/EntrySheet';
@@ -14,6 +14,7 @@ import { itemSummary } from '../components/Items';
 import { GoalCard, GoalPaceLine } from '../components/Goals';
 import { StartEarlierSheet, useLongPress } from '../components/StartEarlier';
 import { YesterdaySheet } from '../components/YesterdaySheet';
+import { CheckButton } from '../components/CheckButton';
 import { cx, useBump, useToast } from '../components/ui';
 import type { Metric } from '../lib/types';
 
@@ -182,8 +183,16 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
   const [startEarlier, setStartEarlier] = useState(false);
   const hold = useLongPress(() => setStartEarlier(true));
 
+  const check = metric.type === 'check';
+  const range = metric.targetDirection === 'between' && metric.target != null;
+  const rangeMin = range ? metric.targetMin ?? 0 : 0;
   const progress = metric.target ? Math.min(1, total / metric.target) : 0;
-  const over = metric.targetDirection === 'at_most' && metric.target != null && total > metric.target;
+  const over = metric.targetDirection !== 'at_least' && metric.target != null && total > metric.target;
+  let targetText: string;
+  if (check) targetText = 'Check off';
+  else if (metric.target == null) targetText = 'No target';
+  else if (range) targetText = `Range ${formatRange(metric, rangeMin, metric.target)}`;
+  else targetText = `${metric.targetDirection === 'at_most' ? 'Under' : 'Target'} ${formatValue(metric, metric.target)}`;
 
   return (
     <li className="py-3.5" data-tour="today-row">
@@ -198,19 +207,24 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
               <Icon size={17} className="shrink-0 self-center" style={{ color: hue }} aria-hidden />
               <span className="truncate">{metric.name}</span>
             </h2>
-            <p className="shrink-0 text-right">
-              <span key={bumped} className={cx('text-[26px] leading-none font-medium tracking-tight', total === 0 && 'text-ink-3', bumped > 0 && 'bump')}>{parts.num}</span>
-              {parts.unit && <span className="ml-1 text-[13px] text-ink-3">{parts.unit}</span>}
-            </p>
+            {check ? (
+              <p key={bumped} className={cx('shrink-0 text-[15px] font-medium', total === 0 && 'text-ink-3', bumped > 0 && 'bump')}>{total > 0 ? 'Done' : 'Not yet'}</p>
+            ) : (
+              <p className="shrink-0 text-right">
+                <span key={bumped} className={cx('text-[26px] leading-none font-medium tracking-tight', total === 0 && 'text-ink-3', bumped > 0 && 'bump')}>{parts.num}</span>
+                {parts.unit && <span className="ml-1 text-[13px] text-ink-3">{parts.unit}</span>}
+              </p>
+            )}
           </div>
           <div className="mt-1 flex items-center justify-between gap-3 text-[13px] text-ink-3">
             <span>
-              {metric.target == null
-                ? 'No target'
-                : `${metric.targetDirection === 'at_most' ? 'Under' : 'Target'} ${formatValue(metric, metric.target)}`}
+              {targetText}
               {over && <span className="text-ink-2"> · {formatValue(metric, total - metric.target!)} over</span>}
+              {/* A range shows what's left to reach it, then that it's in range (not "done": more can still overshoot). */}
+              {range && total > 0 && total < rangeMin && <span className="text-ink-2"> · {formatValue(metric, rangeMin - total)} to go</span>}
+              {range && hit && <span className="text-ink-2"> · in range</span>}
               {/* A ceiling isn't "done" until the day is; only floors get this. */}
-              {hit && metric.targetDirection === 'at_least' && <span className="text-ink-2"> · <span className={bumped > 0 ? 'bump' : undefined}>done</span></span>}
+              {hit && metric.targetDirection === 'at_least' && !check && <span className="text-ink-2"> · <span className={bumped > 0 ? 'bump' : undefined}>done</span></span>}
             </span>
             <span className="flex shrink-0 items-center gap-2">
               {canRest && (
@@ -236,13 +250,20 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
           )}
           {goal && <GoalPaceLine goal={goal} metric={metric} />}
           {metric.target != null && (
-            <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-s3" role="presentation">
+            <div className="relative mt-2 h-[3px] rounded-full bg-s3" role="presentation">
               <div className="bar-fill h-full rounded-full" style={{ width: `${progress * 100}%`, background: over ? 'var(--danger)' : hue }} />
+              {/* A range's lower end: past this tick and not over the end of the bar is in range. */}
+              {range && rangeMin > 0 && <span className="absolute -top-[3px] h-[9px] w-[2px] rounded-full bg-ink-3" style={{ left: `${(rangeMin / metric.target!) * 100}%` }} />}
             </div>
           )}
         </div>
       </div>
 
+      {check ? (
+        <div className="mt-2.5 flex items-center">
+          <CheckButton metric={metric} date={today} tour="today-check" onDone={(text, undo) => toast(text, { label: 'Undo', run: undo })} />
+        </div>
+      ) : (
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
@@ -301,6 +322,7 @@ function MetricRow({ metric, onManual }: { metric: Metric; onManual: (subtract: 
           </button>
         )}
       </div>
+      )}
     </li>
   );
 }

@@ -18,7 +18,7 @@ const HOUR = 60 * MIN;
 export const SUGGESTIONS: Seed[] = [
   { name: 'Studying', type: 'duration', unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: true, quickAdd: [15 * MIN, 30 * MIN, 60 * MIN], icon: 'GraduationCap' },
   { name: 'Reading', type: 'duration', unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: true, quickAdd: [15 * MIN, 30 * MIN], icon: 'BookOpen' },
-  { name: 'Gym', type: 'duration', unit: 'min', targetDirection: 'at_least', schedule: { kind: 'days_of_week', days: [1, 3, 5] }, timerEnabled: true, quickAdd: [45 * MIN, 60 * MIN], icon: 'Dumbbell' },
+  { name: 'Gym', type: 'check', unit: 'days', targetDirection: 'at_least', schedule: { kind: 'days_of_week', days: [1, 3, 5] }, timerEnabled: false, quickAdd: [], icon: 'Dumbbell' },
   { name: 'Calories', type: 'count', unit: 'kcal', targetDirection: 'at_most', schedule: { kind: 'daily' }, timerEnabled: false, quickAdd: [100, 250, 500], icon: 'Flame' },
   { name: 'Water', type: 'count', unit: 'glasses', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: false, quickAdd: [1, 2], icon: 'Droplet' },
   { name: 'Sleep', type: 'duration', unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: false, quickAdd: [6 * HOUR, 7 * HOUR, 8 * HOUR], icon: 'Moon' },
@@ -31,6 +31,7 @@ export const SUGGESTIONS: Seed[] = [
 
 /** A user's own first-run metric: a name and a kind, everything else defaulted. */
 export function customSeed(name: string, type: Metric['type'], unit: string): Seed {
+  if (type === 'check') return { name, type, unit: 'days', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: false, quickAdd: [], icon: 'Target' };
   return type === 'duration'
     ? { name, type, unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: true, quickAdd: [15 * MIN, 30 * MIN, 60 * MIN], icon: 'Target' }
     : { name, type, unit: unit || 'times', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: false, quickAdd: [1, 5, 10], icon: 'Target' };
@@ -62,7 +63,8 @@ export function finishSetup(uid: string, picks: (Seed & { target: number | null 
       name: p.name,
       type: p.type,
       unit: p.unit,
-      target: p.target,
+      // A check-off is done or not: its target is always 1.
+      target: p.type === 'check' ? 1 : p.target,
       targetDirection: p.targetDirection,
       schedule: p.schedule,
       timerEnabled: p.timerEnabled,

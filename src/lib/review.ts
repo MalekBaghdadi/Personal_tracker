@@ -86,9 +86,9 @@ export function reviewWeek(
       scheduled -= Math.min(metric.restDaysPerWeek ?? 0, scheduled - hits);
     }
 
-    // Best day only means something for "more is better" metrics.
+    // Best day only means something for "more is better" amounts (a check-off day is just done).
     let best: MetricWeek['best'] = null;
-    if (metric.targetDirection === 'at_least') {
+    if (metric.targetDirection === 'at_least' && metric.type !== 'check') {
       for (let d = start; d <= end; d = addDays(d, 1)) {
         const t = stats.get(d)?.total ?? 0;
         if (t > 0 && (!best || t > best.total)) best = { date: d, total: t };

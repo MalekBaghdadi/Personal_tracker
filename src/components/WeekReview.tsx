@@ -61,11 +61,15 @@ export function WeekReviewCard() {
 
 function MetricLine({ w }: { w: MetricWeek }) {
   const hue = useHue(w.metric.color);
-  // A ceiling's weekly total means little; its average logged day is what matters.
-  const ceiling = w.metric.targetDirection === 'at_most';
+  // A ceiling's or a range's weekly total means little; its average logged day is what matters.
+  const ceiling = w.metric.targetDirection === 'at_most' || w.metric.targetDirection === 'between';
   const main = ceiling && w.loggedDays > 0 ? `${formatValue(w.metric, Math.round(w.total / w.loggedDays))} a day` : formatValue(w.metric, w.total);
   const details = [
-    w.hits !== null && w.scheduled ? `Target met ${w.hits} of ${w.scheduled} days` : null,
+    w.hits !== null && w.scheduled
+      ? w.metric.type === 'check' ? `Done ${w.hits} of ${w.scheduled} days`
+        : w.metric.targetDirection === 'between' ? `In range ${w.hits} of ${w.scheduled} days`
+        : `Target met ${w.hits} of ${w.scheduled} days`
+      : null,
     w.best ? `Best ${formatLocalDate(w.best.date, 'EEE')}, ${formatValue(w.metric, w.best.total)}` : null,
     ceiling ? `Logged ${w.loggedDays} of 7 days` : `Week before ${formatValue(w.metric, w.previousTotal)}`,
   ].filter(Boolean);

@@ -5,9 +5,10 @@ import { useHue } from '../state/theme';
 import { addEntry, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
 import { addDays, formatLocalDate } from '../lib/dates';
 import { isHit, isScheduled, streakDays } from '../lib/streaks';
-import { formatChip, formatValue } from '../lib/format';
+import { formatChip, formatRange, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import { EntrySheet, type EntrySheetState } from './EntrySheet';
+import { CheckButton } from './CheckButton';
 import { Sheet, cx } from './ui';
 import type { Metric } from '../lib/types';
 
@@ -135,9 +136,16 @@ function Row({
     onNotice(`Removed ${removed < value ? 'all ' : ''}${formatValue(metric, removed)} from ${metric.name} yesterday`, () => undoSubtraction(uid, undo));
   };
 
+  const check = metric.type === 'check';
+  const range = metric.targetDirection === 'between';
   let status: string;
   if (metric.target == null) status = 'No target';
-  else if (hit) status = priorRun > 0 ? `Target met · streak kept (${priorRun + 1} days)` : 'Target met';
+  else if (hit) status = priorRun > 0 ? `${check ? 'Done' : range ? 'In range' : 'Target met'} · streak kept (${priorRun + 1} days)` : check ? 'Done' : range ? 'In range' : 'Target met';
+  else if (check) status = priorRun > 0 ? `Mark it done to restore your ${priorRun}-day streak` : 'Not done';
+  else if (range && total > 0 && total < (metric.targetMin ?? 0)) {
+    const short = formatValue(metric, (metric.targetMin ?? 0) - total);
+    status = priorRun > 0 ? `${short} more restores your ${priorRun}-day streak` : `${short} short of the range`;
+  } else if (range && total > metric.target) status = `${formatValue(metric, total - metric.target)} over the range`;
   else if (metric.targetDirection === 'at_least') {
     const short = formatValue(metric, metric.target - total);
     status = priorRun > 0 ? `${short} more restores your ${priorRun}-day streak` : `${short} short of the target`;
@@ -152,12 +160,21 @@ function Row({
           <Icon size={16} className="shrink-0 self-center" style={{ color: hue }} aria-hidden />
           <span className="truncate">{metric.name}</span>
         </h3>
-        <span className={cx('shrink-0 text-[17px] font-medium', total === 0 && 'text-ink-3')}>
-          {formatValue(metric, total)}
-          {metric.target != null && <span className="text-[13px] font-normal text-ink-3"> / {formatValue(metric, metric.target)}</span>}
-        </span>
+        {!check && (
+          <span className={cx('shrink-0 text-[17px] font-medium', total === 0 && 'text-ink-3')}>
+            {formatValue(metric, total)}
+            {metric.target != null && (
+              <span className="text-[13px] font-normal text-ink-3"> / {range ? formatRange(metric, metric.targetMin ?? 0, metric.target) : formatValue(metric, metric.target)}</span>
+            )}
+          </span>
+        )}
       </div>
       <p className={cx('mt-0.5 text-[13px]', !hit && priorRun > 0 ? 'text-ink' : 'text-ink-3')}>{status}</p>
+      {check ? (
+        <div className="mt-2">
+          <CheckButton metric={metric} date={date} suffix=" yesterday" onDone={onNotice} />
+        </div>
+      ) : (
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
@@ -192,6 +209,7 @@ function Row({
           <Keyboard size={18} />
         </button>
       </div>
+      )}
     </li>
   );
 }

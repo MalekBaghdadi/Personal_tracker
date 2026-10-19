@@ -1,7 +1,7 @@
 import { addDays, weekdayOf } from './dates';
 import type { DayStats, Metric, Schedule } from './types';
 
-type TargetFields = Pick<Metric, 'target' | 'targetDirection' | 'schedule'> & Partial<Pick<Metric, 'restDaysPerWeek' | 'restDates'>>;
+type TargetFields = Pick<Metric, 'target' | 'targetDirection' | 'schedule'> & Partial<Pick<Metric, 'restDaysPerWeek' | 'restDates' | 'targetMin'>>;
 type WeekStart = 0 | 1;
 
 export function isScheduled(schedule: Schedule, localDate: string): boolean {
@@ -9,13 +9,15 @@ export function isScheduled(schedule: Schedule, localDate: string): boolean {
 }
 
 /**
- * Whether a day met the target. A ceiling (`at_most`) needs evidence: a day
- * with no entries is never a hit, or forgetting to log would read as success.
- * Returns null when the metric has no target.
+ * Whether a day met the target. A ceiling (`at_most`) or a range (`between`)
+ * needs evidence: a day with no entries is never a hit, or forgetting to log
+ * would read as success. A range counts both ends. Returns null when the
+ * metric has no target.
  */
 export function isHit(metric: TargetFields, total: number, count: number): boolean | null {
   if (metric.target == null) return null;
   if (metric.targetDirection === 'at_least') return total >= metric.target;
+  if (metric.targetDirection === 'between') return count > 0 && total >= (metric.targetMin ?? 0) && total <= metric.target;
   return count > 0 && total <= metric.target;
 }
 

@@ -30,6 +30,7 @@ export function EntrySheet({ state, onClose }: { state: EntrySheetState | null; 
           : state.mode === 'edit' ? `Edit ${state.metric.name} entry`
           : state.mode === 'total' ? `Edit ${state.metric.name} total`
           : state.subtract ? `Subtract from ${state.metric.name}`
+          : state.metric.type === 'check' ? `Mark ${state.metric.name} done`
           : `Add to ${state.metric.name}`
       }
     >
@@ -49,6 +50,8 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
   const metric = state.metric;
   const existing = state.mode === 'edit' ? state.entry : null;
   const isDuration = metric.type === 'duration';
+  // A check entry has no amount: adding one means "done", editing it only moves the day or the note.
+  const isCheck = metric.type === 'check';
 
   const initial = existing ? splitDuration(existing.value) : { hours: '', minutes: '' };
   const [hours, setHours] = useState(initial.hours);
@@ -61,7 +64,7 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
   // Set by the row's +/− toggle; the sheet itself has no switch.
   const subtracting = state.mode === 'add' && state.subtract === true;
 
-  const value = isDuration ? parseDuration(hours, minutes) : parseCount(count);
+  const value = isCheck ? existing?.value ?? 1 : isDuration ? parseDuration(hours, minutes) : parseCount(count);
   useEffect(() => setConfirmLong(false), [hours, minutes]);
 
   const dayEntries = useMemo(
@@ -119,7 +122,7 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
     // Past dates get a midday timestamp; today gets "now".
     const occurredAt = date === today ? new Date().toISOString() : instantAt(date, '12:00:00', tz).toISOString();
     const id = addEntry(uid, { metricId: metric.id, value, source: 'manual', localDate: date, occurredAt, note });
-    toast(`Logged ${formatValue(metric, value)} to ${metric.name}`, { label: 'Undo', run: () => softDeleteEntry(uid, id) });
+    toast(isCheck ? `${metric.name} done` : `Logged ${formatValue(metric, value)} to ${metric.name}`, { label: 'Undo', run: () => softDeleteEntry(uid, id) });
     onDone();
   };
 
@@ -132,7 +135,7 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
       }}
       className="mt-2 flex flex-col gap-4"
     >
-      <div>
+      {!isCheck && <div>
         <Label htmlFor={isDuration ? 'entry-m' : 'entry-count'}>
           {subtracting ? (isDuration ? 'Time to remove' : 'Amount to remove') : isDuration ? 'Duration' : 'Amount'}
         </Label>
@@ -150,7 +153,7 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
             {value > dayTotal && dayTotal > 0 ? `, so this takes it to ${formatValue(metric, 0)}` : ''}
           </p>
         )}
-      </div>
+      </div>}
 
       <div>
         <Label htmlFor="entry-date">Date</Label>
@@ -162,6 +165,7 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
           max={today}
           onChange={(e) => setDate(e.target.value)}
         />
+        {isCheck && <FieldError>{error}</FieldError>}
         {existing && (
           <p className="mt-1.5 text-[13px] text-ink-3">
             Logged at {formatTimeIn(existing.occurredAt, tz)} · {sourceLabel(existing.source)}
@@ -192,7 +196,7 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
           {subtracting
             ? value > dayTotal && dayTotal > 0 ? `Subtract all ${formatValue(metric, dayTotal)}`
               : value > 0 ? `Subtract ${formatValue(metric, value)}` : 'Subtract'
-            : confirmLong ? `Yes, log ${formatDuration(value)}` : existing ? 'Save changes' : 'Log it'}
+            : confirmLong ? `Yes, log ${formatDuration(value)}` : existing ? 'Save changes' : isCheck ? 'Mark done' : 'Log it'}
         </Button>
         {existing && (
           <Button

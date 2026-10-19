@@ -38,7 +38,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 | **Repo** | https://github.com/MalekBaghdadi/Personal_tracker (branch `main`) |
 | **Firebase project** | `personal-tracker-cec8a` (Spark plan) |
 | **Local checkouts** | `C:\Users\Malek Baghdadi\personal-tracker` (Windows 11 PC) and `~/Documents/Personal_tracker` (Mac) |
-| **Last updated** | 18 October 2026 |
+| **Last updated** | 19 October 2026 |
 
 **Built and deployed:**
 - The original MVP: Today, History, Stats, Metrics and Settings screens; timers; quick-add and manual entry; targets and streaks; PWA install and offline support; JSON/CSV export; first-run onboarding.
@@ -68,8 +68,10 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Several metrics on one side of a race (e.g. Network+ and Study against their Study), summed, added or removed freely from "Add metric".
 - Compete is laid out as a scoreboard (weeks and challenges won) over three tabs: Races, Challenges, History.
 - "End it now" on a running challenge (with an "Are you sure?" step): whoever's ahead at that moment wins.
+- **Check-off metrics** (e.g. Gym): done or not done, one tap on Today. An existing time or count metric can switch to check off and keeps its history.
+- **Range targets** (e.g. Calories 1,800–2,200 kcal): a day counts when its total ends up between the two.
 
-**Verified:** type check, 146 unit tests, 17 browser test suites, and 56 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 157 unit tests, 18 browser test suites, and 56 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -123,6 +125,8 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
   - "Goal pace: 1h 20m today" when the metric has an active goal
   - **Rest day** (metrics with rest days a week and a target): shown while this week's allowance isn't used and today isn't met. Tapping it marks today (`setRestDay`, Undo in the toast); the row then reads "Rest day today · streak kept" with an Undo link.
   - controls: **+/− toggle**, quick-add chips, a custom-amount (keyboard) button, and Start/Stop if the metric has a timer. On phones Start/Stop is icon-only so the row fits on one line.
+  - **Check-off metrics** (`type: 'check'`) replace all of that with one button (`components/CheckButton.tsx`): "Mark done" / "✓ Done". The row reads "Check off", "Done" or "Not yet", and the streak. Tapping again unticks (soft-deletes everything logged that day for it), with Undo either way.
+  - **Range targets** (`targetDirection: 'between'`): "Range 1,800–2,200 kcal", then "300 kcal to go" below the range, "in range" inside it, "300 kcal over" (red bar) above it. The bar runs to the upper end, with a tick at the lower end.
 - **The +/− toggle:** in − mode the chips read −15m etc., and they and the custom button subtract. It resets to + when you leave Today.
 - **Undo toast** after every log, subtract and delete.
 - **Session note prompt:** stopping a timer after more than 10 minutes (`NOTE_PROMPT_AFTER_S` in `TimerContext.tsx`) turns the Undo toast into "What did you accomplish?" with a pen and ✕. It stays until dismissed; the pen opens an inline field and Save writes the entry's `note`. Shorter sessions get the normal toast.
@@ -144,6 +148,7 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
   - **Merged line:** a day's quick adds and manual amounts for a metric show as **one line with their sum** ("850 kcal · 3 quick adds · last at 19:05"; `lib/entryRows.ts`, unit-tested). Timer sessions and anything with a note keep their own line. Display only: storage is still one entry per logging action (invariant 1).
   - Tapping the merged line opens **Edit total** (`TotalForm` in `EntrySheet.tsx`): lowering it trims the newest of those entries with `subtractFromDay`, raising it adds one manual entry for the difference, and "Remove all" clears them. Timer and noted entries are never touched. All with Undo.
   - Tapping any other line edits or deletes that entry.
+  - A check-off metric's entries each read "Done" and are never merged; once a day is done there's no add button for it (it says "Mark done on this day" until then). A range day says "in range" / "out of range" instead of "target met" / "missed".
   - Future days show only events and reminders.
 - Month navigation goes forward too, for planning. Tapping the month title jumps back to the current month.
 - Deep link `#/history/YYYY-MM-DD` opens that day's sheet; closing it strips the date from the URL.
@@ -156,11 +161,15 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
   - target-hit rate, counted from the metric's creation date so earlier days aren't counted as misses
   - a 30-day bar chart with a 7-day rolling average and a target line
 - Archived metrics are marked.
+- Check-off metrics show "Days done" and "Due days done" and no chart (History's calendar already shows the days). Ranges draw both ends as dashed lines, labelled "Range".
+- In "Last week", ranges show their average logged day like ceilings, and check-offs say "Done 3 of 5 days" with no best day.
 - **Notes:** every entry with a note for that metric, newest first (5, then "Show all"). Tap one to edit the entry. Hidden when there are none.
 
 ### Metrics (`src/screens/Metrics.tsx`)
 - Create, edit, drag to reorder (pointer-based so it works on iOS; arrow keys too), archive, and hard delete with a count of what goes.
-- A metric's type is locked once it has entries, because switching would misread stored values.
+- A metric's type is locked once it has entries, because switching would misread stored values. **The one exception is switching to check off** ("Switch to check off", 19 October 2026, for Malek's Gym): every day with anything logged becomes a done day, so streaks and history stay. It can't be switched back. It's refused while the metric is in a Compete race or has an active deadline goal (both need amounts).
+- **Measured as:** Time, A number, or **Check off** (done or not done: target fixed at 1, unit `days`, no timer, no one-tap buttons).
+- **Daily target:** At least, At most, or **Range** (From and To, both inclusive; the upper end must be more than the lower). Like a ceiling, a range day only counts if something was logged.
 - **Deadline goals list:** active goals first, then archived ones with how they ended. "New goal" lives here. A metric's editor also offers "Add deadline goal", or "View deadline goal" when it has one.
 
 ### Goal detail (`src/screens/GoalDetail.tsx`, route `#/goals/<id>`, lazy-loaded)
@@ -184,7 +193,7 @@ Built for Malek and his cousin (the only other user), but nothing names either a
 - **Layout:** a **scoreboard** at the top (each side's initial, the leader's crown, weeks won and challenges won across every race, draws under the label), the freshness line, any result banner, then anything waiting for an answer ("Waiting for you": link and challenge requests), then a sticky **Races / Challenges / History** switch (`Segmented`; the tab is remembered per device in `pt.compete.tab`). Races: one card per link, my pending proposals, "Link a metric". Challenges: live ones and "New challenge". History: past weeks of every race (6, then "Show all"), finished challenges (5, then "Show all"), and the pair itself (the name the other sees, Unlink).
 - **Several metrics on a side** (18 October 2026; Malek wanted his Study hours to count alongside Network+): "Add metric" on a race card, or on a running challenge's card, opens "Metrics in this race" (`TeamForm`): my side (the first metric, then any added, each removable) and theirs (read-only; they change theirs on their phone). **Each member adds and removes their own freely, no acceptance** (his call; the rules enforce own-side only). Choices he made: it's per link, so it counts toward that race's weekly race and every challenge on it; a day is a **target day if any** metric on the side met its target (`combine`, with h > d > r > o > n). Only metrics that can be summed can join: time with time, counts with the same unit (`canJoin`), each on one link at a time. **Which weeks and challenges an added metric counts toward** (`counts`): anything that hadn't finished when it was added (so it counts from the start of this week and of every running challenge), and nothing that had; removing it takes it out of whatever is still running, while finished ones keep it. A timed challenge compares instants (`addedAt`/`removedAt`). Results go through `teamOf` → `sideAt`/`sideForChallenge` → the same `race`/`challengeResult`; challenge logs merge both metrics' logs, each labelled with its metric. **The partner needs this version too:** an older app ignores `extra` and shows only the first metric's numbers.
 - **Pairing:** one person creates a 6-character invite code (no 0/O/1/I/L; expires after 7 days) and sends it with the share sheet; the other enters it under "Got a code?". Joining **needs a connection** (it reads the invite from the server, 15s timeout); creating the pair and deleting the invite are one batch. The pair's id is the code. One active pair per account in the UI. Each side picks the name the other sees (defaults to the email's local part) and can change it any time at the bottom of the tab ("Cousin sees you as … Change"; `renameInPair`; the rules let each member change only their own name, 1–30 characters). "Unlink" sets `endedAt`; nothing more is shared after that.
-- **Linking metrics:** either side proposes one of their own **"at least"** metrics (`canLink`); the other accepts by picking one of theirs of the same type (time or count), or declines. Ceilings (calories) can't be raced. Accepting sets `startDate` to the first day of that week, so this week already counts.
+- **Linking metrics:** either side proposes one of their own **"at least"** metrics (`canLink`; not check-offs, whose days are 0 or 1 and which an older partner app wouldn't understand); the other accepts by picking one of theirs of the same type (time or count), or declines. Ceilings (calories) can't be raced. Accepting sets `startDate` to the first day of that week, so this week already counts.
 - **Weekly race** (one card per link): this week's total for each side with a bar, target days met ("target 4/5 days", only for metrics with a target), who's ahead and by how much, the tally of weeks won since the link started, and last week's result. **A week goes to the higher total; equal totals go to more target days; then a draw.** Weeks follow the pair's `weekStartsOn` (the inviter's setting when the code was made).
 - **Challenges** on a linked pair, which the other side accepts or declines; either side can call one off:
   - **First to X:** the earlier day to reach X wins; reaching it the same day goes to the higher total that day; if nobody gets there by the end date, the higher total wins.
@@ -220,8 +229,8 @@ Built for Malek and his cousin (the only other user), but nothing names either a
 ### First run
 - On a new account the server confirms it's empty, then **only the settings doc** is seeded (`onboardedAt: null`). No metrics are made for them.
 - **Onboarding** (`src/screens/Onboarding.tsx`) has two steps:
-  1. **"What do you want to track?"**: tick any of the suggestions (`SUGGESTIONS` in `lib/seed.ts`: Studying, Reading, Gym, Calories, Water, Sleep, Walking, Meditation, Coding, Language practice, Music practice), or "Add your own" with a name and Time or Count (plus a unit). Typing a suggestion's name ticks it instead of duplicating it. "Start with nothing" finishes with no metrics.
-  2. **"Set your targets"** for just those picks, with empty inputs on purpose, and days for day-of-week ones. Back keeps the picks.
+  1. **"What do you want to track?"**: tick any of the suggestions (Gym is a check-off, Mon/Wed/Fri) (`SUGGESTIONS` in `lib/seed.ts`: Studying, Reading, Gym, Calories, Water, Sleep, Walking, Meditation, Coding, Language practice, Music practice), or "Add your own" with a name and Time, Count (plus a unit) or Check off. Typing a suggestion's name ticks it instead of duplicating it. "Start with nothing" finishes with no metrics.
+  2. **"Set your targets"** for just those picks, with empty inputs on purpose, and days for day-of-week ones. Check-offs only get days. Back keeps the picks.
 - Finishing writes the metrics and `onboardedAt` in **one batch** (`finishSetup`). Nothing is written before that, so a half-finished setup can't exist.
 - An account that is not onboarded but already has metrics (seeded by the old version) skips straight to targets.
 - Malek's own account predates this and is unaffected. Network+ isn't a suggestion; it was his own.
@@ -281,8 +290,8 @@ The owner can read and write everything under their `users/{uid}`; the admin acc
 
 Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **seconds**, counts as integers. Conversion happens only when displaying.
 
-- **Metric:** `name`, `type` ('duration' or 'count'), `unit`, `target` (null means none), `targetDirection` ('at_least' or 'at_most'), `schedule` (daily, or days of the week with 0 = Sunday), `timerEnabled`, `quickAdd[]`, `color`, `icon`, `order`, `archivedAt`, `restDaysPerWeek` (optional, 0–3), `restDates` (optional, days marked as rest; written with `arrayUnion`/`arrayRemove`, and the editor keeps the live list when saving).
-- **Entry:** `metricId`, `localDate` ('YYYY-MM-DD' in the configured timezone), `value` (always > 0), `source` ('timer', 'manual' or 'quick_add'), `note`, `occurredAt`, `deletedAt`.
+- **Metric:** `name`, `type` ('duration', 'count' or 'check'), `unit` ('days' for check), `target` (null means none; always 1 for check), `targetDirection` ('at_least', 'at_most' or 'between'), `targetMin` (only for 'between': the lower end, `target` is the upper; null otherwise), `schedule` (daily, or days of the week with 0 = Sunday), `timerEnabled`, `quickAdd[]`, `color`, `icon`, `order`, `archivedAt`, `restDaysPerWeek` (optional, 0–3), `restDates` (optional, days marked as rest; written with `arrayUnion`/`arrayRemove`, and the editor keeps the live list when saving).
+- **Entry:** `metricId`, `localDate` ('YYYY-MM-DD' in the configured timezone), `value` (always > 0; 1 for a check-off tick), `source` ('timer', 'manual' or 'quick_add'), `note`, `occurredAt`, `deletedAt`.
 - **Goal:** `metricId` (an at_least metric), `name`, `nameEdited`, `targetTotal`, `priorProgress`, `startDate`, `deadline` (both inclusive), `paceSchedule`, `archivedAt`. **Inputs only.** Progress, status, pace, projection and achieved date are never stored.
 - **CalendarItem:** `kind` ('event' or 'reminder'), `title`, `localDate`, `time` ('HH:mm' or null for all day), `note`, `doneAt` (reminders), `deletedAt`.
 - **Settings:** `timezone`, `weekStartsOn`, `theme`, `dayStartHour` (optional, 0–6; absent means 5), `onboardedAt` (null only on a freshly seeded account), `toursSeen` (optional list of tour ids).
@@ -300,7 +309,8 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
 7. **Streak rules** (`src/lib/streaks.ts`, unit-tested):
    - Only scheduled days count; unscheduled days are skipped.
    - **Today never breaks a streak.**
-   - An `at_most` (ceiling) day counts only if something was logged that day, so a forgotten day isn't a perfect calorie day.
+   - An `at_most` (ceiling) day counts only if something was logged that day, so a forgotten day isn't a perfect calorie day. The same goes for a `between` (range) day, which also has to reach `targetMin`.
+   - **A check-off's day total is 1 if anything is logged** (`buildDayStats` in `admin.ts`, given the metrics' types). Two ticks from two offline devices are one done day, and a metric switched to check keeps its old minutes as done days. Screens that sum raw entries for a check metric show "Done" instead.
    - **Rest days** (`restDays` in `streaks.ts`, unit-tested): with `restDaysPerWeek` = N, each week (per `weekStartsOn`) up to N due days that weren't hit are treated like unscheduled days. Days marked in `restDates` go first, then the earliest unlogged days. Today is a rest day only if marked (unmarked, it's still open). A hit is never a rest day. Days before tracking started don't use the allowance. Rest days are derived; only the marks are stored. Streaks, hit rate, History shading and "target met x / y", and the weekly review all leave them out.
 8. **Dates are always `localDate` in the configured timezone,** never the device clock's date. Timezone logic goes through `date-fns-tz`; it isn't hand-rolled.
    - **The tracking day starts at `settings.dayStartHour`** (default `DEFAULT_DAY_START_HOUR` = 5 when the field is absent). Turning an instant into a day always goes through `dayOf` (in `dates.ts`, exposed as `useData().dayOf`), never `localDateOf` directly: "today", a timer entry's date and a metric's creation day all follow it. At 01:30 it is still yesterday.
@@ -336,7 +346,7 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (39), goals (30), compete (40), taunts (7), review (7), importer (8), entryRows (6), dates (5)
+npm test              # unit tests: streaks (43), goals (30), compete (40), taunts (7), review (7), importer (9), checkoff (6), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
 npm run test:rules    # security rules against the Firestore emulator (56 checks)
 ```
@@ -364,6 +374,7 @@ npm run test:rules    # security rules against the Firestore emulator (56 checks
 | `admin` | (emulator-only `logbook:e2e-admin` localStorage flag makes the test account admin) hidden and refused for non-admins; Users link; list shows own profile with joined and last seen; offline note; user detail with metric, target, today and 7-day totals; no inputs or buttons on it. The **security rules aren't tested** (no Firestore emulator). |
 | `merge-entries` | three quick adds show as one 850 kcal line; total editor lists the pieces; lowering trims, raising adds, still one line; noted entry keeps its own line; Remove all leaves the noted entry; single-metric view merges too |
 | `tours` | (emulator-only `logbook:e2e-tours` flag; tours are off in every other suite) none during first run; Today tour skips missing steps; spotlight lines up with its target; taps underneath blocked; Skip, Next, Back, Done, Escape; seen tours stay seen after reload; Settings replays Today with all 8 steps; nothing logged by the tour |
+| `check-range` | Check off offered for new metrics; a timed Gym with yesterday logged switches to check off (explains history is kept, hides target/one-tap/timer); Today row: Not yet → tap → Done, streak 2, toast, untick, Undo, survives reload; Yesterday sheet shows it done; History day sheet reads Done with no add button; Calories range: upper below lower refused, list shows 1,800–2,200 kcal, 300 to go / in range / 300 over; Stats legend says Range, Gym shows Days done and no chart; fresh check-off metric has no goal button |
 | `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
 | `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared (notes during challenges); taunt is a 16px+ bubble from the leader; challenge logs: mine listed, theirs wait for their update, then show with times, timer span and note, day picker can't go before the start, mine published with notes only on challenge days, entry sheet says Cousin sees the note; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; stake on the card; timed challenge: no time fields until switched on, end before start refused, only logs inside the window count, a part-inside timer shows "+1h of 2h"; first to, most days (their request, accepted), finished list; end it now (asks first and says who'd win, Keep going backs out, waits for their next publish, then the leader at that moment wins); call off; change my name (empty refused); unlink. Runs **with motion on**: taunts, crown on the leader, loss banner wobbles, win banner with confetti that cleans itself up |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
@@ -455,8 +466,6 @@ About 15 minutes with the phone and the laptop, both signed in. **All nine passe
 9. **Import:** on the laptop, export JSON, then import that same file. It says everything is already there.
 
 **Ideas not built** (only if Malek asks):
-- Gym as a check-off
-- calorie ranges
 - repeating events
 - multi-metric goals
 
@@ -500,6 +509,7 @@ Newest last. `git log` has the details.
 23. **Challenge times and stakes:** challenges can start and end at a set time, counting only what's logged in between (a timer for its part inside); and an optional "Winner gets …" prize shown on the card and the result banner.
 24. **Mac setup, several metrics per side, Compete layout:** the repo now runs on a Mac too (Chrome path, reduced motion in the e2e suites). A side of a race can hold several metrics, summed (Network+ and Study against Study), added and removed freely. Compete became a scoreboard over Races / Challenges / History tabs.
 25. **End a challenge now:** "End it now" on a running challenge, behind an "Are you sure?" panel: only what's logged up to that moment counts and whoever's ahead wins (most days: ends after today).
+26. **Check-off metrics and ranges:** a third metric kind, Check off (done or not, one tap), which a time or count metric with history can switch to (Malek's Gym); and Range targets (Calories 1,800–2,200 kcal). Check-offs can't be raced in Compete or have deadline goals.
 
 ---
 

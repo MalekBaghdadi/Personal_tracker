@@ -270,3 +270,23 @@ describe('rest days per week', () => {
 function restDaysOf(m: Parameters<typeof restDays>[0], s: DayStats, today: string) {
   return restDays(m, s, '2026-10-05', today, today, 1);
 }
+
+describe('ranges (between)', () => {
+  const kcal = { target: 2200, targetMin: 1800, targetDirection: 'between' as const, schedule: { kind: 'daily' as const } };
+  it('counts both ends and anything between', () => {
+    expect(isHit(kcal, 1800, 2)).toBe(true);
+    expect(isHit(kcal, 2000, 3)).toBe(true);
+    expect(isHit(kcal, 2200, 1)).toBe(true);
+  });
+  it('misses below the lower end and above the upper end', () => {
+    expect(isHit(kcal, 1799, 2)).toBe(false);
+    expect(isHit(kcal, 2201, 2)).toBe(false);
+  });
+  it('needs something logged, like a ceiling', () => {
+    expect(isHit({ ...kcal, targetMin: 0 }, 0, 0)).toBe(false);
+  });
+  it('builds streaks like any target, and today never breaks one', () => {
+    const s = stats({ '2026-09-28': 1900, '2026-09-29': 2100, '2026-09-30': 2500, '2026-10-01': 2000, '2026-10-02': 1200 });
+    expect(computeStreaks(kcal, s, '2026-10-02')).toEqual({ current: 1, longest: 2 });
+  });
+});

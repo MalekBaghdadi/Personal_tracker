@@ -1,5 +1,7 @@
-export type MetricType = 'duration' | 'count';
-export type TargetDirection = 'at_least' | 'at_most';
+/** 'check' is done or not done: one tap a day, stored as an entry of 1, target always 1. */
+export type MetricType = 'duration' | 'count' | 'check';
+/** 'between' is a range: `targetMin` to `target`, both inclusive (e.g. 1,800–2,200 kcal). */
+export type TargetDirection = 'at_least' | 'at_most' | 'between';
 
 export type Schedule =
   | { kind: 'daily' }
@@ -13,6 +15,8 @@ export interface Metric {
   /** Base unit: seconds for duration, integer for count. null = no target. */
   target: number | null;
   targetDirection: TargetDirection;
+  /** Lower bound, only for 'between' (target is then the upper bound). Base unit. */
+  targetMin?: number | null;
   schedule: Schedule;
   timerEnabled: boolean;
   /** Due days a week that may be missed without breaking the streak. Absent or 0: none. */

@@ -88,7 +88,7 @@ export function Onboarding() {
 
 function describe(s: Seed): string {
   const per = s.targetDirection === 'at_most' ? 'at most a day' : 'daily';
-  const kind = s.type === 'duration' ? 'time' : s.unit;
+  const kind = s.type === 'duration' ? 'time' : s.type === 'check' ? 'check off' : s.unit;
   const when = s.schedule.kind === 'days_of_week' ? s.schedule.days.map((d) => WEEKDAYS[d]).join(', ') : per;
   return `${kind} · ${when}`;
 }
@@ -189,7 +189,7 @@ function Pick({ initial, onNext, onSkip }: { initial: Seed[]; onNext: (picks: Se
               label="Kind"
               value={type}
               onChange={setType}
-              options={[{ value: 'duration', label: 'Time' }, { value: 'count', label: 'Count' }]}
+              options={[{ value: 'duration', label: 'Time' }, { value: 'count', label: 'Count' }, { value: 'check', label: 'Check off' }]}
             />
           </div>
           {type === 'count' && (
@@ -295,7 +295,7 @@ function Targets({
         setError(`Pick at least one day for ${r.name}.`);
         return;
       }
-      let target: number | null = null;
+      let target: number | null = r.type === 'check' ? 1 : null;
       if (r.type === 'duration' && (d.hours || d.minutes)) target = parseDuration(d.hours, d.minutes);
       if (r.type === 'count' && d.count) target = parseCount(d.count);
       if (target !== null && !(target > 0)) {
@@ -348,14 +348,16 @@ function TargetRow({
   const Icon = iconFor(row.icon);
   if (!draft) return null;
   const ceiling = row.targetDirection === 'at_most';
+  // Ranges are set later in the metric editor; here a range keeps its target as is.
+  const range = row.targetDirection === 'between';
   return (
     <li className="py-4">
       <div className="mb-2 flex items-center gap-2">
         <Icon size={17} style={{ color: hue }} aria-hidden />
         <span className="text-[15px] font-medium">{row.name}</span>
-        <span className="text-[13px] text-ink-3">{ceiling ? 'at most, per day' : 'at least, per day'}</span>
+        <span className="text-[13px] text-ink-3">{row.type === 'check' ? 'check off, done or not' : range ? 'range, set under Metrics' : ceiling ? 'at most, per day' : 'at least, per day'}</span>
       </div>
-      {row.type === 'duration' ? (
+      {row.type === 'check' || range ? null : row.type === 'duration' ? (
         <DurationInput idPrefix={`ob-${row.key}`} hours={draft.hours} minutes={draft.minutes} onHours={(v) => onChange({ hours: v })} onMinutes={(v) => onChange({ minutes: v })} />
       ) : (
         <CountInput id={`ob-${row.key}`} value={draft.count} onChange={(v) => onChange({ count: v })} unit={row.unit} />

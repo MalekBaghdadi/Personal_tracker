@@ -7,7 +7,7 @@ import { buildDayStats, fetchProfiles, fetchUserData, isAdmin, type UserData } f
 import { DEFAULT_DAY_START_HOUR, addDays, deviceTimezone, formatLocalDate, todayIn, weekdayOf } from '../lib/dates';
 import { computeStreaks, isHit, isScheduled } from '../lib/streaks';
 import { computeGoal } from '../lib/goals';
-import { formatValue } from '../lib/format';
+import { formatTarget, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import { WEEKDAYS, cx } from '../components/ui';
 import { GoalBar, fmtGoal, statusLabel } from '../components/Goals';
@@ -133,7 +133,7 @@ function UserDetail({ data }: { data: UserData }) {
   const { profile, settings, metrics, entries, goals } = data;
   const tz = settings?.timezone ?? deviceTimezone();
   const today = todayIn(tz, settings?.dayStartHour ?? DEFAULT_DAY_START_HOUR);
-  const stats = useMemo(() => buildDayStats(entries), [entries]);
+  const stats = useMemo(() => buildDayStats(entries, metrics), [entries, metrics]);
   const active = metrics.filter((m) => !m.archivedAt);
   const archived = metrics.length - active.length;
   const metricById = new Map(metrics.map((m) => [m.id, m]));
@@ -182,8 +182,9 @@ function UserDetail({ data }: { data: UserData }) {
 
 function targetText(m: Metric): string {
   const when = m.schedule.kind === 'days_of_week' ? m.schedule.days.map((d) => WEEKDAYS[d]).join(', ') : 'daily';
-  if (m.target == null) return `No target · ${when}`;
-  return `${m.targetDirection === 'at_most' ? 'At most' : 'At least'} ${formatValue(m, m.target)} · ${when}`;
+  const target = formatTarget(m);
+  if (target == null) return `No target · ${when}`;
+  return `${target[0].toUpperCase()}${target.slice(1)} · ${when}`;
 }
 
 function MetricCard({ metric, stats, today, weekStartsOn }: { metric: Metric; stats: DayStats; today: string; weekStartsOn: 0 | 1 }) {

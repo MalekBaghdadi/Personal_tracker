@@ -202,7 +202,12 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
     };
   }, [tz, dayStart]);
 
-  const dayStats = useMemo(() => buildDayStats(entries), [entries]);
+  // Keyed on the check metrics only, so other metric edits don't rebuild every day total.
+  const checkIds = (metrics ?? []).filter((m) => m.type === 'check').map((m) => m.id).join(',');
+  const dayStats = useMemo(
+    () => buildDayStats(entries, checkIds ? checkIds.split(',').map((id) => ({ id, type: 'check' as const })) : []),
+    [entries, checkIds],
+  );
 
   const metricById = useMemo(() => new Map((metrics ?? []).map((m) => [m.id, m])), [metrics]);
 

@@ -167,7 +167,7 @@ export function GoalSheet({ state, onClose, onSwitch }: { state: GoalSheetState 
 }
 
 export function eligibleMetrics(metrics: Metric[], current?: string): Metric[] {
-  return metrics.filter((m) => m.targetDirection === 'at_least' && (!m.archivedAt || m.id === current));
+  return metrics.filter((m) => m.targetDirection === 'at_least' && m.type !== 'check' && (!m.archivedAt || m.id === current));
 }
 
 function generatedName(metric: Metric | undefined, target: number, deadline: string): string {

@@ -4,7 +4,7 @@ import { useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
 import { reorderMetrics } from '../lib/repo';
 import { iconFor } from '../lib/icons';
-import { formatValue } from '../lib/format';
+import { formatTarget } from '../lib/format';
 import { WEEKDAYS, cx } from '../components/ui';
 import { MetricEditor } from '../components/MetricEditor';
 import { GoalSheet, fmtGoal, statusLabel, useGoalResult, type GoalSheetState } from '../components/Goals';
@@ -246,9 +246,7 @@ function MetricLine({
           <span className="block truncate text-[15px] font-medium">{metric.name}</span>
           <span className="block truncate text-[13px] text-ink-3">
             {scheduleText(metric)} ·{' '}
-            {metric.target == null
-              ? 'no target'
-              : `${metric.targetDirection === 'at_most' ? 'at most' : 'at least'} ${formatValue(metric, metric.target)}`}
+            {formatTarget(metric) ?? 'no target'}
             {metric.timerEnabled && ' · timer'}
           </span>
         </span>
