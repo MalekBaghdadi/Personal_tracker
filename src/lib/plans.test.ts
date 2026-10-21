@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { allTasks, parsePlanMarkdown, planWarnings, readDate, summarize } from './planMarkdown';
+import { allTasks, parsePlanMarkdown, planPrompt, planWarnings, promptExample, readDate, summarize } from './planMarkdown';
 import { MON_FRI, addScheduledDays, computePlan, orderTasks, plannedDates, planNeedLabel, planStatusLabel, planWeek, pushRemaining, scheduleFromDates, scheduleLabel } from './plans';
 import type { PlanTask } from './types';
 
@@ -80,6 +80,24 @@ describe('parsePlanMarkdown rules', () => {
   it('ignores code blocks and tables', () => {
     const p = parsePlanMarkdown('```\n- [ ] not a task\n```\n| - [ ] | x |\n- [ ] real', '2026-10-01');
     expect(allTasks(p).map((t) => t.title)).toEqual(['real']);
+  });
+  it('a plan pasted inside its code fence still reads; code inside a plan is still ignored', () => {
+    const p = parsePlanMarkdown('Here is your plan:\n\n```markdown\n# Run a 5K\n## Week 1\n- [ ] **2026-10-21:** Run 1 km\n```\nGood luck!', '2026-10-21');
+    expect([p.name, p.sections[0].title, allTasks(p).map((t) => [t.title, t.date])]).toEqual(['Run a 5K', 'Week 1', [['Run 1 km', '2026-10-21']]]);
+    expect(allTasks(parsePlanMarkdown('```\n- [ ] not a task\n```\n- [ ] real', '2026-10-01')).map((t) => t.title)).toEqual(['real']);
+  });
+  it('the AI prompt’s example parses into what it shows, with no warnings', () => {
+    const p = parsePlanMarkdown(promptExample('2026-10-21'), '2026-10-21');
+    expect(p.name).toBe('Learn Spanish basics');
+    expect(p.sections.map((s) => [s.title, s.tasks.length, s.checkpoint])).toEqual([
+      ['Week 1: Sounds and greetings', 2, 'Introduce myself out loud without notes'],
+      ['Week 2: Present tense', 1, null],
+    ]);
+    expect(allTasks(p).map((t) => t.date)).toEqual(['2026-10-21', '2026-10-22', '2026-10-28']);
+    expect(p.sections[0].tasks[0].details).toBe('• 20 minutes with a pronunciation video, then read a word list out loud');
+    expect(planWarnings(p, summarize(p, '2026-10-21').schedule)).toEqual([]);
+    expect(planPrompt('2026-10-21')).toContain('Today is 2026-10-21.');
+    expect(planPrompt('2026-10-21').endsWith('My goal: ')).toBe(true);
   });
   it('warns about missing, unordered, duplicate and off-schedule dates', () => {
     const p = parsePlanMarkdown('- [ ] **Oct 20:** a\n- [ ] **Oct 19:** b\n- [ ] **Oct 19:** c\n- [ ] **Sat Oct 24:** d\n- [ ] e', '2026-10-01');

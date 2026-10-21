@@ -11,7 +11,9 @@ import type { Schedule } from './types';
  *   **Mon Oct 19:** text    a target date at the start of a task
  *   indented lines          that task's details
  *   **Checkpoint:** text    the section's checkpoint
- * Everything else (tables, paragraphs, code blocks, other headings) is ignored.
+ * Everything else (tables, paragraphs, code blocks, other headings) is ignored,
+ * unless no task is found outside code blocks: then the fences are dropped, so a
+ * plan pasted inside the code block an AI chat wrapped it in still reads.
  * Pure module, unit-tested against the Uptime Monitor plan.
  */
 
@@ -93,7 +95,15 @@ function splitSentence(text: string): [string, string | null] {
   return [text, null];
 }
 
+const FENCE = /^\s*(```|~~~)/;
+
 export function parsePlanMarkdown(md: string, today: string): ParsedPlan {
+  const p = parseLines(md, today);
+  if (allTasks(p).length > 0 || !/^\s*(```|~~~)/m.test(md)) return p;
+  return parseLines(md.split(/\r\n?|\n/).filter((l) => !FENCE.test(l)).join('\n'), today);
+}
+
+function parseLines(md: string, today: string): ParsedPlan {
   const out: ParsedPlan = { name: null, loose: [], sections: [], unreadable: [] };
   // Dates are kept loose until the end, when years are resolved in order.
   type Raw = { title: string; details: string[]; date: LooseDate | null; done: boolean; indent: number };
@@ -105,7 +115,7 @@ export function parsePlanMarkdown(md: string, today: string): ParsedPlan {
 
   for (const rawLine of md.replace(/\r\n?/g, '\n').split('\n')) {
     const line = rawLine.replace(/\t/g, '    ');
-    if (/^\s*(```|~~~)/.test(line)) {
+    if (FENCE.test(line)) {
       inFence = !inFence;
       continue;
     }
@@ -195,6 +205,49 @@ export function parsePlanMarkdown(md: string, today: string): ParsedPlan {
     // Headings with nothing under them (Overview, rules, costs…) aren't sections.
     .filter((s) => s.tasks.length > 0);
   return out;
+}
+
+/** The example inside the AI prompt, dated from `today`. Unit-tested to parse. */
+export function promptExample(today: string): string {
+  const d = (n: number) => addDays(today, n);
+  return [
+    '# Learn Spanish basics',
+    '## Week 1: Sounds and greetings',
+    `- [ ] **${d(0)}:** Learn the alphabet and vowel sounds`,
+    '  - 20 minutes with a pronunciation video, then read a word list out loud',
+    `- [ ] **${d(1)}:** Learn 20 greetings and polite phrases`,
+    '**Checkpoint:** Introduce myself out loud without notes',
+    '## Week 2: Present tense',
+    `- [ ] **${d(7)}:** Conjugate the 10 most common regular verbs`,
+  ].join('\n');
+}
+
+/**
+ * A prompt to paste into any AI chat so that what it writes back is a plan
+ * this parser reads. The goal goes last, where the cursor lands after pasting.
+ */
+export function planPrompt(today: string): string {
+  return `I want a plan I can import into my tracker app. Help me break my goal into small tasks, about one per work day, then write the plan in the exact Markdown format below.
+
+Today is ${today}. If I haven't said when I want to start, my deadline, or which days of the week I can work on it, ask me first, then write the plan.
+
+Format rules (the app reads only these; anything else is ignored):
+1. The first line is the plan's name: # Name
+2. Group the tasks into sections with ## headings, for example ## Week 1: Setup. Every section needs at least one task.
+3. Each task is one checkbox line that starts with its date in bold: - [ ] **YYYY-MM-DD:** Short task title
+   - Write every date as YYYY-MM-DD, only on days I can work, in order.
+   - Keep each title short (under 80 characters): one clear action.
+   - Use - [x] instead of - [ ] for a task that's already done.
+4. Put a task's details on lines indented by two spaces right under it, as plain text or "- " bullets. Never indent another checkbox line.
+5. A section can end with one milestone line, not indented: **Checkpoint:** what should be done or working by then
+6. No tables, numbered lists, ### headings or code blocks inside the plan.
+
+Send the whole plan inside one Markdown code block so I can copy it in one go, with nothing else inside the block.
+
+Example (only the format matters, not the content):
+${promptExample(today)}
+
+My goal: `;
 }
 
 export interface PlanSummary {

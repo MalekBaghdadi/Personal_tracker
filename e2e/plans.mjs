@@ -100,6 +100,17 @@ try {
   await press('New goal');
   log('New goal asks for a type:', (await dialogText()).includes('Amount goal') && (await dialogText()).includes('Plan: import from Markdown') && (await dialogText()).includes('Plan: start empty'));
   await press('Plan: import from Markdown', 'dialog');
+  log('AI prompt folded by default:', !(await page.$('dialog[open] textarea[aria-label="Prompt for an AI"]')));
+  await press('No plan yet? Have an AI write it', 'dialog');
+  const prompt = await page.$eval('dialog[open] textarea[aria-label="Prompt for an AI"]', (el) => el.value).catch(() => '');
+  log('AI prompt: today, the task format, ends with the goal:', prompt.includes('Today is 2026-10-19.') && prompt.includes('- [ ] **YYYY-MM-DD:** Short task title') && prompt.endsWith('My goal: '));
+  await browser.defaultBrowserContext().overridePermissions('http://localhost:5173', ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']);
+  await press('Copy the prompt', 'dialog');
+  // The Windows clipboard turns \n into \r\n.
+  const clip = (await page.evaluate(() => navigator.clipboard.readText().catch(() => ''))).replace(/\r\n/g, '\n');
+  log('Copy puts the prompt on the clipboard:', clip === prompt && (await text()).includes('Prompt copied'));
+  await shot('pl-00-ai-prompt');
+  await press('No plan yet? Have an AI write it', 'dialog');
   await setVal('#plan-md', FIXTURE);
   await press('Preview', 'dialog');
   const counts = await page.evaluate(() => document.querySelector('[data-testid=plan-preview-counts]')?.innerText ?? '');

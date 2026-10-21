@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, FileUp, TriangleAlert } from 'lucide-react';
+import { ChevronDown, Copy, FileUp, Sparkles, TriangleAlert } from 'lucide-react';
 import { useData } from '../state/DataContext';
 import { usePlans } from '../state/PlansContext';
-import { allTasks, parsePlanMarkdown, planWarnings, summarize, type ParsedPlan } from '../lib/planMarkdown';
+import { allTasks, parsePlanMarkdown, planPrompt, planWarnings, summarize, type ParsedPlan } from '../lib/planMarkdown';
 import { scheduleLabel } from '../lib/plans';
 import { appendToPlan, createPlan, deleteParts, deletePlan, docsFromParsed } from '../lib/plansRepo';
 import { uuid } from '../lib/device';
@@ -45,6 +45,7 @@ function Body({ into, onDone }: { into?: Plan; onDone: () => void }) {
 
   return (
     <div className="mt-2 flex flex-col gap-3">
+      <AiPrompt />
       <div>
         <Label htmlFor="plan-md">Paste the plan’s Markdown</Label>
         <textarea
@@ -76,6 +77,56 @@ function Body({ into, onDone }: { into?: Plan; onDone: () => void }) {
         }}
       />
       <Button variant="ghost" onClick={() => file.current?.click()}><FileUp size={16} /> Or choose a .md or .txt file</Button>
+    </div>
+  );
+}
+
+/**
+ * A prompt to copy into any AI chat, so the Markdown it writes back is in the
+ * format the parser reads. Folded by default; the user adds their goal at the end.
+ */
+function AiPrompt() {
+  const { today } = useData();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const prompt = useMemo(() => planPrompt(today), [today]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(prompt);
+      toast('Prompt copied');
+    } catch {
+      // No clipboard (old browser, no permission): select it to copy by hand.
+      box.current?.focus();
+      box.current?.select();
+      toast('Couldn’t copy. The text is selected, copy it from there.');
+    }
+  };
+
+  return (
+    <div className="rounded-lg bg-s2" data-testid="plan-ai">
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex min-h-12 w-full items-center gap-2 px-3 py-2 text-left">
+        <Sparkles size={16} className="shrink-0 text-ink-2" aria-hidden />
+        <span className="min-w-0 flex-1 text-[14px] font-medium">No plan yet? Have an AI write it</span>
+        <ChevronDown size={16} className={cx('shrink-0 text-ink-3 transition-transform', open && 'rotate-180')} aria-hidden />
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2.5 px-3 pb-3">
+          <p className="text-[13px] text-ink-2">
+            Copy this prompt into ChatGPT, Claude, Gemini or any AI chat and write your goal at the end. Copy the plan it sends back (the copy button on its code block) and paste it below.
+          </p>
+          <textarea
+            ref={box}
+            readOnly
+            rows={6}
+            aria-label="Prompt for an AI"
+            className={cx(inputClass, 'h-auto py-2.5 font-mono text-[12px]')}
+            value={prompt}
+          />
+          <Button onClick={copy}><Copy size={16} /> Copy the prompt</Button>
+        </div>
+      )}
     </div>
   );
 }
