@@ -91,18 +91,25 @@ const pressTab = async (name) => {
   await page.evaluate((n) => [...document.querySelectorAll('[role=tablist][aria-label=Binders] [role=tab]')].find((t) => t.innerText.trim() === n)?.click(), name);
   await wait(900);
 };
-// A finger swipe across the deck: -1 to the binder before, 1 to the one after.
-const swipe = async (dir) => {
+// A finger swipe across the deck: -1 towards the binder before, 1 towards the one after.
+// `reach` is how far across the deck it goes (0.65 is a normal swipe, 0.1 a nudge); `steps` sets the speed.
+const swipe = async (dir, reach = 0.65, steps = 8) => {
   await page.$eval('.binder-deck', (e) => e.scrollIntoView({ block: 'start' }));
   await wait(400);
   const box = await page.$eval('.binder-deck', (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y + 60, w: r.width }; });
-  const from = dir > 0 ? box.x + box.w * 0.8 : box.x + box.w * 0.2;
-  const to = dir > 0 ? box.x + box.w * 0.15 : box.x + box.w * 0.85;
+  const mid = box.x + box.w / 2;
+  const from = mid + (dir * box.w * reach) / 2;
+  const to = mid - (dir * box.w * reach) / 2;
   await page.touchscreen.touchStart(from, box.y);
-  for (let i = 1; i <= 8; i++) await page.touchscreen.touchMove(from + ((to - from) * i) / 8, box.y);
+  for (let i = 1; i <= steps; i++) {
+    await page.touchscreen.touchMove(from + ((to - from) * i) / steps, box.y);
+    await wait(steps > 4 ? 30 : 5);
+  }
   await page.touchscreen.touchEnd();
-  await wait(1200);
+  await wait(900);
 };
+const deckHeight = () => page.$eval('.binder-deck', (e) => e.getBoundingClientRect().height);
+const frontScroll = () => page.$eval('.binder-page[data-front=true]', (e) => ({ top: e.scrollTop, room: e.scrollHeight - e.clientHeight }));
 
 try {
   await page.goto('http://localhost:5173/', { waitUntil: 'networkidle0' });
@@ -163,8 +170,35 @@ try {
   log('Tapping a tab brings that binder to the front:', await until(async () => (await binder()).id === 'streaks'));
   const streaks = await binder();
   log('Streaks is general, nothing to link:', streaks.kind === 'General' && !streaks.linked && /every metric with a target/.test(streaks.text));
+  // One binder per swipe, however hard: a long fast fling from Streaks lands on The grind, not further.
+  await swipe(1, 0.95, 3);
+  log('A hard fling moves exactly one binder:', await until(async () => (await binder()).id === 'grind'), '|', (await binder()).id);
+  await swipe(-1, 0.08);
+  log('A small nudge springs back:', (await binder()).id === 'grind');
   await swipe(-1);
-  log('Swiping back goes to the binder before it:', await until(async () => (await binder()).id === 'other'), '|', (await binder()).id);
+  log('Swiping back goes to the binder before it:', await until(async () => (await binder()).id === 'streaks'), '|', (await binder()).id);
+  await swipe(-1);
+  log('… and again, one at a time:', await until(async () => (await binder()).id === 'other'), '|', (await binder()).id);
+  // Each binder scrolls up and down inside the deck; the deck keeps one height.
+  await pressTab('Streaks');
+  await until(async () => (await binder()).id === 'streaks');
+  const tall = await deckHeight();
+  log('Streaks is taller than the deck, so it scrolls:', (await frontScroll()).room > 50);
+  await page.$eval('.binder-deck', (e) => e.scrollIntoView({ block: 'start' }));
+  await wait(400);
+  const deckBox = await page.$eval('.binder-deck', (e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: Math.min(r.y + r.height * 0.6, window.innerHeight - 140) }; });
+  await page.touchscreen.touchStart(deckBox.x, deckBox.y);
+  for (let i = 1; i <= 10; i++) {
+    await page.touchscreen.touchMove(deckBox.x + i * 0.5, deckBox.y - i * 25);
+    await wait(16);
+  }
+  await page.touchscreen.touchEnd();
+  await wait(800);
+  await shot('ac-26-binder-scrolled');
+  log('Scrolling up and down stays in the binder and doesn’t change binder:', (await frontScroll()).top > 50 && (await binder()).id === 'streaks', '|', JSON.stringify(await frontScroll()));
+  await pressTab('Other');
+  await until(async () => (await binder()).id === 'other');
+  log('The deck keeps the same height on a short binder:', Math.abs((await deckHeight()) - tall) < 1);
   await pressTab('Fitness');
   await until(async () => (await binder()).id === 'fitness');
   const fit = await binder();

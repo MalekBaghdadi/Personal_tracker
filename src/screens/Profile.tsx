@@ -17,7 +17,7 @@ import { iconFor } from '../lib/icons';
 import { AchievementCard, Avatar, CardBack, MiniCard, useTierInk, type CardState } from '../components/AchievementCard';
 import { SharedProfileView, TierCounts } from '../components/ProfileView';
 import { Reveal } from '../components/Reveal';
-import { Button, FieldError, Label, Sheet, Switch, cx, inputClass, prefersReducedMotion, useToast } from '../components/ui';
+import { Button, FieldError, Label, Sheet, Switch, cx, inputClass, useToast } from '../components/ui';
 import type { ThemeId } from '../lib/types';
 
 /**
@@ -342,49 +342,37 @@ function Binders({ onOpen, onLink }: { onOpen: (id: string) => void; onLink: (id
     [metrics, evaluation, collected, pair, goals, plans],
   );
   const deck = useRef<HTMLDivElement>(null);
-  const pages = useRef<(HTMLDivElement | null)[]>([]);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   const [index, setIndex] = useState(() => Math.max(0, views.findIndex((v) => v.binder.id === local.get(BINDER_KEY))));
-  const [height, setHeight] = useState<number | undefined>(undefined);
-  const [miniW, setMiniW] = useState(44);
+  const [deckW, setDeckW] = useState(0);
+  const [drag, setDrag] = useState<number | null>(null);
   const current = Math.min(index, views.length - 1);
   const currentId = views[current]?.binder.id;
+  const shownId = useRef(currentId);
 
-  const goTo = (i: number, smooth = true) => {
-    const d = deck.current;
-    const p = pages.current[i];
-    if (!d || !p) return;
-    d.scrollTo({ left: p.offsetLeft - (d.clientWidth - p.clientWidth) / 2, behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto' });
+  const goTo = (i: number) => {
+    const next = Math.max(0, Math.min(views.length - 1, i));
+    shownId.current = views[next]?.binder.id;
+    setIndex(next);
   };
 
-  // Open on the binder you last looked at.
-  useLayoutEffect(() => {
-    goTo(current, false);
-    // Once, on mount.
+  // Binders light up and grey out, which reorders them: stay on the same binder.
+  useEffect(() => {
+    const i = views.findIndex((v) => v.binder.id === shownId.current);
+    if (i >= 0 && i !== index) setIndex(i);
+    // Only when the order changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [views]);
 
-  // Six minis fill a page's row: 52px at most, less on a narrow phone.
   useLayoutEffect(() => {
-    const p = pages.current[0];
-    if (!p) return;
-    const fit = () => setMiniW(Math.max(34, Math.min(52, Math.floor((p.clientWidth - 32 - 5 * 6) / 6))));
+    const d = deck.current;
+    if (!d) return;
+    const fit = () => setDeckW(d.clientWidth);
     fit();
     const ro = new ResizeObserver(fit);
-    ro.observe(p);
+    ro.observe(d);
     return () => ro.disconnect();
   }, []);
-
-  // The deck is as tall as the binder in front, not the tallest one.
-  useLayoutEffect(() => {
-    const p = pages.current[current];
-    if (!p) return;
-    const fit = () => setHeight(p.offsetHeight);
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(p);
-    return () => ro.disconnect();
-  }, [current, views]);
 
   // Keep the chosen binder's chip in view, and remember the binder by its id (the order changes as binders light up).
   useEffect(() => {
@@ -392,15 +380,49 @@ function Binders({ onOpen, onLink }: { onOpen: (id: string) => void; onLink: (id
     if (currentId) local.set(BINDER_KEY, currentId);
   }, [current, currentId]);
 
-  const onScroll = () => {
-    const d = deck.current;
-    if (!d) return;
-    const mid = d.scrollLeft + d.clientWidth / 2;
-    let best = 0;
-    pages.current.forEach((p, i) => {
-      if (p && Math.abs(p.offsetLeft + p.clientWidth / 2 - mid) < Math.abs((pages.current[best]?.offsetLeft ?? 0) + (pages.current[best]?.clientWidth ?? 0) / 2 - mid)) best = i;
-    });
-    if (best !== current) setIndex(best);
+  // One binder per page: the one in front is 88% wide and centred, its neighbours peek in at the sides.
+  const GAP = 12;
+  const pageW = Math.round(deckW * 0.88);
+  const miniW = Math.max(34, Math.min(52, Math.floor((pageW - 32 - 5 * 6) / 6)));
+  const offset = (deckW - pageW) / 2 - current * (pageW + GAP) + (drag ?? 0);
+
+  // A swipe moves exactly one binder: the browser keeps vertical scrolling (touch-action: pan-y), we take sideways drags.
+  const gesture = useRef<{ id: number; x: number; y: number; t: number; side: boolean } | null>(null);
+  const swiped = useRef(false);
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    gesture.current = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp, side: false };
+    swiped.current = false;
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const g = gesture.current;
+    if (!g || g.id !== e.pointerId) return;
+    const dx = e.clientX - g.x;
+    const dy = e.clientY - g.y;
+    if (!g.side) {
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        g.side = true;
+        swiped.current = true;
+        deck.current?.setPointerCapture(e.pointerId);
+      } else if (Math.abs(dy) > 10) {
+        gesture.current = null;
+        return;
+      } else return;
+    }
+    // Past the first or last binder it only gives a little.
+    const end = (current === 0 && dx > 0) || (current === views.length - 1 && dx < 0);
+    setDrag(end ? dx / 4 : dx);
+  };
+  const onPointerEnd = (e: React.PointerEvent) => {
+    const g = gesture.current;
+    gesture.current = null;
+    if (!g || !g.side) return;
+    const dx = e.clientX - g.x;
+    const speed = dx / Math.max(1, e.timeStamp - g.t);
+    setDrag(null);
+    if (e.type === 'pointercancel') return;
+    if (dx < -pageW * 0.18 || speed < -0.35) goTo(current + 1);
+    else if (dx > pageW * 0.18 || speed > 0.35) goTo(current - 1);
   };
 
   return (
@@ -435,26 +457,39 @@ function Binders({ onOpen, onLink }: { onOpen: (id: string) => void; onLink: (id
       </div>
       <div
         ref={deck}
-        onScroll={onScroll}
-        className="binder-deck no-scrollbar -mx-4 flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-[6%]"
-        style={height ? { height } : undefined}
+        className="binder-deck -mx-4 overflow-hidden select-none"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerEnd}
+        onPointerCancel={onPointerEnd}
+        // Focus moving into a binder must not scroll the deck sideways; only the pager moves it.
+        onScroll={(e) => { e.currentTarget.scrollLeft = 0; }}
+        // A swipe that ends over a card doesn't open it.
+        onClickCapture={(e) => {
+          if (!swiped.current) return;
+          swiped.current = false;
+          e.stopPropagation();
+          e.preventDefault();
+        }}
       >
-        {views.map((v, i) => (
-          <div
-            key={v.binder.id}
-            ref={(el) => { pages.current[i] = el; }}
-            className="binder-page w-[88%] shrink-0 snap-center"
-            data-front={i === current}
-            // A tap on a binder peeking in at the side brings it to the front, without opening what was under the finger.
-            onClickCapture={i === current ? undefined : (e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              goTo(i);
-            }}
-          >
-            <BinderPage view={v} front={i === current} miniW={miniW} onOpen={onOpen} onLink={() => onLink(v.binder.id)} />
-          </div>
-        ))}
+        <div className={cx('binder-track flex h-full', drag !== null && 'dragging')} style={{ gap: GAP, transform: `translate3d(${offset}px, 0, 0)` }}>
+          {views.map((v, i) => (
+            <div
+              key={v.binder.id}
+              className="binder-page h-full shrink-0 overflow-y-auto overscroll-contain"
+              style={{ width: pageW || '88%' }}
+              data-front={i === current}
+              // A tap on a binder peeking in at the side brings it to the front, without opening what was under the finger.
+              onClickCapture={i === current ? undefined : (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                goTo(i);
+              }}
+            >
+              <BinderPage view={v} front={i === current} miniW={miniW} onOpen={onOpen} onLink={() => onLink(v.binder.id)} />
+            </div>
+          ))}
+        </div>
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <Button variant="ghost" className="min-h-10 px-2.5" disabled={current === 0} onClick={() => goTo(current - 1)} aria-label="Previous binder">

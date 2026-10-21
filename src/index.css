@@ -654,10 +654,21 @@ dialog.sheet-closing::backdrop {
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+/* A fixed window, so it doesn't change height between binders; each binder
+   scrolls up and down inside it. Sideways drags are ours (Binders in Profile.tsx). */
 .binder-deck {
-  transition: height 260ms var(--ease-out);
+  height: clamp(380px, calc(100dvh - 230px - env(safe-area-inset-bottom, 0px)), 760px);
+  touch-action: pan-y;
+}
+.binder-track {
+  transition: transform 320ms var(--ease-out);
+  will-change: transform;
+}
+.binder-track.dragging {
+  transition: none;
 }
 .binder-page {
+  touch-action: pan-y;
   transition: transform 300ms var(--ease-out), opacity 300ms var(--ease-out);
 }
 .binder-page[data-front="false"] {
@@ -709,7 +720,7 @@ dialog.sheet-closing::backdrop {
   }
   .bar-fill,
   .seg-thumb,
-  .binder-deck,
+  .binder-track,
   .binder-page {
     transition: none;
   }
