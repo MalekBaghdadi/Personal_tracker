@@ -5,7 +5,7 @@
  * A step without a target is a centred card.
  */
 
-export type TourId = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'settings' | 'goals' | 'plans';
+export type TourId = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'profile' | 'settings' | 'goals' | 'plans';
 
 export interface TourStep {
   /** data-tour value to spotlight; the first match on the page. */
@@ -98,6 +98,19 @@ export const TOURS: Tour[] = [
       { target: 'plan-push', title: 'Fell behind?', body: 'Push remaining moves every task left a few work days later, and the deadline too if you like. Undo puts them back.' },
       { target: 'plan-markdown', title: 'Add from Markdown', body: 'Paste more of the checklist any time; new tasks and sections go after the ones you have.' },
       { target: 'plan-tasks', title: 'Your tasks', body: 'Tick any task, or tap one for its details, note and date. Edit tasks to drag them into order, add tasks and sections, or set a section’s checkpoint.' },
+    ],
+  },
+  {
+    id: 'profile',
+    name: 'Profile',
+    steps: [
+      { title: 'Your profile', body: 'Achievements live here. Keep logging as usual and they unlock by themselves: long sessions, streaks, big days, goals finished, races won, and a few secrets.' },
+      { target: 'profile-header', title: 'Level and title', body: 'Every card you collect gives XP, and levels come with a rank. Wear any card you’ve collected as your title.' },
+      { target: 'profile-ready', title: 'Ready to collect', body: 'New achievements wait here face down. Tap one to flip it into your binder.' },
+      { target: 'profile-binder', title: 'The binder', body: 'Each row climbs from easy to brutal, Bronze to Mythic. Tap any card to see what it takes and how close you are.' },
+      { target: 'profile-themes', title: 'Themes', body: 'Each metric has a theme, like Study, Fitness or Reading, which picks the themed cards it counts toward. Change it here or in the metric’s editor.' },
+      { target: 'profile-share', title: 'Show it off', body: 'Paired in Compete? Let them see your title, level and showcase. Switch it off any time.' },
+      { target: 'profile-settings', title: 'Settings', body: 'Settings live behind this gear: timezone, day start, export and restore, and these tutorials.' },
     ],
   },
   {

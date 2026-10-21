@@ -5,9 +5,11 @@ import { DataProvider, useData } from './state/DataContext';
 import { TimerProvider } from './state/TimerContext';
 import { CompeteProvider } from './state/CompeteContext';
 import { PlansProvider } from './state/PlansContext';
+import { AchievementsProvider } from './state/AchievementsContext';
 import { ThemeProvider } from './state/theme';
 import { useAppBadge } from './state/badge';
 import { SideNav, TabBar, TimerBar, UpdatePrompt } from './components/Chrome';
+import { AchievementBanner } from './components/AchievementBanner';
 import { ToastProvider, cx } from './components/ui';
 import { AuthScreen } from './screens/Auth';
 import { Onboarding } from './screens/Onboarding';
@@ -20,19 +22,23 @@ const GoalDetail = lazy(() => import('./screens/GoalDetail').then((m) => ({ defa
 const PlanDetail = lazy(() => import('./screens/PlanDetail').then((m) => ({ default: m.PlanDetail })));
 const Admin = lazy(() => import('./screens/Admin').then((m) => ({ default: m.Admin })));
 const Compete = lazy(() => import('./screens/Compete').then((m) => ({ default: m.Compete })));
+const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })));
 import { Metrics } from './screens/Metrics';
 import { TourHost } from './components/Tour';
 import { Settings } from './screens/Settings';
 
-export type Route = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'settings' | 'goals' | 'plans' | 'admin';
-const ROUTES: Route[] = ['today', 'history', 'stats', 'compete', 'metrics', 'settings', 'goals', 'plans', 'admin'];
+export type Route = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'profile' | 'settings' | 'goals' | 'plans' | 'admin';
+const ROUTES: Route[] = ['today', 'history', 'stats', 'compete', 'metrics', 'profile', 'settings', 'goals', 'plans', 'admin'];
 
-/** `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id; `#/plans/<id>` → plan id; `#/admin/<uid>` → user id. */
+/**
+ * `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id; `#/plans/<id>` → plan id; `#/admin/<uid>` → user id;
+ * `#/profile/collect` → the profile, straight into collecting.
+ */
 function readRoute(): { route: Route; day: string | null; id: string | null } {
   const [r, param] = window.location.hash.replace(/^#\/?/, '').split('/') as [Route, string | undefined];
   const route = ROUTES.includes(r) ? r : 'today';
   const day = route === 'history' && param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : null;
-  const id = (route === 'goals' || route === 'plans' || route === 'admin') && param ? param : null;
+  const id = (route === 'goals' || route === 'plans' || route === 'admin' || route === 'profile') && param ? param : null;
   return { route, day, id };
 }
 
@@ -77,6 +83,8 @@ function Shell() {
   useAppBadge();
   // The goal screen hangs off Metrics, where the Goals list lives; admin off Settings.
   const tab: Route = route === 'goals' || route === 'plans' ? 'metrics' : route === 'admin' ? 'settings' : route;
+  // On phones Settings has no tab of its own: it opens from the profile.
+  const phoneTab: Route = tab === 'settings' ? 'profile' : tab;
 
   // Only a freshly seeded account has onboardedAt === null. A settings doc
   // created later by a partial write (field absent) must never re-trigger it.
@@ -88,6 +96,7 @@ function Shell() {
       <ToastProvider>
         <PlansProvider>
         <CompeteProvider>
+        <AchievementsProvider>
           <TimerProvider>
             {!ready ? (
               // The local cache answers in milliseconds; this is never a network wait.
@@ -107,18 +116,21 @@ function Shell() {
                     {route === 'stats' && <Suspense fallback={null}><Stats /></Suspense>}
                     {route === 'compete' && <Suspense fallback={null}><Compete /></Suspense>}
                     {route === 'metrics' && <Metrics />}
+                    {route === 'profile' && <Suspense fallback={null}><Profile collectNow={id === 'collect'} /></Suspense>}
                     {route === 'settings' && <Settings />}
                     {route === 'goals' && <Suspense fallback={null}><GoalDetail id={id} /></Suspense>}
                     {route === 'plans' && <Suspense fallback={null}><PlanDetail id={id} /></Suspense>}
                     {route === 'admin' && <Suspense fallback={null}><Admin id={id} /></Suspense>}
                   </main>
                 </div>
-                <TabBar route={tab} />
+                <TabBar route={phoneTab} />
                 <TourHost route={route} />
+                <AchievementBanner />
               </div>
             )}
             <UpdatePrompt />
           </TimerProvider>
+        </AchievementsProvider>
         </CompeteProvider>
         </PlansProvider>
       </ToastProvider>

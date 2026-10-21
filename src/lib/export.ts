@@ -1,4 +1,4 @@
-import type { CalendarItem, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Settings } from './types';
+import type { CalendarItem, CollectedAchievement, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Settings } from './types';
 
 /** Plans travel together: the plan docs, their sections and tasks. */
 export interface PlanExport {
@@ -23,7 +23,15 @@ function stamp(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarItem[], goals: Goal[], settings: Settings | null, plans?: PlanExport): void {
+export function exportJson(
+  metrics: Metric[],
+  entries: Entry[],
+  items: CalendarItem[],
+  goals: Goal[],
+  settings: Settings | null,
+  plans?: PlanExport,
+  achievements: CollectedAchievement[] = [],
+): void {
   const payload = {
     format: 'personal-tracker/1',
     exportedAt: new Date().toISOString(),
@@ -37,6 +45,8 @@ export function exportJson(metrics: Metric[], entries: Entry[], items: CalendarI
     plans: plans?.plans ?? [],
     planSections: plans?.planSections ?? [],
     planTasks: plans?.planTasks ?? [],
+    // Collected cards only; what's unlocked is worked out from the data.
+    achievements,
   };
   download(`logbook-${stamp()}.json`, 'application/json', JSON.stringify(payload, null, 2));
 }

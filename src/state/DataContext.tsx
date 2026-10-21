@@ -39,6 +39,8 @@ interface Data {
   sync: SyncState;
   /** Metrics and settings have been read at least once (from cache or server). */
   ready: boolean;
+  /** Entries have been read at least once too. */
+  entriesReady: boolean;
 }
 
 const Ctx = createContext<Data | null>(null);
@@ -67,6 +69,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   const [timer, setTimer] = useState<ActiveTimer | null>(null);
   const [meta, setMeta] = useState<Record<string, Meta>>({});
   const [entriesFromServer, setEntriesFromServer] = useState(false);
+  const [entriesReady, setEntriesReady] = useState(false);
   const seeded = useRef(false);
   const serverEmpty = useRef({ metrics: false, settings: false });
   const entriesSeen = useRef(false);
@@ -109,6 +112,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
         if (entriesSeen.current && snap.docChanges().length === 0) return;
         entriesSeen.current = true;
         setEntries(snap.docs.map((d) => d.data() as Entry));
+        setEntriesReady(true);
       }, (err) => console.error('[entries]', err)),
       onSnapshot(paths.goals(uid), opts, (snap) => {
         track('goals')(snap.metadata);
@@ -256,8 +260,9 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       today,
       sync,
       ready: metrics !== null && settings !== undefined,
+      entriesReady,
     }),
-    [uid, user, metrics, metricById, entries, goals, items, itemsByDate, dayStats, settings, timer, tz, dayStart, dayOfFn, today, sync],
+    [uid, user, metrics, metricById, entries, goals, items, itemsByDate, dayStats, settings, timer, tz, dayStart, dayOfFn, today, sync, entriesReady],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

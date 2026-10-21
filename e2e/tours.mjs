@@ -97,7 +97,26 @@ try {
   await wait(1300);
   log('Seen tour does not come back:', (await tour()) === null);
 
-  await click('nav.fixed a[href="#/settings"]');
+  // Profile replaced Settings in the tab bar; Settings opens from its gear.
+  await click('nav.fixed a[href="#/profile"]');
+  await wait(1300);
+  t = await tour();
+  log('Profile tour on first open:', t?.title === 'Your profile');
+  const profileTitles = [t?.title];
+  const profileSteps = Number((t?.count ?? '').split(' of ')[1] ?? 0);
+  for (let i = 1; i < profileSteps; i++) {
+    await tourBtn('Next');
+    const now = await tour();
+    profileTitles.push(now?.title);
+    if (now?.title === 'Settings') {
+      log('Last Profile step spotlights the gear:', await spotOnTarget('profile-settings'));
+      await shot('to-08-profile-gear');
+    }
+  }
+  log('Profile tour steps:', profileTitles.join(' → '));
+  log('Nothing waiting, so no Ready to collect step:', !profileTitles.includes('Ready to collect') && profileTitles.includes('The binder'));
+  await tourBtn('Done');
+  await click('main a[href="#/settings"]');
   await wait(1300);
   log('Settings tour on first open:', (await tour())?.title === 'Late nights');
   await tourBtn('Next');
@@ -142,7 +161,7 @@ try {
 
   await page.reload({ waitUntil: 'networkidle0' });
   await wait(1500);
-  for (const h of ['#/today', '#/history', '#/metrics', '#/settings']) {
+  for (const h of ['#/today', '#/history', '#/metrics', '#/profile', '#/settings']) {
     await go(h);
     if (await tour()) log(`FAILED: tour came back on ${h}`, true);
   }

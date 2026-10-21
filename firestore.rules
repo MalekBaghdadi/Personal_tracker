@@ -92,6 +92,12 @@ service cloud.firestore {
         allow read: if isMember(pairId);
         allow write: if isActiveMember(pairId) && uid == request.auth.uid;
       }
+      // Profiles (achievements), shared only while the owner has sharing on:
+      // each member puts up or takes down only their own.
+      match /profiles/{uid} {
+        allow read: if isMember(pairId);
+        allow write: if isActiveMember(pairId) && uid == request.auth.uid;
+      }
     }
   }
 }

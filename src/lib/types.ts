@@ -7,6 +7,9 @@ export type Schedule =
   | { kind: 'daily' }
   | { kind: 'days_of_week'; days: number[] }; // 0 = Sunday
 
+/** What a metric is about, for themed achievements (lib/themes.ts). */
+export type ThemeId = 'study' | 'code' | 'reading' | 'fitness' | 'mind' | 'creative' | 'health' | 'sleep' | 'other';
+
 export interface Metric {
   id: string;
   name: string;
@@ -27,6 +30,8 @@ export interface Metric {
   quickAdd: number[];
   color: string;
   icon: string;
+  /** Achievement theme. Absent until the user picks one: it then follows the icon (themeOf). */
+  theme?: ThemeId;
   order: number;
   archivedAt: string | null;
   createdAt: string;
@@ -67,7 +72,29 @@ export interface Settings {
   onboardedAt: string | null;
   /** Screen tours already shown (ids from lib/tours.ts). Absent means none. */
   toursSeen?: string[];
+  /** Profile: the name on it. Absent: the email's local part. */
+  displayName?: string;
+  /** Profile: a collected achievement's id, worn as a title. Absent or null: the rank. */
+  title?: string | null;
+  /** Profile: up to three collected achievement ids, in order. */
+  pinned?: string[];
+  /** Profile: shown to the Compete partner. Absent means off. */
+  shareProfile?: boolean;
   updatedAt: string;
+}
+
+/**
+ * An achievement the user has collected (users/{uid}/achievements/{id}, id =
+ * the achievement's). Unlocking is derived from the data, like streaks;
+ * collecting is the one stored fact, so a card stays once it's in the binder.
+ */
+export interface CollectedAchievement {
+  id: string;
+  /** Tracking day it was earned, as worked out when collected. */
+  on: string;
+  /** What earned it, e.g. "10h 12m of Studying". */
+  detail: string | null;
+  collectedAt: string;
 }
 
 /**

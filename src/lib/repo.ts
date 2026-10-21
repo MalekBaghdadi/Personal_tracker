@@ -6,7 +6,7 @@ import { db } from './firebase';
 import { deviceId, uuid } from './device';
 import { nowIso } from './dates';
 import type { ExistingData, ImportPlan } from './importer';
-import type { ActiveTimer, CalendarItem, Entry, EntrySource, Goal, Metric, Settings } from './types';
+import type { ActiveTimer, CalendarItem, CollectedAchievement, Entry, EntrySource, Goal, Metric, Settings, ThemeId } from './types';
 
 /**
  * Every write here returns immediately. With the persistent cache, Firestore
@@ -36,6 +36,8 @@ export const paths = {
   planSection: (uid: string, id: string) => doc(db, 'users', uid, 'planSections', id),
   planTasks: (uid: string) => collection(db, 'users', uid, 'planTasks'),
   planTask: (uid: string, id: string) => doc(db, 'users', uid, 'planTasks', id),
+  achievements: (uid: string) => collection(db, 'users', uid, 'achievements'),
+  achievement: (uid: string, id: string) => doc(db, 'users', uid, 'achievements', id),
 };
 
 // ── Entries ────────────────────────────────────────────────────────────────
@@ -333,6 +335,29 @@ export function deleteMetric(
   });
 }
 
+/** Picking a theme stores it, so the metric no longer follows its icon. */
+export function setMetricTheme(uid: string, id: string, theme: ThemeId): void {
+  fire(updateDoc(paths.metric(uid, id), { theme, updatedAt: nowIso() }));
+}
+
+// ── Achievements ───────────────────────────────────────────────────────────
+
+/**
+ * Collect cards: one doc each, keyed by the achievement's id, so collecting
+ * the same card on two devices is the same write. Never deleted.
+ */
+export function collectAchievements(uid: string, cards: Pick<CollectedAchievement, 'id' | 'on' | 'detail'>[]): void {
+  const now = nowIso();
+  for (let i = 0; i < cards.length; i += MAX_BATCH) {
+    const batch = writeBatch(db);
+    for (const c of cards.slice(i, i + MAX_BATCH)) {
+      const card: CollectedAchievement = { id: c.id, on: c.on, detail: c.detail, collectedAt: now };
+      batch.set(paths.achievement(uid, c.id), card);
+    }
+    fire(batch.commit());
+  }
+}
+
 // ── Settings ───────────────────────────────────────────────────────────────
 
 export function saveSettings(uid: string, patch: Partial<Settings>): void {
@@ -356,7 +381,7 @@ export function replayTour(uid: string, id: string): void {
  * may not know about documents deleted on another device.
  */
 export async function fetchExisting(uid: string): Promise<ExistingData> {
-  const [metrics, entries, items, goals, plans, planSections, planTasks] = await Promise.all([
+  const [metrics, entries, items, goals, plans, planSections, planTasks, achievements] = await Promise.all([
     getDocsFromServer(paths.metrics(uid)),
     getDocsFromServer(paths.entries(uid)),
     getDocsFromServer(paths.items(uid)),
@@ -364,6 +389,7 @@ export async function fetchExisting(uid: string): Promise<ExistingData> {
     getDocsFromServer(paths.plans(uid)),
     getDocsFromServer(paths.planSections(uid)),
     getDocsFromServer(paths.planTasks(uid)),
+    getDocsFromServer(paths.achievements(uid)),
   ]);
   return {
     metrics: metrics.docs.map((d) => d.data() as Metric),
@@ -373,6 +399,7 @@ export async function fetchExisting(uid: string): Promise<ExistingData> {
     planIds: new Set(plans.docs.map((d) => d.id)),
     planSectionIds: new Set(planSections.docs.map((d) => d.id)),
     planTaskIds: new Set(planTasks.docs.map((d) => d.id)),
+    achievementIds: new Set(achievements.docs.map((d) => d.id)),
   };
 }
 
@@ -386,6 +413,7 @@ export function applyImport(uid: string, plan: ImportPlan): void {
     ...plan.plans.map((p) => [paths.plan(uid, p.id), p] as [DocumentReference, object]),
     ...plan.planSections.map((s) => [paths.planSection(uid, s.id), s] as [DocumentReference, object]),
     ...plan.planTasks.map((t) => [paths.planTask(uid, t.id), t] as [DocumentReference, object]),
+    ...plan.achievements.map((c) => [paths.achievement(uid, c.id), c] as [DocumentReference, object]),
   ];
   for (let i = 0; i < writes.length; i += MAX_BATCH) {
     const batch = writeBatch(db);

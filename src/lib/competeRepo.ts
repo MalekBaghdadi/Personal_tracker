@@ -3,6 +3,7 @@ import { db } from './firebase';
 import { uuid } from './device';
 import { nowIso } from './dates';
 import { newInviteCode, type Challenge, type ChallengeKind, type Invite, type Link, type LinkMember, type Pair, type Score } from './compete';
+import type { SharedProfile } from './profile';
 import type { MetricType } from './types';
 
 /*
@@ -26,6 +27,8 @@ export const competePaths = {
   challenge: (pairId: string, id: string) => doc(db, 'pairs', pairId, 'challenges', id),
   scores: (pairId: string) => collection(db, 'pairs', pairId, 'scores'),
   score: (pairId: string, uid: string) => doc(db, 'pairs', pairId, 'scores', uid),
+  profiles: (pairId: string) => collection(db, 'pairs', pairId, 'profiles'),
+  profile: (pairId: string, uid: string) => doc(db, 'pairs', pairId, 'profiles', uid),
 };
 
 // ── Pairing ────────────────────────────────────────────────────────────────
@@ -186,4 +189,14 @@ export function endChallengeNow(pairId: string, id: string, uid: string, today: 
 /** Replaces this member's summary; only linked metrics are in it. */
 export function publishScore(pairId: string, score: Score): void {
   fire(setDoc(competePaths.score(pairId, score.uid), score));
+}
+
+/** The profile summary the partner sees, only while sharing is on. */
+export function publishProfile(pairId: string, profile: SharedProfile): void {
+  fire(setDoc(competePaths.profile(pairId, profile.uid), profile));
+}
+
+/** Sharing switched off: take it down. */
+export function unpublishProfile(pairId: string, uid: string): void {
+  fire(deleteDoc(competePaths.profile(pairId, uid)));
 }

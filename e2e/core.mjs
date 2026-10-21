@@ -146,14 +146,16 @@ try {
   await page.keyboard.press('Escape');
 
   // Settings + light theme.
-  await click('nav.fixed a[href="#/settings"]');
+  await click('nav.fixed a[href="#/profile"]');
+  await click('main a[href="#/settings"]');
   await click('::-p-text(Light)');
   await wait(400);
   await shot('13-settings-light');
   await click('nav.fixed a[href="#/today"]');
   await wait(300);
   await shot('14-today-light');
-  await click('nav.fixed a[href="#/settings"]');
+  await click('nav.fixed a[href="#/profile"]');
+  await click('main a[href="#/settings"]');
   await click('::-p-text(Dark)');
 
   // Desktop layout.

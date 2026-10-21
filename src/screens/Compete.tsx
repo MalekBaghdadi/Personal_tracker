@@ -3,6 +3,9 @@ import { ChevronLeft, ChevronRight, Copy, Crown, Frown, Gift, Plus, Share2, Time
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useData } from '../state/DataContext';
 import { useCompete } from '../state/CompeteContext';
+import { useAchievements } from '../state/AchievementsContext';
+import { useTierInk } from '../components/AchievementCard';
+import { SharedProfileView } from '../components/ProfileView';
 import { useHue } from '../state/theme';
 import { addDays, formatLocalDate, formatTimeIn, instantAt, localDateOf } from '../lib/dates';
 import { weekOf } from '../lib/streaks';
@@ -233,6 +236,9 @@ function Scoreboard() {
   const { uid, today, metricById } = useData();
   const { pair, links, challenges, sides, theirScore, partnerUid, partnerName, myName } = useCompete();
   const result = useChallengeResult();
+  const { summary, partnerProfile } = useAchievements();
+  const ink = useTierInk();
+  const [profileOpen, setProfileOpen] = useState(false);
   const first = links.find((l) => l.acceptedAt && metricById.has(l.metrics[uid]));
   const myHue = useHue((first && metricById.get(first.metrics[uid])?.color) ?? '#8590a3');
   const theirHue = useHue((first && partnerUid && theirScore?.metrics[first.metrics[partnerUid]]?.color) || '#8590a3');
@@ -264,10 +270,28 @@ function Scoreboard() {
   return (
     <section aria-label="Scoreboard" className="rounded-2xl border border-line bg-s1 px-4 pt-4 pb-2" data-testid="scoreboard" data-tour="compete-score">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-        <Player name={myName} who="You" hue={myHue} leader={lead > 0} />
+        <Player
+          name={myName}
+          who="You"
+          hue={myHue}
+          leader={lead > 0}
+          title={summary.title ? { name: summary.title.name, color: ink(summary.title.tier) } : undefined}
+          href="#/profile"
+        />
         <span aria-hidden className="text-[12px] font-semibold tracking-[0.2em] text-ink-3">VS</span>
-        <Player name={partnerName} who="Them" hue={theirHue} leader={lead < 0} right />
+        <Player
+          name={partnerName}
+          who="Them"
+          hue={theirHue}
+          leader={lead < 0}
+          right
+          title={partnerProfile ? { name: partnerProfile.title?.name ?? `Level ${partnerProfile.level}`, color: partnerProfile.title ? ink(partnerProfile.title.tier) : undefined } : undefined}
+          onOpen={partnerProfile ? () => setProfileOpen(true) : undefined}
+        />
       </div>
+      <Sheet open={profileOpen && !!partnerProfile} onClose={() => setProfileOpen(false)} title={`${partnerName}’s profile`}>
+        {partnerProfile && <SharedProfileView profile={partnerProfile} />}
+      </Sheet>
       <div className="mt-3 divide-y divide-line border-t border-line">
         {rows.map((r) => (
           <div key={r.label} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 py-2" data-testid="score-row">
@@ -284,9 +308,19 @@ function Scoreboard() {
   );
 }
 
-function Player({ name, who, hue, leader, right }: { name: string; who: string; hue: string; leader: boolean; right?: boolean }) {
-  return (
-    <div className={cx('flex min-w-0 items-center gap-2.5', right && 'flex-row-reverse text-right')}>
+/** One side of the scoreboard. With a profile to show, the name opens it; a worn title shows under the name. */
+function Player({ name, who, hue, leader, right, title, href, onOpen }: {
+  name: string;
+  who: string;
+  hue: string;
+  leader: boolean;
+  right?: boolean;
+  title?: { name: string; color?: string };
+  href?: string;
+  onOpen?: () => void;
+}) {
+  const body = (
+    <>
       <span
         aria-hidden
         className="relative grid size-10 shrink-0 place-items-center rounded-full text-[16px] font-semibold"
@@ -297,10 +331,17 @@ function Player({ name, who, hue, leader, right }: { name: string; who: string; 
       </span>
       <span className="min-w-0">
         <span className="block truncate text-[16px] font-semibold">{name}</span>
+        {title && <span className="block truncate text-[12px] font-medium" style={title.color ? { color: title.color } : undefined} data-testid="player-title">{title.name}</span>}
         <span className="block text-[12px] text-ink-3">{leader ? 'Leading' : who}</span>
       </span>
-    </div>
+    </>
   );
+  const cls = cx('flex min-w-0 items-center gap-2.5', right && 'flex-row-reverse text-right');
+  if (onOpen) {
+    return <button type="button" onClick={onOpen} aria-label={`${name}’s profile`} className={cx(cls, 'press -m-1 rounded-xl p-1 hover:bg-s2')}>{body}</button>;
+  }
+  if (href) return <a href={href} aria-label="Your profile" className={cx(cls, 'press -m-1 rounded-xl p-1 hover:bg-s2')}>{body}</a>;
+  return <div className={cls}>{body}</div>;
 }
 
 function RacesTab({ onLink, onTeam }: { onLink: () => void; onTeam: (linkId: string) => void }) {

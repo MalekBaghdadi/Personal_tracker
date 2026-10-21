@@ -97,7 +97,7 @@ try {
 
   // ── Not paired ──
   const tabs = await page.evaluate(() => [...document.querySelectorAll('nav.fixed a')].map((a) => a.innerText.trim()));
-  log('Tab bar has Compete after Stats:', tabs.join(',') === 'Today,History,Stats,Compete,Metrics,Settings');
+  log('Tab bar has Compete after Stats:', tabs.join(',') === 'Today,History,Stats,Compete,Metrics,Profile');
   await click('nav.fixed a[href="#/compete"]');
   await wait(600);
   log('Explains what is shared, notes during challenges:', (await text()).includes('notes included'));

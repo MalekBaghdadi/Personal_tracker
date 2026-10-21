@@ -39,7 +39,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 | **Repo** | https://github.com/MalekBaghdadi/Personal_tracker (branch `main`) |
 | **Firebase project** | `personal-tracker-cec8a` (Spark plan) |
 | **Local checkouts** | `C:\Users\Malek Baghdadi\personal-tracker` (Windows 11 PC) and `~/Documents/Personal_tracker` (Mac) |
-| **Last updated** | 19 October 2026 |
+| **Last updated** | 21 October 2026 |
 
 **Built and deployed:**
 - The original MVP: Today, History, Stats, Metrics and Settings screens; timers; quick-add and manual entry; targets and streaks; PWA install and offline support; JSON/CSV export; first-run onboarding.
@@ -72,8 +72,9 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - **Check-off metrics** (e.g. Gym): done or not done, one tap on Today. An existing time or count metric can switch to check off and keeps its history.
 - **Range targets** (e.g. Calories 1,800–2,200 kcal): a day counts when its total ends up between the two.
 - **Plans:** deadline goals counted in tasks, imported from a pasted Markdown checklist or built in the app. Today shows the next undone task (a queue); dates only shape the pace line.
+- **Achievements and a Profile tab:** 238 trading cards in ladders from Bronze to Mythic (longest session, hours, days on target, streaks, clean sweeps, big days, goals, Compete wins, odd hours, notes) plus 16 secrets. Each metric has a theme (Study, Code & work, Reading, Fitness, Mind, Creative, Health, Sleep, Other) that gives its cards their names (10h straight on Study is Academic Menace). Unlocks drop a banner; cards are flipped to collect them; XP gives levels and ranks; a collected card can be worn as a title or pinned. The profile can be shown to the Compete partner (a switch). Profile replaced Settings in the phone tab bar; Settings is behind its gear.
 
-**Verified:** type check, 190 unit tests, 19 browser test suites, and 69 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+**Verified:** type check, 222 unit tests, 20 browser test suites, and 78 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -174,6 +175,7 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - Create, edit, drag to reorder (pointer-based so it works on iOS; arrow keys too), archive, and hard delete with a count of what goes.
 - A metric's type is locked once it has entries, because switching would misread stored values. **The one exception is switching to check off** ("Switch to check off", 19 October 2026, for Malek's Gym): every day with anything logged becomes a done day, so streaks and history stay. It can't be switched back. It's refused while the metric is in a Compete race or has an active deadline goal (both need amounts).
 - **Measured as:** Time, A number, or **Check off** (done or not done: target fixed at 1, unit `days`, no timer, no one-tap buttons).
+- **Theme** (for achievements): nine buttons (Study, Code & work, Reading, Fitness, Mind, Creative, Health, Sleep, Other). Until one is picked the metric follows its icon (`themeOf` in `lib/themes.ts`; a mortarboard is Study, a dumbbell Fitness, a moon Sleep, the default target Other); picking stores `theme`. Never decided from the name.
 - **Daily target:** At least, At most, or **Range** (From and To, both inclusive; the upper end must be more than the lower). Like a ceiling, a range day only counts if something was logged.
 - **Deadline goals list:** active goals first, then archived ones with how they ended. "New goal" lives here. A metric's editor also offers "Add deadline goal", or "View deadline goal" when it has one.
 
@@ -198,18 +200,37 @@ From Malek's "Plans" spec (19 October 2026; it isn't in the repo, he pasted it).
 - **Elsewhere:** History's day sheet lists "Plan tasks" done that day and (today or later) the ones planned for it, each tickable and tappable; the All calendar puts a small tick on days with tasks done. Stats' "Last week" adds a line per plan: tasks done, the week before, and ahead/behind going in → coming out (`planWeek`). JSON export includes `plans`, `planSections`, `planTasks`; CSV adds a plan-tasks file; restore adds them add-only like everything else; the admin view lists each user's active plans with progress and status. Tours: Today ("Plans", on `today-plan`) and the Metrics goals step mention them.
 - **The fixture is a stand-in** written to the spec's description (same shape and dates); swap in the real Uptime Monitor plan when Malek provides it and re-run `npm test`.
 
+### Profile and achievements (`src/screens/Profile.tsx`, route `#/profile`, lazy-loaded; logic in `lib/achievements.ts`, cards in `lib/achievementCatalog.ts`, themes in `lib/themes.ts`, state in `state/AchievementsContext.tsx`)
+Malek asked for achievements "not half polished": many categories, an easy-to-brutal progression (1h of study up to 10h straight), funny names (Academic Menace), cards you collect onto a profile. His picks (21 October 2026): themes per metric so it suits every user (his cousin studies for the MCAT and reads), trading cards, Profile in place of the Settings tab with Settings kept intact behind a gear, and sharing with the Compete partner as a switch.
+- **Ladders** (`LADDERS`): six steps each, Bronze, Silver, Gold, Platinum, Diamond, Mythic (10, 25, 50, 100, 200, 400 XP).
+  - **Per theme**, counting that theme's metrics together: *Longest session* (one timer run; thresholds per theme, e.g. Study 1h, 2h, 3h, 5h, 8h, 10h, Mind 10m to 2h), *Hours in total* (time metrics), *Days on target* (any metric: a day one of them hit its target, or anything logged with no target; Sleep says nights). Health and Sleep only have days.
+  - **Shared**: best streak (3 to 365), clean sweeps (every due target met that day), perfect weeks (every due day of a finished week), showing up (days with anything logged), biggest day and biggest week (time, Sleep left out), overachiever (1.5× to 10× an at-least target; Health and Sleep left out, so more water or sleep is never rewarded), goals and plans finished, plan tasks done, Compete weeks and challenges won, early bird (timer started 4 to 7am), night owl (timer running between midnight and 4am), notes written.
+  - **Secrets** (`SECRETS`, 16): hidden as "???" with a hint until earned (Bullseye, Strategic Rest, Time Traveller, Hibernation Mode, New Year Same Grind, Did You Forget Something?, Essayist, It's Over 9000!, Speedrunner, Weekend Warrior, The Juggler, Photo Finish, Paid in Full, Ahead of Schedule, Phoenix, Monday Person).
+  - Only ladders that apply show (themes in use, time metrics for sessions, a target for streaks…), plus any ladder you hold cards from.
+- **Unlocking is derived** (`evaluate`, pure, unit-tested) from entries, day totals, goals, plans, tasks and Compete results, each with the tracking day it was first earned and a line about what earned it ("2h 5m of MCAT prep"). Ceiling and range days only count once the day is over. Wall-clock times (early bird, night owl) use the user's timezone, not the tracking day.
+- **Collecting is the one stored fact**: `users/{uid}/achievements/{id}` (`on`, `detail`, `collectedAt`), one doc per card, written when the card is flipped. A collected card stays even if the data behind it is deleted; an uncollected one comes and goes with the data.
+- **The banner** (`components/AchievementBanner.tsx`): drops in at the top of any tab when something unlocks ("Achievement unlocked · Locked In · Silver", or a count), Collect goes to `#/profile/collect`. Each device remembers what it has announced (`pt.ach.seen.<uid>`); the first time on a device, everything already waiting is announced once as a backlog. Browser tests only get it with the `logbook:e2e-ach` flag. The Profile tab shows a count while cards wait (drawn from `data-count` by CSS, so the tab's text stays "Profile").
+- **The reveal** (`components/Reveal.tsx`): a full-screen dialog, one face-down card at a time, rarest first; tap to flip (that collects it), +XP and what earned it, "Level up!" on the card that did it; Gold and up get a turning sunburst and confetti; "Collect all" takes the rest and shows a summary. Confetti and big effects are allowed here, as in Compete.
+- **Cards** (`components/AchievementCard.tsx`, styles in `index.css` under "Achievements"): a metal frame per tier (Mythic's is a turning rainbow), a dark face in both themes, two emoji as the art (the second like a sticker on the first), the name, what it takes, a flavor line, theme, date and number. Platinum and up get a holographic foil. Locked cards are silhouettes; minis (art only) fill the ladder rows. Everything moving is off under reduced motion.
+- **The screen**: the name (editable, `displayName`), a medallion with the worn card's art, title (a collected card's name, `settings.title`, or the rank), level and rank, XP to the next level, collected / ready / secrets found, cards per tier; the sharing switch; "Ready to collect" (face-down cards, Collect all); the showcase (up to three pinned, `settings.pinned`); a nudge for metrics still under Other; the binder (each theme, then Streaks, The grind, Goals & plans, Compete, Odd hours & notes, then Secrets), each ladder with its six cards and progress to the next. Tapping a card: collected shows it in full with Pin and Wear as title; ready shows Flip it; locked shows what it takes and the best so far.
+- **Levels**: level n needs 25·n(n−1)/2 XP (25, 75, 150, 250…). Ranks: Fresh Spawn (1), Tutorial Survivor (3), Side Quest Enjoyer (5), Certified Grinder (7), Main Character (10), Lowkey Legendary (13), Built Different (16), Final Boss (20), Patch Notes Material (25), Mythical Creature (30), Beyond Science (40).
+- **Sharing** (`lib/profile.ts`): with the switch on (`settings.shareProfile`, off by default) and a pair, the app publishes `pairs/{id}/profiles/{uid}`: name, level, XP, rank, title, pinned and six latest cards, counts per tier. No entries, metrics or notes. Off, it deletes it. The partner's shows from the profile ("See Cousin's profile") and from their name on the Compete scoreboard, which also shows both titles. **The partner needs this version** to share or see theirs.
+- **Never rename an achievement id** (`<theme>.<ladder>.<step>`, `<ladder>.<step>`, `secret.<key>`): collected cards are stored by it. Add steps or ladders instead.
+
 ### Settings (`src/screens/Settings.tsx`)
+- On phones it opens from the gear on Profile (the Profile tab stays lit; a back arrow returns). The laptop sidebar lists both Profile and Settings.
 - Timezone (IANA, fixed; defaults to the device's on first run), **day starts at** (midnight to 6am, default 5am), week start and theme.
 - Export: **JSON** (everything, raw) and **CSV**, which downloads four files: entries, metrics, calendar, goals.
 - **App icon** (per device, `state/badge.ts`): puts today's open reminders on the installed app's icon via `navigator.setAppBadge`. iOS draws badges only with notification permission, so turning it on there asks for it; no notification is ever sent. Updates only while the app is open. Unsupported browsers (e.g. Android Chrome) get an explanation instead of the switch.
 - **Restore from a backup** (`lib/importer.ts`, unit-tested): pick a JSON export. **Add-only**: any id already on the server, deleted ones included, is skipped, so nothing deleted comes back and nothing existing changes. Backup metrics with the same name and type as an existing one are merged into it (so restoring onto a freshly seeded account doesn't duplicate "Studying"). An incoming active goal on a metric that already has one is imported archived. Settings aren't imported. It needs a connection (it reads every collection from the server first, 15s timeout) and shows a summary to confirm.
 - **Admin** (only for the admin account, `isAdmin` in `lib/admin.ts`): a link to the Users screen.
 - **Tutorials:** one button per tab to replay its tour (removes it from `toursSeen` and opens the tab).
+- **Export** includes collected cards (`achievements`); restore adds the ones this account lacks, for cards that still exist.
 - Sign out, with a confirmation.
 
 ### Compete (`src/screens/Compete.tsx`, route `#/compete`, lazy-loaded; logic in `lib/compete.ts`, writes in `lib/competeRepo.ts`, state in `state/CompeteContext.tsx`)
 First built for Malek and his cousin, but nothing names either account: any two accounts can pair.
-- **Layout:** a **scoreboard** at the top (each side's initial, the leader's crown, weeks won and challenges won across every race, draws under the label), the freshness line, any result banner, then anything waiting for an answer ("Waiting for you": link and challenge requests), then a sticky **Races / Challenges / History** switch (`Segmented`; the tab is remembered per device in `pt.compete.tab`). Races: one card per link, my pending proposals, "Link a metric". Challenges: live ones and "New challenge". History: past weeks of every race (6, then "Show all"), finished challenges (5, then "Show all"), and the pair itself (the name the other sees, Unlink).
+- **Layout:** a **scoreboard** at the top (each side's initial, each side's worn achievement title when known (yours always, theirs if they share their profile; tapping their name opens it, yours goes to Profile), the leader's crown, weeks won and challenges won across every race, draws under the label), the freshness line, any result banner, then anything waiting for an answer ("Waiting for you": link and challenge requests), then a sticky **Races / Challenges / History** switch (`Segmented`; the tab is remembered per device in `pt.compete.tab`). Races: one card per link, my pending proposals, "Link a metric". Challenges: live ones and "New challenge". History: past weeks of every race (6, then "Show all"), finished challenges (5, then "Show all"), and the pair itself (the name the other sees, Unlink).
 - **Several metrics on a side** (18 October 2026; Malek wanted his Study hours to count alongside Network+): "Add metric" on a race card, or on a running challenge's card, opens "Metrics in this race" (`TeamForm`): my side (the first metric, then any added, each removable) and theirs (read-only; they change theirs on their phone). **Each member adds and removes their own freely, no acceptance** (his call; the rules enforce own-side only). Choices he made: it's per link, so it counts toward that race's weekly race and every challenge on it; a day is a **target day if any** metric on the side met its target (`combine`, with h > d > r > o > n). Only metrics that can be summed can join: time with time, counts with the same unit (`canJoin`), each on one link at a time. **Which weeks and challenges an added metric counts toward** (`counts`): anything that hadn't finished when it was added (so it counts from the start of this week and of every running challenge), and nothing that had; removing it takes it out of whatever is still running, while finished ones keep it. A timed challenge compares instants (`addedAt`/`removedAt`). Results go through `teamOf` → `sideAt`/`sideForChallenge` → the same `race`/`challengeResult`; challenge logs merge both metrics' logs, each labelled with its metric. **The partner needs this version too:** an older app ignores `extra` and shows only the first metric's numbers.
 - **Pairing:** one person creates a 6-character invite code (no 0/O/1/I/L; expires after 7 days) and sends it with the share sheet; the other enters it under "Got a code?". Joining **needs a connection** (it reads the invite from the server, 15s timeout); creating the pair and deleting the invite are one batch. The pair's id is the code. One active pair per account in the UI. Each side picks the name the other sees (defaults to the email's local part) and can change it any time at the bottom of the tab ("Cousin sees you as … Change"; `renameInPair`; the rules let each member change only their own name, 1–30 characters). "Unlink" sets `endedAt`; nothing more is shared after that.
 - **Linking metrics:** either side proposes one of their own **"at least"** metrics (`canLink`; not check-offs, whose days are 0 or 1 and which an older partner app wouldn't understand); the other accepts by picking one of theirs of the same type (time or count), or declines. Ceilings (calories) can't be raced. Accepting sets `startDate` to the first day of that week, so this week already counts.
@@ -229,13 +250,14 @@ First built for Malek and his cousin, but nothing names either account: any two 
 - **The fun part** (Malek asked for "full trash talk", no swearing, then for it to be "more prominent and more directed"): every race and challenge has a **speech bubble** between the bars and the verdict (`Bubble` in `Compete.tsx`, lines in `lib/taunts.ts`). The winner talks to the loser: when I'm ahead it's my bubble (right, my colour) aimed at them; when I'm behind it's theirs (left, their colour) aimed at me; a tie goes to "the ref" (centre, neutral). Lines use `{me}`, `{them}`, `{metric}`, `{gap}`, and today's totals and log counts, which are only filled in when the speaker is also ahead today; a line is only picked when all its placeholders are known. Picked by card and day so it holds still all day; each side sees their own version. Result banners use the same bubble. The leader gets a crown and a shine on their bar; bars grow in. Last week's result and challenges settled in the past two weeks show once as a banner at the top (`Results`): a win gets a trophy and confetti (`components/Confetti.tsx`, a canvas on `body`), a loss wobbles with a frown, a draw is plain. Dismissed banners are remembered per device (`pt.compete.seen` in localStorage). Confetti and big effects stay in Compete; the rest of the app only gets the subtle motion above.
 
 ### Tours (`components/Tour.tsx`, content in `lib/tours.ts`)
-- One spotlight tour per tab (Today, History, Stats, Compete, Metrics, Settings), plus **Deadline goal** (route `goals`: what it is, ahead/behind, Linked metric on Edit, the chart) and **Plan** (route `plans`: what a plan is and how to make one, on pace, Link it to a metric on Edit plan, Push remaining, From Markdown, tasks). Today's tour has "Goals under a metric" on `today-linked`. Started by `TourHost` in the shell the first time that screen opens, after 600ms and only if no sheet is open and settings have loaded (so never during first run).
+- One spotlight tour per tab (Today, History, Stats, Compete, Metrics, Profile, Settings), plus **Deadline goal** (route `goals`: what it is, ahead/behind, Linked metric on Edit, the chart) and **Plan** (route `plans`: what a plan is and how to make one, on pace, Link it to a metric on Edit plan, Push remaining, From Markdown, tasks). Today's tour has "Goals under a metric" on `today-linked`. Started by `TourHost` in the shell the first time that screen opens, after 600ms and only if no sheet is open and settings have loaded (so never during first run).
 - Each step points at a `data-tour="…"` marker in a screen. Steps whose marker isn't on screen are dropped when the tour starts (no metrics, no timer, no goals…); steps with no target are a centred card.
 - The screen is dimmed except a ring around the target; taps underneath are blocked. Skip, Back, Next/Done, "2 of 8"; Escape skips, arrow keys move.
 - Finishing or skipping adds the id to `settings.toursSeen` with `arrayUnion` (per account, so it holds on every device). Leaving the tab mid-tour doesn't mark it.
 - **When adding UI, add a step** with a marker if it's something a new user should know about.
 
 ### Admin (`src/screens/Admin.tsx`, routes `#/admin` and `#/admin/<uid>`, lazy-loaded)
+- **Achievements** on each user's page: their title, level, XP, collected and waiting counts (waiting worked out from their data), cards per tier and pinned cards.
 - **Who:** Malek's account, malekbaghdadi07@gmail.com, uid `mRRUx09pGmNZcOlLoBH5KWF9lxh1`. The uid is in **both** `ADMIN_UID` (`lib/admin.ts`, shows the screens) and `firestore.rules` (`isAdmin()`, which actually grants access). Change both together.
 - **Read-only, enforced by the rules:** the admin can read any `users/{uid}/…` but writes stay owner-only. The screens have no buttons or inputs.
 - **Users list:** every account in `profiles`, most recently seen first: email, joined date, last seen. Spark has no server to list Auth accounts, so each account writes its own `profiles/{uid}` doc (`saveProfile`, in `DataContext`) every time the app opens. An account appears only once it has opened a version with this.
@@ -270,6 +292,7 @@ First built for Malek and his cousin, but nothing names either account: any two 
 - `src/lib/firebase.ts` initialises Firestore with `persistentLocalCache({ tabManager: persistentMultipleTabManager() })`. Every read and write hits IndexedDB first; the network only reconciles.
 - `src/state/DataContext.tsx` holds **six listeners for the whole app**: metrics, entries (non-deleted), goals, items (non-deleted), and the timer and settings docs. Each uses `includeMetadataChanges` so the sync dot can show synced, pending or offline. **Everything else is derived in memory** with `useMemo`: per-metric per-day totals (`dayStats`), streaks, stats, goal results, items by date.
 - `src/state/CompeteContext.tsx` adds two more listeners (this account's invites and pairs) and, once paired, three on the pair (links, challenges, scores). It wraps the whole shell, not just the tab, so logging anywhere republishes the summary.
+- `src/state/AchievementsContext.tsx` (inside Compete) adds one listener for collected cards and, once paired, one for the pair's shared profiles. It works out every unlock with `evaluate` on each change (Compete results are keyed as text so the 30-second clock doesn't re-run it), runs the banner, and publishes or removes the shared profile 2 seconds after a change.
 - `src/lib/repo.ts` holds **all writes** (Compete's are in `competeRepo.ts`, the profile's in `admin.ts`), and none are awaited (the `fire()` helper). They commit to the local cache at once and flush when online.
 - "Today" is recomputed every 30 seconds and when the tab becomes visible, so midnight rollover and goal deadlines update while the app stays open.
 
@@ -279,7 +302,7 @@ First built for Malek and his cousin, but nothing names either account: any two 
 
 **Theme:** CSS variables in `src/index.css`, switched by `data-theme` on `<html>`. The theme is cached in localStorage and applied before first paint (inline script in `index.html`). Each metric's colour comes from a palette checked for contrast and colour-blind separation in both themes (`src/lib/palette.ts`); the light theme maps each stored dark hex to its pair.
 
-**Routes:** `#/today`, `#/history[/YYYY-MM-DD]`, `#/stats`, `#/compete`, `#/metrics`, `#/settings`, `#/goals/<id>`. The goals route highlights the Metrics tab.
+**Routes:** `#/today`, `#/history[/YYYY-MM-DD]`, `#/stats`, `#/compete`, `#/metrics`, `#/profile[/collect]`, `#/settings`, `#/goals/<id>`, `#/plans/<id>`, `#/admin[/<uid>]`. The goals and plans routes highlight the Metrics tab; on phones Settings and admin highlight Profile.
 
 ---
 
@@ -298,12 +321,14 @@ users/{uid}/state/timerClosed      { startedAt, closedAt }  (timer race marker, 
 users/{uid}/plans/{planId}         Plan           (soft-deleted via deletedAt)
 users/{uid}/planSections/{id}      PlanSection    (soft-deleted; planId, order, checkpoint, checkpointDoneAt)
 users/{uid}/planTasks/{id}         PlanTask       (soft-deleted; planId, sectionId, order, targetDate, doneAt, note)
+users/{uid}/achievements/{id}      CollectedAchievement (id = the card's id; on, detail, collectedAt; never deleted)
 profiles/{uid}                     Profile        (uid, email, joinedAt, lastSeenAt; owner writes, admin reads)
 invites/{code}                     Invite         (Compete: anyone signed in can get one code, never list; inviter creates/deletes)
 pairs/{code}                       Pair           (members [2 uids], names, weekStartsOn, endedAt; members read; joiner creates from a live invite)
 pairs/{code}/links/{id}            Link           (uid → metricId, type, proposedBy, acceptedAt, startDate, endedAt, extra: uid → [{ metricId, addedOn, addedAt, removedOn, removedAt }])
 pairs/{code}/challenges/{id}       Challenge      (linkId, kind, amount, startDate, endDate, createdBy, acceptedAt/declinedAt/cancelledAt, optional startAt/endAt, stake, endedEarlyAt/On/By)
 pairs/{code}/scores/{uid}          Score          (asOf, updatedAt, per-metric per-day totals; each member writes only their own)
+pairs/{code}/profiles/{uid}        SharedProfile  (name, level, xp, rank, title, pinned, tiers, collected, total, recent; only while sharing is on; each member writes or deletes only their own)
 ```
 
 **Compete rules** (`firestore.rules`): pairing never opens anyone's `users/{uid}`. Only the two members can read a pair and its subcollections; after unlinking they can still read, but nobody can publish, link or challenge. On a link, each member can change only their own entry in `extra`. Types are in `lib/compete.ts`.
@@ -312,14 +337,15 @@ The owner can read and write everything under their `users/{uid}`; the admin acc
 
 Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **seconds**, counts as integers. Conversion happens only when displaying.
 
-- **Metric:** `name`, `type` ('duration', 'count' or 'check'), `unit` ('days' for check), `target` (null means none; always 1 for check), `targetDirection` ('at_least', 'at_most' or 'between'), `targetMin` (only for 'between': the lower end, `target` is the upper; null otherwise), `schedule` (daily, or days of the week with 0 = Sunday), `timerEnabled`, `quickAdd[]`, `color`, `icon`, `order`, `archivedAt`, `restDaysPerWeek` (optional, 0–3), `restDates` (optional, days marked as rest; written with `arrayUnion`/`arrayRemove`, and the editor keeps the live list when saving).
+- **Metric:** `name`, `type` ('duration', 'count' or 'check'), `unit` ('days' for check), `target` (null means none; always 1 for check), `targetDirection` ('at_least', 'at_most' or 'between'), `targetMin` (only for 'between': the lower end, `target` is the upper; null otherwise), `schedule` (daily, or days of the week with 0 = Sunday), `timerEnabled`, `quickAdd[]`, `color`, `icon`, `order`, `archivedAt`, `restDaysPerWeek` (optional, 0–3), `restDates` (optional, days marked as rest; written with `arrayUnion`/`arrayRemove`, and the editor keeps the live list when saving), `theme` (optional; absent means it follows the icon).
 - **Entry:** `metricId`, `localDate` ('YYYY-MM-DD' in the configured timezone), `value` (always > 0; 1 for a check-off tick), `source` ('timer', 'manual' or 'quick_add'), `note`, `occurredAt`, `deletedAt`.
 - **Goal:** `metricId` (an at_least metric), `name`, `nameEdited`, `targetTotal`, `priorProgress`, `startDate`, `deadline` (both inclusive), `paceSchedule`, `archivedAt`. **Inputs only.** Progress, status, pace, projection and achieved date are never stored.
 - **CalendarItem:** `kind` ('event' or 'reminder'), `title`, `localDate`, `time` ('HH:mm' or null for all day), `note`, `doneAt` (reminders), `deletedAt`.
 - **Plan:** `name`, `startDate`, `deadline` (inclusive; may be after the last task, a buffer), `schedule` (pace days, default Mon–Fri), `metricId` (optional link), `color`, `icon`, `archivedAt`, `deletedAt`. **Inputs only**: progress, current task, pace, projection and achieved/missed are derived.
 - **PlanSection:** `planId`, `title`, `order`, `checkpoint` (text or null), `checkpointDoneAt`, `deletedAt`.
 - **PlanTask:** `planId`, `sectionId` (null: not in a section), `order` (within its section), `title`, `details`, `targetDate` (pace only), `doneAt` (the tick), `note`, `deletedAt`. Each task is its own doc, so ticking two different tasks on two offline devices merges, and ticking one twice is the same result.
-- **Settings:** `timezone`, `weekStartsOn`, `theme`, `dayStartHour` (optional, 0–6; absent means 5), `onboardedAt` (null only on a freshly seeded account), `toursSeen` (optional list of tour ids).
+- **Settings:** `timezone`, `weekStartsOn`, `theme`, `dayStartHour` (optional, 0–6; absent means 5), `onboardedAt` (null only on a freshly seeded account), `toursSeen` (optional list of tour ids), and the profile's `displayName`, `title` (a collected card's id), `pinned` (up to three ids), `shareProfile` (all optional).
+- **CollectedAchievement:** `id` (the card's), `on` (tracking day it was earned), `detail` (what earned it), `collectedAt`. Everything else about achievements is derived.
 
 ---
 
@@ -350,6 +376,7 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
 12. **Compete scores are the one stored derived figure,** and only because the other account can't read your data. Their `logs` (challenge days only) are a copy of entries for the partner, never read back by your own screens. They're a published copy for the partner: your own screens never read your score doc, and results (weeks won, challenge winners) are still derived each time, never stored.
 13. **A plan task's tick is state on the task (`doneAt`), never an entry.** Entries stay what they are for metrics. Everything about a plan except its inputs is derived (`lib/plans.ts`), and dates only shape the pace line: the current task is the first undone one, and nothing is ever overdue.
 14. **Zero recurring cost:** nothing that needs the Blaze plan, no Cloud Storage, no native iOS app.
+15. **Achievements are derived; collecting is the only stored fact** (`users/{uid}/achievements/{id}`). Card ids are stored, so they never change. Themes never come from a metric's name: from its `theme`, else its icon. Nothing rewards more water, food or sleep than the target.
 
 ---
 
@@ -372,7 +399,7 @@ Agreed with Malek or flagged to him at the time:
 
 ```
 npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
-npm test              # unit tests: streaks (43), compete (40), plans (32), goals (30), importer (10), taunts (7), review (7), checkoff (6), entryRows (6), dates (5)
+npm test              # unit tests: streaks (43), compete (40), plans (32), achievements (31), goals (30), importer (11), taunts (7), review (7), checkoff (6), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
 npm run test:rules    # security rules against the Firestore emulator (69 checks)
 ```
@@ -405,6 +432,7 @@ npm run test:rules    # security rules against the Firestore emulator (69 checks
 | `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
 | `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared (notes during challenges); taunt is a 16px+ bubble from the leader; challenge logs: mine listed, theirs wait for their update, then show with times, timer span and note, day picker can't go before the start, mine published with notes only on challenge days, entry sheet says Cousin sees the note; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; stake on the card; timed challenge: no time fields until switched on, end before start refused, only logs inside the window count, a part-inside timer shows "+1h of 2h"; first to, most days (their request, accepted), finished list; end it now (asks first and says who'd win, Keep going backs out, waits for their next publish, then the leader at that moment wins); call off; change my name (empty refused); unlink. Runs **with motion on**: taunts, crown on the leader, loss banner wobbles, win banner with confetti that cleans itself up |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
+| `achievements` | (`logbook:e2e-ach` flag for the banner; fake clock; motion on) tab bar ends with Profile; a new metric's theme follows its icon, Study picked in the editor; nothing waiting at first, nudge for a metric under Other; a 2h 5m timer drops the banner with what unlocked and a count on the tab; Collect opens the reveal face down, flip shows XP and what earned it, next, Collect all summary; binder states (1h and 2h collected, 3h locked), XP to next level, best so far; locked card progress; collected card detail, pin, wear as title; a locked secret only gives a hint; Themes sheet moves Water to Health, nudge gone; a 10h session: Academic Menace first (Mythic, sunburst); reload keeps title, pin and cards and doesn't re-announce; gear opens Settings, Profile tab stays lit, back arrow; sharing: hint when unpaired, switch off by default, on publishes a summary without entries, partner's profile from the profile and the scoreboard (their title shown), off takes it down; light theme; laptop sidebar has Profile and Settings |
 
 **Only the Auth emulator is used by the browser tests.** The Firestore emulator jar used to hang at 0 bytes on this network; it finally downloaded on 10 October 2026 and is used by `npm run test:rules` (`e2e/rules.mjs`, started by `e2e/run-rules.mjs`, which stops the emulator afterwards because `emulators:exec` leaves Java running on Windows). The browser tests still run with Firestore unreachable on purpose. With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
 - **Seeding never runs on its own** in e2e. Emulator builds expose `window.__e2eFirstRun()` (in `DataContext`) to put the account into the first-run state; the other suites create metrics by hand.
@@ -433,6 +461,10 @@ src/
     importer.ts (+test)   JSON backup import plan (add-only)
     admin.ts              admin uid, profiles, loading another user's data, buildDayStats
     tours.ts              tour steps per tab
+    themes.ts             achievement themes, a metric's theme (stored, else from its icon)
+    achievementCatalog.ts every card: ladders, secrets, tiers, XP, levels, ranks (ids are stored: never rename)
+    achievements.ts (+test) what's unlocked and when (pure), what each card takes
+    profile.ts            level/title summary, the profile shared with the Compete partner
     compete.ts (+test)    Compete types, published summary, weekly race, challenge results, invite codes
     competeRepo.ts        Compete writes: invites, joining, links, challenges, publishing
     entryRows.ts (+test)  merging a day's quick adds into one History row
@@ -447,7 +479,7 @@ src/
     badge.ts              app-icon badge setting and hook
     CompeteContext.tsx    invites, pair, links, challenges and scores listeners; publishes this account's summary
     theme.tsx             resolved theme, per-metric hue
-  screens/                Today, History, Stats, Compete, Metrics, Settings, GoalDetail, Admin, Auth, Onboarding
+  screens/                Today, History, Stats, Compete, Metrics, Profile, Settings, GoalDetail, PlanDetail, Admin, Auth, Onboarding
   components/
     ui.tsx                Button, Sheet (native <dialog>), Segmented, Switch, DayPicker, Toast
     Chrome.tsx            SyncDot, TimerBar, TabBar, SideNav, UpdatePrompt, InstallCard
@@ -477,6 +509,7 @@ firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
 - **Admin access against the real rules:** Malek's account should list users and open their data; a second account must get nothing from `#/admin` (the page says it isn't available, and the rules refuse the reads).
 - **Compete with two real accounts:** Malek and his cousin paired for real on 11 October 2026 and it worked. Challenge logs and notes between two real phones haven't been seen yet.
 - **Firebase usage** staying in the low single-digit percentages of the Spark quotas.
+- **Achievements on real accounts:** the backlog banner and collecting on Malek's history; the cousin's themes (her metrics may sit under Other until she picks); profile sharing between two real phones (both need this version).
 
 ### Device checklist
 
@@ -541,6 +574,7 @@ Newest last. `git log` has the details.
 27. **Plans** (from Malek's spec): task-based deadline goals with sections and checkpoints, imported from pasted Markdown with a preview or built in the app; a queue on Today with pace, push remaining, a linked timer's Mark done, History, Stats, export/restore and admin.
 28. **Linked goals inside their metric's row:** an amount goal (field renamed "Linked metric") or a plan linked to a metric shows on Today between that metric's bar and buttons instead of as a card up top; the metric row also shows on days only its goal is scheduled ("Off day · streak not affected"). Replaces the old "Goal pace" line. Each linked goal is its own tinted panel with the metric-coloured rule.
 29. **Plan and Deadline goal tutorials:** tours on the plan and goal screens the first time each opens (making a plan, pace, linking to a metric, Push remaining, Markdown, tasks), a Today step for linked goals; Settings → Tutorials replays them on the nearest active plan or goal.
+30. **Achievements and a Profile tab:** 238 trading cards (themed ladders per metric theme, shared ladders, 16 secrets) from Bronze to Mythic, unlocked from the data with the day each was earned, a banner on unlock, a flip-to-collect reveal, XP, levels and ranks, titles and a showcase, a theme picker in the metric editor, sharing with the Compete partner (a switch; titles on the scoreboard), admin and export support. Profile replaced Settings in the phone tab bar; Settings is unchanged behind its gear.
 
 ---
 
@@ -556,6 +590,9 @@ Newest last. `git log` has the details.
 - **Recharts single-point lines are invisible,** which is why the burn-up chart draws a dot on the latest "done" point.
 - **The Firestore `where('deletedAt', '==', null)` queries** rely on every doc having `deletedAt` set (null, not missing). Always write it explicitly.
 - **Deleting a metric** deletes its goals in the same batch. A goal whose metric is missing (e.g. edited offline elsewhere after the delete) is ignored by `DataContext`.
+- **`innerText` follows CSS `text-transform`:** the reveal's labels are uppercase on screen, so tests match them case-insensitively.
+- **Settings has no phone tab:** tests reach it with the Profile tab, then `main a[href="#/settings"]` (the sidebar's link is hidden at phone width).
+- **An old app saving a metric drops `theme`** (it writes the whole doc), so the metric falls back to its icon until it's picked again on an updated app.
 
 ---
 

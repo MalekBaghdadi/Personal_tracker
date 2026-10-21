@@ -8,11 +8,12 @@ import { deleteMetric, saveMetric, setArchived } from '../lib/repo';
 import { uuid } from '../lib/device';
 import { nowIso } from '../lib/dates';
 import { ICONS } from '../lib/icons';
+import { THEMES, themeFromIcon } from '../lib/themes';
 import { PALETTE, hueFor } from '../lib/palette';
 import { formatNumber } from '../lib/format';
 import { Button, DayPicker, FieldError, Label, Segmented, Sheet, Switch, cx, inputClass, useToast } from './ui';
 import { CountInput, DurationInput, parseCount, parseDuration, splitDuration } from './inputs';
-import type { Metric, MetricType, Schedule, TargetDirection } from '../lib/types';
+import type { Metric, MetricType, Schedule, TargetDirection, ThemeId } from '../lib/types';
 
 export function MetricEditor({ target, onClose, onGoal }: { target: Metric | 'new' | null; onClose: () => void; onGoal?: (metricId: string) => void }) {
   const title = target === 'new' ? 'New metric' : target ? `Edit ${target.name}` : '';
@@ -57,6 +58,9 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const [quick, setQuick] = useState(initial ? quickAddToText(initial) : '15, 30, 60');
   const [color, setColor] = useState(initial?.color ?? defaultColor);
   const [icon, setIcon] = useState(initial?.icon ?? 'Target');
+  // Unset, the theme follows the icon (themeOf); picking one stores it.
+  const [achTheme, setAchTheme] = useState<ThemeId | undefined>(initial?.theme);
+  const shownTheme = achTheme ?? themeFromIcon(icon);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -134,6 +138,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       quickAdd: [...new Set(quickAdd.map((v) => (type === 'duration' ? Math.round(v * 60) : v)))].sort((a, b) => a - b),
       color,
       icon,
+      ...(achTheme ? { theme: achTheme } : {}),
       order: initial?.order ?? metrics.reduce((max, m) => Math.max(max, m.order + 1), 0),
       archivedAt: initial?.archivedAt ?? null,
       createdAt: initial?.createdAt ?? now,
@@ -353,6 +358,31 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
             </button>
           ))}
         </div>
+      </div>
+
+      <div>
+        <Label>Theme</Label>
+        <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Theme">
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="radio"
+              aria-checked={shownTheme === t.id}
+              onClick={() => setAchTheme(t.id)}
+              className={cx(
+                'press flex min-h-11 min-w-0 items-center gap-1.5 rounded-lg px-2.5 text-[13px] font-medium',
+                shownTheme === t.id ? 'bg-s3 text-ink ring-1 ring-ink/30' : 'bg-s2 text-ink-2 hover:text-ink',
+              )}
+            >
+              <span aria-hidden>{t.emoji}</span>
+              <span className="truncate">{t.label}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[13px] text-ink-3">
+          Which themed achievements it counts toward: time on a Study metric can earn Academic Menace.{achTheme ? '' : ' Until you pick one, it follows the icon.'}
+        </p>
       </div>
 
       <div className="flex flex-col gap-2">

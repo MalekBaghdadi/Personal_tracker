@@ -129,9 +129,21 @@ try {
   await check('C can’t read scores', assertFails(getDoc(doc(C, 'pairs/AAAAAA/scores/A'))));
   await check('C can’t write a score there', assertFails(setDoc(doc(C, 'pairs/AAAAAA/scores/C'), { ...score, uid: 'C' })));
 
+  // ── Shared profiles (achievements) ──
+  const profile = { uid: 'A', name: 'A', level: 3, xp: 90, rank: 'Tutorial Survivor', rankArt: 'x', title: null, pinned: [], tiers: [3, 1, 0, 0, 0, 0], collected: 4, total: 120, recent: [], updatedAt: 'x' };
+  await check('A shares its profile', assertSucceeds(setDoc(doc(A, 'pairs/AAAAAA/profiles/A'), profile)));
+  await check('A can’t write B’s profile', assertFails(setDoc(doc(A, 'pairs/AAAAAA/profiles/B'), { ...profile, uid: 'B' })));
+  await check('B reads A’s profile', assertSucceeds(getDoc(doc(B, 'pairs/AAAAAA/profiles/A'))));
+  await check('C can’t read profiles', assertFails(getDoc(doc(C, 'pairs/AAAAAA/profiles/A'))));
+  await check('B can’t take down A’s profile', assertFails(deleteDoc(doc(B, 'pairs/AAAAAA/profiles/A'))));
+  await check('A takes its profile down', assertSucceeds(deleteDoc(doc(A, 'pairs/AAAAAA/profiles/A'))));
+  await check('Collected cards are private (users/{uid}/achievements)', assertFails(getDoc(doc(B, 'users/A/achievements/streak.1'))));
+  await check('Owner collects a card', assertSucceeds(setDoc(doc(A, 'users/A/achievements/streak.1'), { id: 'streak.1', on: '2026-10-10', detail: null, collectedAt: 'x' })));
+
   // ── Unlinking ──
   await check('B unlinks', assertSucceeds(updateDoc(doc(B, 'pairs/AAAAAA'), { endedAt: '2026-10-11T00:00:00Z' })));
   await check('After unlinking, no more publishing', assertFails(setDoc(doc(A, 'pairs/AAAAAA/scores/A'), score)));
+  await check('After unlinking, no profile sharing', assertFails(setDoc(doc(A, 'pairs/AAAAAA/profiles/A'), profile)));
   await check('After unlinking, no new links', assertFails(setDoc(doc(A, 'pairs/AAAAAA/links/l4'), { ...link, id: 'l4' })));
   await check('History still readable by members', assertSucceeds(getDoc(doc(A, 'pairs/AAAAAA/scores/A'))));
 

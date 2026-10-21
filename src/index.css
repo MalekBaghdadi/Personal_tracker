@@ -274,6 +274,365 @@ dialog.sheet-closing::backdrop {
   animation: bubble-in 520ms var(--ease-spring) 150ms both;
 }
 
+/* ── Achievements: trading cards. Allowed some fun, like Compete. ──
+ * A card is an object with its own palette: a metal frame for its tier and
+ * a dark face, the same in both themes. Sized by --w; everything inside is
+ * in em, so one card scales from the reveal down to a binder tile. */
+@property --ach-spin {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+.ach {
+  --frame: linear-gradient(145deg, #2a3346, #3d4863 50%, #262e40);
+  --tier: #aab3c3;
+  --glow: rgb(170 179 195 / 0.25);
+  --w: 260px;
+  position: relative;
+  width: var(--w);
+  aspect-ratio: 5 / 7;
+  font-size: calc(var(--w) / 16);
+  border-radius: 0.95em;
+  padding: 0.24em;
+  background: var(--frame);
+  box-shadow: 0 0.7em 1.8em -0.7em var(--glow), 0 0 0 1px rgb(0 0 0 / 0.25);
+  color: #eef1f7;
+  flex-shrink: 0;
+}
+.ach-t0 { --frame: linear-gradient(145deg, #6b3f22 0%, #c98a55 28%, #f3c896 46%, #a8683a 66%, #5e3519 100%); --tier: #e0a873; --glow: rgb(224 168 115 / 0.45); }
+.ach-t1 { --frame: linear-gradient(145deg, #59626f 0%, #c4ccd8 28%, #f7f9fc 46%, #9aa5b3 66%, #4f5763 100%); --tier: #d0d8e4; --glow: rgb(208 216 228 / 0.45); }
+.ach-t2 { --frame: linear-gradient(145deg, #7a5410 0%, #e1b53f 28%, #fff3b8 46%, #c8961f 66%, #6e4b0c 100%); --tier: #f3cd5e; --glow: rgb(243 205 94 / 0.5); }
+.ach-t3 { --frame: linear-gradient(145deg, #2f625c 0%, #8fdccd 28%, #f4fffc 46%, #6cbcae 66%, #2a5550 100%); --tier: #9fe9db; --glow: rgb(159 233 219 / 0.5); }
+.ach-t4 { --frame: linear-gradient(145deg, #2e3f9e 0%, #8db3ff 28%, #f3f7ff 46%, #a68cff 66%, #33288a 100%); --tier: #b0c6ff; --glow: rgb(176 198 255 / 0.55); }
+.ach-t5 {
+  --frame: conic-gradient(from var(--ach-spin), #ff5f6d, #ffc371, #f9f871, #5ef2b0, #4fc3f7, #a78bfa, #f472b6, #ff5f6d);
+  --tier: #ffb8ee;
+  --glow: rgb(255 140 220 / 0.55);
+  animation: ach-spin 6s linear infinite;
+}
+@keyframes ach-spin {
+  to { --ach-spin: 360deg; }
+}
+.ach-face {
+  position: relative;
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 0.74em;
+  padding: 0.75em 0.8em 0.65em;
+  background: radial-gradient(120% 70% at 50% 34%, color-mix(in srgb, var(--tier) 26%, #131a29) 0%, #0d1220 72%);
+}
+.ach-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.62em;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tier);
+}
+.ach-pips {
+  display: flex;
+  gap: 0.34em;
+}
+.ach-pips i {
+  width: 0.62em;
+  height: 0.62em;
+  transform: rotate(45deg);
+  border: 1px solid var(--tier);
+  border-radius: 1px;
+}
+.ach-pips i.on {
+  background: var(--tier);
+}
+.ach-art {
+  position: relative;
+  display: grid;
+  flex: 1;
+  place-items: center;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+.ach-art::before {
+  content: "";
+  position: absolute;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--glow) 0%, transparent 68%);
+}
+.ach-glyph {
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+}
+.ach-art .main {
+  position: relative;
+  display: block;
+  font-size: 4.3em;
+  line-height: 1;
+  filter: drop-shadow(0 0.08em 0.1em rgb(0 0 0 / 0.5));
+}
+/* The second emoji sits on the first's corner, like a sticker. */
+.ach-art .accent {
+  position: absolute;
+  right: -0.42em;
+  bottom: -0.18em;
+  font-size: 2em;
+  line-height: 1;
+  transform: rotate(12deg);
+  filter: drop-shadow(0 0.04em 0.06em rgb(0 0 0 / 0.6));
+}
+.ach-name {
+  font-size: 1.02em;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: 0.03em;
+  text-align: center;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+.ach-need {
+  margin-top: 0.4em;
+  font-size: 0.72em;
+  line-height: 1.25;
+  text-align: center;
+  color: rgb(238 241 247 / 0.72);
+}
+.ach-flavor {
+  margin-top: 0.55em;
+  font-size: 0.74em;
+  line-height: 1.3;
+  text-align: center;
+  color: rgb(238 241 247 / 0.88);
+  text-wrap: balance;
+}
+.ach-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  margin-top: 0.7em;
+  font-size: 0.6em;
+  letter-spacing: 0.04em;
+  color: rgb(238 241 247 / 0.55);
+}
+/* Holographic foil on Platinum and up. */
+.ach-foil {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 22%, rgb(255 255 255 / 0.26) 31%, rgb(255 120 220 / 0.18) 38%, rgb(120 220 255 / 0.18) 45%, transparent 54%);
+  background-size: 260% 260%;
+  mix-blend-mode: color-dodge;
+  animation: ach-foil 4.5s ease-in-out infinite;
+}
+@keyframes ach-foil {
+  0% { background-position: 100% 100%; }
+  50% { background-position: 0% 0%; }
+  100% { background-position: 100% 100%; }
+}
+/* Face down: waiting to be collected. */
+.ach-back .ach-face {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 1em;
+  background:
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 0.045) 0 0.5em, transparent 0.5em 1em),
+    radial-gradient(circle at 50% 44%, color-mix(in srgb, var(--tier) 34%, #121826), #0b0f1a 72%);
+}
+.ach-seal {
+  display: grid;
+  width: 5.2em;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 0.18em solid var(--tier);
+  border-radius: 50%;
+  box-shadow: 0 0 1.4em var(--glow), inset 0 0 1em var(--glow);
+}
+.ach-seal span {
+  font-size: 2.7em;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--tier);
+}
+.ach-brand {
+  font-size: 0.6em;
+  font-weight: 600;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  color: rgb(238 241 247 / 0.35);
+}
+.ach-back-label {
+  font-size: 0.66em;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--tier);
+}
+.ach-wait {
+  animation: ach-wait 2.4s ease-in-out infinite;
+}
+@keyframes ach-wait {
+  0%, 100% { box-shadow: 0 0.7em 1.8em -0.7em var(--glow), 0 0 0 1px rgb(0 0 0 / 0.25); }
+  50% { box-shadow: 0 0 2.2em 0.1em var(--glow), 0 0 0 1px rgb(0 0 0 / 0.25); }
+}
+/* Locked: the art as a silhouette. */
+.ach-sil {
+  color: transparent !important;
+  text-shadow: 0 0 0 rgb(170 180 200 / 0.3);
+  filter: none !important;
+}
+.ach-locked .ach-face {
+  background: radial-gradient(120% 70% at 50% 34%, #1a2131 0%, #0e131f 72%);
+}
+.ach-locked .ach-art::before {
+  display: none;
+}
+.ach.ach-locked {
+  --frame: linear-gradient(145deg, #273043, #384360 50%, #232b3c);
+  --glow: transparent;
+}
+/* A locked card's tier, as one small diamond at the top. */
+.ach-dot {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--tier);
+  opacity: 0.85;
+}
+/* The profile's medallion. */
+.ach-avatar {
+  --frame: linear-gradient(145deg, #3a455e, #8590a3 45%, #2c3549);
+  --tier: #aab3c3;
+  --glow: rgb(170 179 195 / 0.3);
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  border-radius: 50%;
+  padding: 3px;
+  background: var(--frame);
+  box-shadow: 0 6px 18px -8px var(--glow);
+}
+.ach-avatar > span {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  border-radius: 50%;
+  line-height: 1;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--tier) 30%, #131a29), #0d1220 75%);
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+.ach-mini {
+  padding: 2px;
+  border-radius: 9px;
+}
+.ach-mini .ach-face {
+  border-radius: 7px;
+}
+.count-badge {
+  min-width: 1rem;
+  border-radius: 999px;
+  padding: 0 0.25rem;
+  background: #e0a03a;
+  color: #1a1f2b;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1rem;
+  text-align: center;
+}
+.count-badge::after {
+  content: attr(data-count);
+}
+.ach-q {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  color: rgb(170 180 200 / 0.45);
+}
+/* Flip to collect. */
+.ach-flip {
+  perspective: 1400px;
+}
+.ach-flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  -webkit-transform-style: preserve-3d;
+  transform-style: preserve-3d;
+  transition: transform 820ms var(--ease-settle);
+}
+.ach-flip.flipped .ach-flip-inner {
+  transform: rotateY(180deg);
+}
+.ach-side {
+  position: absolute;
+  inset: 0;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+.ach-side.front {
+  transform: rotateY(180deg);
+}
+/* The reveal's sunburst, behind a Gold-or-better card. */
+.ach-rays {
+  pointer-events: none;
+  position: absolute;
+  inset: -60%;
+  background: repeating-conic-gradient(from 0deg, rgb(255 255 255 / 0.08) 0deg 7deg, transparent 7deg 15deg);
+  -webkit-mask-image: radial-gradient(circle, #000 18%, transparent 62%);
+  mask-image: radial-gradient(circle, #000 18%, transparent 62%);
+  animation: ach-rays 22s linear infinite;
+}
+@keyframes ach-rays {
+  to { transform: rotate(360deg); }
+}
+@keyframes ach-pop {
+  0% { opacity: 0; transform: translateY(10px) scale(0.6); }
+  60% { opacity: 1; transform: translateY(-2px) scale(1.12); }
+  100% { transform: none; }
+}
+.ach-pop {
+  animation: ach-pop 520ms var(--ease-spring) both;
+}
+@keyframes ach-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.92); }
+}
+.ach-in {
+  animation: ach-in 420ms var(--ease-out) both;
+}
+/* The "unlocked" banner drops in from the top. */
+@keyframes ach-drop {
+  0% { opacity: 0; transform: translateY(-120%) scale(0.96); }
+  70% { opacity: 1; transform: translateY(4px); }
+  100% { transform: none; }
+}
+.ach-drop {
+  animation: ach-drop 520ms var(--ease-spring) both;
+}
+/* Mini cards in a ladder row: art only. */
+.ach-mini .ach-face {
+  padding: 0;
+}
+.ach-mini .ach-art .main {
+  font-size: 1.62rem;
+}
+.ach-mini .ach-art .accent {
+  font-size: 0.82rem;
+}
+.ach-mini .ach-seal {
+  width: 1.9rem;
+  border-width: 2px;
+}
+.ach-mini .ach-seal span {
+  font-size: 1rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .timer-dot,
   .timer-sweep,
@@ -292,8 +651,18 @@ dialog.sheet-closing::backdrop {
   .wobble,
   .droop,
   .taunt-in,
-  .bubble-in {
+  .bubble-in,
+  .ach-t5,
+  .ach-foil,
+  .ach-wait,
+  .ach-rays,
+  .ach-pop,
+  .ach-in,
+  .ach-drop {
     animation: none;
+  }
+  .ach-flip-inner {
+    transition: none;
   }
   .press,
   .press:active {

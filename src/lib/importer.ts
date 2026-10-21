@@ -1,4 +1,5 @@
-import type { CalendarItem, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Schedule } from './types';
+import { achievementById } from './achievementCatalog';
+import type { CalendarItem, CollectedAchievement, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Schedule } from './types';
 
 /**
  * Restoring a JSON export. Import only ever adds: a document whose id is
@@ -19,6 +20,8 @@ export interface ExistingData {
   planIds?: Set<string>;
   planSectionIds?: Set<string>;
   planTaskIds?: Set<string>;
+  /** Every collected card's id. */
+  achievementIds?: Set<string>;
 }
 
 export interface ImportPlan {
@@ -29,6 +32,8 @@ export interface ImportPlan {
   plans: Plan[];
   planSections: PlanSection[];
   planTasks: PlanTask[];
+  /** Collected cards this account doesn't have yet. */
+  achievements: CollectedAchievement[];
   /** Backup metrics folded into an existing metric of the same name. */
   mergedMetrics: number;
   /** Already in the account (or deleted from it). */
@@ -58,7 +63,7 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
   if (!isExport(backup)) return { ok: false, error: NOT_AN_EXPORT };
 
   const plan: ImportPlan = {
-    metrics: [], entries: [], items: [], goals: [], plans: [], planSections: [], planTasks: [],
+    metrics: [], entries: [], items: [], goals: [], plans: [], planSections: [], planTasks: [], achievements: [],
     mergedMetrics: 0, skipped: { metrics: 0, entries: 0, items: 0, goals: 0, plans: 0 }, invalid: 0, archivedGoals: 0,
   };
 
@@ -285,9 +290,21 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
     });
   }
 
+  // ── Collected cards: ones this account hasn't collected, for cards that still exist ──
+  const cardIds = new Set(existing.achievementIds ?? []);
+  for (const raw of arr(backup.achievements)) {
+    if (!isObj(raw) || !isStr(raw.id) || !achievementById.has(raw.id) || !isStr(raw.on) || !DATE.test(raw.on)) {
+      plan.invalid++;
+      continue;
+    }
+    if (cardIds.has(raw.id)) continue;
+    cardIds.add(raw.id);
+    plan.achievements.push({ id: raw.id, on: raw.on, detail: strOrNull(raw.detail), collectedAt: isStr(raw.collectedAt) ? raw.collectedAt : now });
+  }
+
   return { ok: true, plan };
 }
 
 export function importIsEmpty(p: ImportPlan): boolean {
-  return p.metrics.length + p.entries.length + p.items.length + p.goals.length + p.plans.length + p.planSections.length + p.planTasks.length === 0;
+  return p.metrics.length + p.entries.length + p.items.length + p.goals.length + p.plans.length + p.planSections.length + p.planTasks.length + p.achievements.length === 0;
 }

@@ -217,7 +217,8 @@ try {
   await click('::-p-aria(Stop Studying timer)');
 
   // Import: wrong file, then a real export (needs the server, which is unreachable here).
-  await click('nav.fixed a[href="#/settings"]');
+  await click('nav.fixed a[href="#/profile"]');
+  await click('main a[href="#/settings"]');
   await wait(500);
   writeFileSync(`${OUT}import-bad.json`, '{"hello": 1}');
   writeFileSync(`${OUT}import-good.json`, JSON.stringify({ format: 'personal-tracker/1', metrics: [], entries: [], items: [], goals: [] }));

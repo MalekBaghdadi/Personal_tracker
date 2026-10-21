@@ -130,6 +130,17 @@ describe('planImport', () => {
     expect(p.invalid).toBe(1);
   });
 
+  it('adds collected cards this account lacks; skips ones it has and ones that no longer exist', () => {
+    const card = (id: string) => ({ id, on: '2026-10-12', detail: '3h of Studying', collectedAt: '2026-10-12T20:00:00Z' });
+    const p = plan(
+      backup({ achievements: [card('study.session.3'), card('streak.1'), card('made.up.1'), { id: 'streak.2', on: 'soon' }] }),
+      empty({ achievementIds: new Set(['streak.1']) }),
+    );
+    expect(p.achievements).toEqual([card('study.session.3')]);
+    expect(p.invalid).toBe(2);
+    expect(importIsEmpty(plan(backup({ achievements: [card('streak.1')] }), empty({ achievementIds: new Set(['streak.1']) })))).toBe(true);
+  });
+
   it('importing the same backup twice adds nothing the second time', () => {
     const b = backup({ metrics: [metric('m1', 'A')], entries: [entry('e1', 'm1')], goals: [goal('g1', 'm1')] });
     const first = plan(b, empty());

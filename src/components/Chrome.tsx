@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { BarChart3, CalendarDays, ListChecks, Settings as SettingsIcon, Square, SunMedium, Trophy } from 'lucide-react';
+import { BarChart3, CalendarDays, CircleUserRound, ListChecks, Settings as SettingsIcon, Square, SunMedium, Trophy } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useData, type SyncState } from '../state/DataContext';
+import { useAchievements } from '../state/AchievementsContext';
 import { useElapsed, useTimerActions } from '../state/TimerContext';
 import { useHue } from '../state/theme';
 import { formatClock } from '../lib/format';
@@ -77,33 +78,78 @@ export function TimerBar() {
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 
-const TABS: { route: Route; label: string; icon: typeof SunMedium }[] = [
+type Tab = { route: Route; label: string; icon: typeof SunMedium };
+
+// Phones have room for six: Settings opens from the profile's gear instead.
+const TABS: Tab[] = [
   { route: 'today', label: 'Today', icon: SunMedium },
   { route: 'history', label: 'History', icon: CalendarDays },
   { route: 'stats', label: 'Stats', icon: BarChart3 },
   { route: 'compete', label: 'Compete', icon: Trophy },
   { route: 'metrics', label: 'Metrics', icon: ListChecks },
-  { route: 'settings', label: 'Settings', icon: SettingsIcon },
+  { route: 'profile', label: 'Profile', icon: CircleUserRound },
 ];
+const SIDE_TABS: Tab[] = [...TABS, { route: 'settings', label: 'Settings', icon: SettingsIcon }];
+
+/** Cards waiting to be collected, as a count on the Profile tab. */
+function useWaitingCount(r: Route): number {
+  const { waiting } = useAchievements();
+  return r === 'profile' ? waiting.length : 0;
+}
+
+/** The number is drawn by CSS (data-count), so the tab's text stays just its label. */
+function Badge({ n, max = 9, className }: { n: number; max?: number; className: string }) {
+  if (!n) return null;
+  return <span aria-hidden data-testid="profile-badge" data-count={n > max ? `${max}+` : String(n)} className={cx('count-badge', className)} />;
+}
+
+const tabLabel = (label: string, n: number) => (n ? `${label}, ${n} ${n === 1 ? 'achievement' : 'achievements'} to collect` : undefined);
+
+function TabLink({ tab: { route: r, label, icon: Icon }, route }: { tab: Tab; route: Route }) {
+  const n = useWaitingCount(r);
+  return (
+    <a
+      href={`#/${r}`}
+      aria-current={route === r ? 'page' : undefined}
+      aria-label={tabLabel(label, n)}
+      className={cx('flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium', route === r ? 'text-ink' : 'text-ink-3 hover:text-ink-2')}
+    >
+      <span className="relative">
+        <Icon key={route === r ? 'on' : 'off'} size={21} strokeWidth={route === r ? 2.2 : 1.8} className={route === r ? 'hop' : undefined} />
+        <Badge n={n} className="absolute -top-1.5 left-1/2 ml-1.5" />
+      </span>
+      {label}
+    </a>
+  );
+}
 
 export function TabBar({ route }: { route: Route }) {
   return (
     <nav aria-label="Main" className="safe-bottom fixed inset-x-0 bottom-0 z-30 border-t border-line bg-s1 md:hidden">
       <ul className="mx-auto flex max-w-2xl">
-        {TABS.map(({ route: r, label, icon: Icon }) => (
-          <li key={r} className="flex-1">
-            <a
-              href={`#/${r}`}
-              aria-current={route === r ? 'page' : undefined}
-              className={cx('flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] font-medium', route === r ? 'text-ink' : 'text-ink-3 hover:text-ink-2')}
-            >
-              <Icon key={route === r ? 'on' : 'off'} size={21} strokeWidth={route === r ? 2.2 : 1.8} className={route === r ? 'hop' : undefined} />
-              {label}
-            </a>
+        {TABS.map((t) => (
+          <li key={t.route} className="flex-1">
+            <TabLink tab={t} route={route} />
           </li>
         ))}
       </ul>
     </nav>
+  );
+}
+
+function SideLink({ tab: { route: r, label, icon: Icon }, route }: { tab: Tab; route: Route }) {
+  const n = useWaitingCount(r);
+  return (
+    <a
+      href={`#/${r}`}
+      aria-current={route === r ? 'page' : undefined}
+      aria-label={tabLabel(label, n)}
+      className={cx('flex min-h-11 items-center gap-3 rounded-lg px-3 text-[14px] font-medium', route === r ? 'bg-s2 text-ink' : 'text-ink-2 hover:bg-s2 hover:text-ink')}
+    >
+      <Icon size={18} />
+      {label}
+      <Badge n={n} max={99} className="ml-auto" />
+    </a>
   );
 }
 
@@ -115,16 +161,9 @@ export function SideNav({ route }: { route: Route }) {
         <SyncDot />
       </div>
       <ul className="flex flex-col gap-0.5">
-        {TABS.map(({ route: r, label, icon: Icon }) => (
-          <li key={r}>
-            <a
-              href={`#/${r}`}
-              aria-current={route === r ? 'page' : undefined}
-              className={cx('flex min-h-11 items-center gap-3 rounded-lg px-3 text-[14px] font-medium', route === r ? 'bg-s2 text-ink' : 'text-ink-2 hover:bg-s2 hover:text-ink')}
-            >
-              <Icon size={18} />
-              {label}
-            </a>
+        {SIDE_TABS.map((t) => (
+          <li key={t.route}>
+            <SideLink tab={t} route={route} />
           </li>
         ))}
       </ul>

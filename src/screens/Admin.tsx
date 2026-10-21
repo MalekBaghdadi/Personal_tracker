@@ -13,6 +13,10 @@ import { formatTarget, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import { WEEKDAYS, cx } from '../components/ui';
 import { GoalBar, fmtGoal, statusLabel } from '../components/Goals';
+import { evaluate } from '../lib/achievements';
+import { summarize } from '../lib/profile';
+import { Avatar, MiniCard, useTierInk } from '../components/AchievementCard';
+import { TierCounts } from '../components/ProfileView';
 import type { DayStats, Goal, Metric, Plan } from '../lib/types';
 
 /**
@@ -179,6 +183,9 @@ function UserDetail({ data }: { data: UserData }) {
         </ul>
       )}
 
+      <h2 className="mt-6 mb-2 text-[15px] font-medium">Achievements</h2>
+      <AchievementsRow data={data} today={today} tz={tz} />
+
       <h2 className="mt-6 mb-2 text-[15px] font-medium">Plans</h2>
       {data.plans.filter((p) => !p.archivedAt).length === 0 ? (
         <p className="text-[14px] text-ink-3">No active plans.</p>
@@ -190,6 +197,57 @@ function UserDetail({ data }: { data: UserData }) {
         </ul>
       )}
     </>
+  );
+}
+
+/** Their level, title and cards: collected ones are stored; what's waiting is worked out from their data, like everything else here. */
+function AchievementsRow({ data, today, tz }: { data: UserData; today: string; tz: string }) {
+  const ink = useTierInk();
+  const dayStart = data.settings?.dayStartHour ?? DEFAULT_DAY_START_HOUR;
+  const { summary, waiting, collected } = useMemo(() => {
+    const at = (iso: string) => dayOf(iso, tz, dayStart);
+    const live = data.planTasks.filter((t) => !t.deletedAt);
+    const evaluation = evaluate({
+      metrics: data.metrics,
+      entries: data.entries,
+      dayStats: buildDayStats(data.entries, data.metrics),
+      today,
+      tz,
+      dayOf: at,
+      weekStartsOn: data.settings?.weekStartsOn ?? 1,
+      goals: data.goals.map((g) => ({ name: g.name, deadline: g.deadline, on: computeGoal(g, data.entries, today).achievedDate })),
+      plans: data.plans.map((p) => ({
+        name: p.name,
+        deadline: p.deadline,
+        on: computePlan(p, data.planSections.filter((s) => s.planId === p.id), live.filter((t) => t.planId === p.id), today, at).achievedDate,
+      })),
+      tasks: live,
+      wins: [],
+    });
+    const collected = new Map(data.achievements.map((c) => [c.id, c]));
+    return {
+      collected,
+      summary: summarize(collected, data.settings?.title, data.settings?.pinned),
+      waiting: [...evaluation.unlocked.keys()].filter((id) => !collected.has(id)).length,
+    };
+  }, [data, today, tz, dayStart]);
+  const title = summary.title;
+  return (
+    <div className="rounded-xl border border-line p-3" data-testid="admin-achievements">
+      <div className="flex items-center gap-3">
+        <Avatar art={title?.art[0] ?? summary.rank.art} tier={title?.tier ?? null} size={44} label={title ? `Wearing ${title.name}` : summary.rank.name} />
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-medium" style={title ? { color: ink(title.tier) } : undefined}>{title ? title.name : summary.rank.name}</p>
+          <p className="text-[13px] text-ink-3">Level {summary.level} · {summary.xp} XP · {collected.size} collected{waiting ? ` · ${waiting} waiting` : ''}</p>
+        </div>
+      </div>
+      <TierCounts tiers={summary.tiers} className="mt-2" />
+      {summary.pinned.length > 0 && (
+        <div className="mt-2 flex gap-2">
+          {summary.pinned.map((d) => <MiniCard key={d.id} def={d} state="collected" w={40} />)}
+        </div>
+      )}
+    </div>
   );
 }
 

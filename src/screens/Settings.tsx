@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, LogOut, PlayCircle, Upload, Users } from 'lucide-react';
+import { ChevronLeft, Download, LogOut, PlayCircle, Upload, Users } from 'lucide-react';
 import { TOURS } from '../lib/tours';
 import { isAdmin } from '../lib/admin';
 import { signOut } from 'firebase/auth';
@@ -10,6 +10,7 @@ import { NOT_AN_EXPORT, importIsEmpty, isExport, planImport, type ImportPlan } f
 import { deviceTimezone, nowIso } from '../lib/dates';
 import { exportCsv, exportJson } from '../lib/export';
 import { usePlans } from '../state/PlansContext';
+import { useAchievements } from '../state/AchievementsContext';
 import { formatNumber } from '../lib/format';
 import { Button, Label, Segmented, Sheet, Switch, inputClass, useToast } from '../components/ui';
 import { badgeSupported, useBadgeSetting } from '../state/badge';
@@ -30,6 +31,7 @@ export function Settings() {
   const { uid, user, settings, tz, dayStart, metrics, entries, items, goals, timer, dayOf } = useData();
   const allPlans = usePlans();
   const planExport = { plans: allPlans.plans, planSections: allPlans.sections, planTasks: allPlans.tasks };
+  const { collected } = useAchievements();
   // Tabs replay on their tab; the goal and plan tours on the nearest active one (none yet: no button).
   const tourHref = (id: string): string | null => {
     if (id === 'goals') {
@@ -55,7 +57,13 @@ export function Settings() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 pt-5 pb-28 md:pb-10">
-      <h1 className="mb-5 text-[22px] font-semibold tracking-tight">Settings</h1>
+      <div className="mb-5 flex items-center gap-1">
+        {/* On phones Settings opens from the profile's gear; this goes back. */}
+        <a href="#/profile" aria-label="Back to profile" className="press -ml-2 grid size-10 place-items-center rounded-lg text-ink-2 hover:bg-s2 hover:text-ink md:hidden">
+          <ChevronLeft size={22} aria-hidden />
+        </a>
+        <h1 className="text-[22px] font-semibold tracking-tight">Settings</h1>
+      </div>
 
       <div className="flex flex-col gap-6">
         <section>
@@ -107,7 +115,7 @@ export function Settings() {
             {plural(entries.length, 'entry', 'entries')} across {plural(metrics.length, 'metric')}, archived ones included, plus {plural(items.length, 'event or reminder', 'events and reminders')} and {plural(goals.length, 'goal')}. Durations are in seconds.
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button onClick={() => exportJson(metrics, entries, items, goals, settings, planExport)}><Download size={17} /> JSON</Button>
+            <Button onClick={() => exportJson(metrics, entries, items, goals, settings, planExport, [...collected.values()])}><Download size={17} /> JSON</Button>
             <Button onClick={() => exportCsv(metrics, entries, items, goals, planExport, dayOf)}><Download size={17} /> CSV</Button>
           </div>
         </section>
@@ -220,6 +228,7 @@ function ImportSection() {
         plan.goals.length && plural(plan.goals.length, 'goal'),
         plan.plans.length && plural(plan.plans.length, 'plan'),
         plan.planTasks.length && plural(plan.planTasks.length, 'plan task'),
+        plan.achievements.length && plural(plan.achievements.length, 'collected card'),
       ].filter(Boolean).join(', ')
     : '';
   const skipped = plan ? plan.skipped.entries + plan.skipped.items + plan.skipped.goals + plan.skipped.metrics + plan.skipped.plans : 0;
