@@ -29,18 +29,21 @@ export type LadderKind =
 
 export type Group = 'theme' | 'streaks' | 'grind' | 'goals' | 'compete' | 'habits';
 
-export const GROUPS: { id: Exclude<Group, 'theme'>; title: string; emoji: string }[] = [
-  { id: 'streaks', title: 'Streaks', emoji: '🔥' },
-  { id: 'grind', title: 'The grind', emoji: '⚙️' },
-  { id: 'goals', title: 'Goals & plans', emoji: '🏁' },
-  { id: 'compete', title: 'Compete', emoji: '🏆' },
-  { id: 'habits', title: 'Odd hours & notes', emoji: '🦉' },
+export const GROUPS: { id: Exclude<Group, 'theme'>; title: string }[] = [
+  { id: 'streaks', title: 'Streaks' },
+  { id: 'grind', title: 'The grind' },
+  { id: 'goals', title: 'Goals & plans' },
+  { id: 'compete', title: 'Compete' },
+  { id: 'habits', title: 'Odd hours & notes' },
 ];
 
 export interface Card {
   name: string;
   flavor: string;
-  /** A main emoji and an optional smaller one beside it. */
+  /**
+   * A main emoji and an optional smaller one beside it: no longer drawn (cards show a pin, lib/achievementArt.ts),
+   * but still sent in the profile shared with a Compete partner, so an older app there has art to show.
+   */
   art: [string, string?];
 }
 

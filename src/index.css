@@ -352,7 +352,7 @@ dialog.sheet-closing::backdrop {
   display: grid;
   flex: 1;
   place-items: center;
-  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  min-height: 0;
 }
 .ach-art::before {
   content: "";
@@ -362,27 +362,36 @@ dialog.sheet-closing::backdrop {
   border-radius: 50%;
   background: radial-gradient(circle, var(--glow) 0%, transparent 68%);
 }
-.ach-glyph {
-  position: relative;
-  display: inline-block;
-  line-height: 1;
-}
 .ach-art .main {
   position: relative;
   display: block;
   font-size: 4.3em;
   line-height: 1;
-  filter: drop-shadow(0 0.08em 0.1em rgb(0 0 0 / 0.5));
 }
-/* The second emoji sits on the first's corner, like a sticker. */
-.ach-art .accent {
-  position: absolute;
-  right: -0.42em;
-  bottom: -0.18em;
-  font-size: 2em;
-  line-height: 1;
-  transform: rotate(12deg);
-  filter: drop-shadow(0 0.04em 0.06em rgb(0 0 0 / 0.6));
+/* The art: a stained-glass enamel pin (components/PinArt.tsx). */
+.ach-pin {
+  position: relative;
+  display: block;
+  width: 7.4em;
+  aspect-ratio: 1;
+}
+.ach-crest {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 0.12em 0.2em rgb(0 0 0 / 0.55));
+}
+.ach-place {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35em;
+}
+.ach-place svg {
+  width: 1.2em;
+  height: 1.2em;
+  flex-shrink: 0;
 }
 .ach-name {
   font-size: 1.02em;
@@ -479,11 +488,13 @@ dialog.sheet-closing::backdrop {
   0%, 100% { box-shadow: 0 0.7em 1.8em -0.7em var(--glow), 0 0 0 1px rgb(0 0 0 / 0.25); }
   50% { box-shadow: 0 0 2.2em 0.1em var(--glow), 0 0 0 1px rgb(0 0 0 / 0.25); }
 }
-/* Locked: the art as a silhouette. */
-.ach-sil {
-  color: transparent !important;
-  text-shadow: 0 0 0 rgb(170 180 200 / 0.3);
-  filter: none !important;
+/* Locked: the pin as a grey silhouette. */
+.ach-locked .ach-pin {
+  filter: grayscale(1) brightness(0.55);
+  opacity: 0.5;
+}
+.ach-locked .ach-crest {
+  filter: none;
 }
 .ach-locked .ach-face {
   background: radial-gradient(120% 70% at 50% 34%, #1a2131 0%, #0e131f 72%);
@@ -525,9 +536,11 @@ dialog.sheet-closing::backdrop {
   height: 100%;
   place-items: center;
   border-radius: 50%;
-  line-height: 1;
+  padding: 9%;
   background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--tier) 30%, #131a29), #0d1220 75%);
-  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+}
+.ach-avatar .ach-pin {
+  width: 100%;
 }
 .ach-mini {
   padding: 2px;
@@ -622,8 +635,8 @@ dialog.sheet-closing::backdrop {
 .ach-mini .ach-art .main {
   font-size: 1.62rem;
 }
-.ach-mini .ach-art .accent {
-  font-size: 0.82rem;
+.ach-mini .ach-pin {
+  width: calc(var(--w) * 0.8);
 }
 .ach-mini .ach-seal {
   width: 1.9rem;
@@ -631,6 +644,31 @@ dialog.sheet-closing::backdrop {
 }
 .ach-mini .ach-seal span {
   font-size: 1rem;
+}
+
+/* The binders: a deck swiped sideways. The one in front is full size; its
+   neighbours peek in smaller and dimmer, like the cards beside the top one. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.binder-deck {
+  transition: height 260ms var(--ease-out);
+}
+.binder-page {
+  transition: transform 300ms var(--ease-out), opacity 300ms var(--ease-out);
+}
+.binder-page[data-front="false"] {
+  transform: scale(0.94);
+  opacity: 0.5;
+  cursor: pointer;
+}
+/* A binder that can't earn anything yet. */
+.binder-off-cards {
+  filter: grayscale(0.85);
+  opacity: 0.6;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -670,7 +708,9 @@ dialog.sheet-closing::backdrop {
     transform: none;
   }
   .bar-fill,
-  .seg-thumb {
+  .seg-thumb,
+  .binder-deck,
+  .binder-page {
     transition: none;
   }
 }

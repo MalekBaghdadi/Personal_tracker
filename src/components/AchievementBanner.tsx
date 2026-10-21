@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useAchievements } from '../state/AchievementsContext';
 import { TIERS, achievementById } from '../lib/achievementCatalog';
-import { MiniCard } from './AchievementCard';
+import { MiniBack } from './MiniBack';
 
 const SHOW_MS = 9000;
 
@@ -39,7 +39,7 @@ export function AchievementBanner() {
   return (
     <div role="status" className="pointer-events-none fixed inset-x-0 top-[calc(env(safe-area-inset-top,0px)+8px)] z-40 flex justify-center px-3">
       <div className="ach-drop pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl border border-line bg-s3 py-2 pr-1.5 pl-2.5 shadow-xl" data-testid="ach-banner">
-        <MiniCard def={best} state="ready" w={38} />
+        <MiniBack tier={best.tier} w={38} />
         <div className="min-w-0 flex-1">
           <p className="text-[14px] font-semibold">{title}</p>
           <p className="truncate text-[13px] text-ink-2">{sub}</p>

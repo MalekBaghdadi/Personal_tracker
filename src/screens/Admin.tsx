@@ -235,7 +235,7 @@ function AchievementsRow({ data, today, tz }: { data: UserData; today: string; t
   return (
     <div className="rounded-xl border border-line p-3" data-testid="admin-achievements">
       <div className="flex items-center gap-3">
-        <Avatar art={title?.art[0] ?? summary.rank.art} tier={title?.tier ?? null} size={44} label={title ? `Wearing ${title.name}` : summary.rank.name} />
+        <Avatar worn={title} rank={summary.rank.name} size={44} label={title ? `Wearing ${title.name}` : summary.rank.name} />
         <div className="min-w-0">
           <p className="truncate text-[15px] font-medium" style={title ? { color: ink(title.tier) } : undefined}>{title ? title.name : summary.rank.name}</p>
           <p className="text-[13px] text-ink-3">Level {summary.level} · {summary.xp} XP · {collected.size} collected{waiting ? ` · ${waiting} waiting` : ''}</p>

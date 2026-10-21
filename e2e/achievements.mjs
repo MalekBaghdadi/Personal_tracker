@@ -1,7 +1,9 @@
 // Achievements: a long timer session unlocks themed cards, the banner drops
 // in, Collect opens the reveal, cards flip into the binder, XP and levels
-// move, pinning and titles stick after a reload, themes move a metric's
-// cards, locked cards show progress, secrets stay hidden, Settings sits
+// move, pinning and titles stick after a reload, the binders are a deck you
+// swipe through (targeted ones linked to metrics, general ones not, greyed
+// ones at the end), linking moves a metric's cards, locked cards show
+// progress, secrets stay hidden, Settings sits
 // behind the profile's gear, and sharing with a Compete partner (played by
 // the emulator-only hooks) puts up and takes down a summary. Runs with
 // motion on, like the Compete suite: flips and confetti are the point.
@@ -74,6 +76,33 @@ const openMini = async (ladder, i) => {
   await wait(600);
 };
 const closeSheet = async () => { await page.keyboard.press('Escape'); await wait(500); };
+// The binder in front of the deck: its id, kind, linked metrics, whether it's active, and its text.
+const binder = () => page.evaluate(() => {
+  const front = document.querySelector('.binder-page[data-front=true] [data-testid^=group-]');
+  return {
+    id: front?.dataset.testid?.replace('group-', ''),
+    active: front?.dataset.active,
+    kind: front?.querySelector('[data-testid=binder-kind]')?.textContent,
+    linked: front?.querySelector('[data-testid=binder-linked]')?.textContent ?? null,
+    text: front?.innerText ?? '',
+  };
+});
+const pressTab = async (name) => {
+  await page.evaluate((n) => [...document.querySelectorAll('[role=tablist][aria-label=Binders] [role=tab]')].find((t) => t.innerText.trim() === n)?.click(), name);
+  await wait(900);
+};
+// A finger swipe across the deck: -1 to the binder before, 1 to the one after.
+const swipe = async (dir) => {
+  await page.$eval('.binder-deck', (e) => e.scrollIntoView({ block: 'start' }));
+  await wait(400);
+  const box = await page.$eval('.binder-deck', (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y + 60, w: r.width }; });
+  const from = dir > 0 ? box.x + box.w * 0.8 : box.x + box.w * 0.2;
+  const to = dir > 0 ? box.x + box.w * 0.15 : box.x + box.w * 0.85;
+  await page.touchscreen.touchStart(from, box.y);
+  for (let i = 1; i <= 8; i++) await page.touchscreen.touchMove(from + ((to - from) * i) / 8, box.y);
+  await page.touchscreen.touchEnd();
+  await wait(1200);
+};
 
 try {
   await page.goto('http://localhost:5173/', { waitUntil: 'networkidle0' });
@@ -95,10 +124,10 @@ try {
   await click('::-p-text(New metric)');
   await page.type('#m-name', 'MCAT prep');
   await page.type('#m-target-h', '1');
-  const followsIcon = await page.evaluate(() => [...document.querySelectorAll('[aria-label=Theme] [role=radio]')].find((b) => b.getAttribute('aria-checked') === 'true')?.innerText.trim());
-  log('New metric’s theme follows its icon (Other):', /Other/.test(followsIcon ?? ''));
+  const followsIcon = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Achievement binder"] [role=radio]')].find((b) => b.getAttribute('aria-checked') === 'true')?.innerText.trim());
+  log('New metric’s binder follows its icon (Other):', /Other/.test(followsIcon ?? ''));
   await page.evaluate(() => {
-    const b = [...document.querySelectorAll('[aria-label=Theme] [role=radio]')].find((x) => x.innerText.includes('Study'));
+    const b = [...document.querySelectorAll('[aria-label="Achievement binder"] [role=radio]')].find((x) => x.innerText.includes('Study'));
     b.scrollIntoView({ block: 'center' });
     b.click();
   });
@@ -121,6 +150,42 @@ try {
   log('Study ladders listed:', !!(await page.$('[data-ladder="study.session"]')) && !!(await page.$('[data-ladder="study.hours"]')));
   log('Nudge for Water (under Other):', (await page.evaluate(() => document.querySelector('[data-testid=theme-nudge]')?.innerText ?? '')).includes('Water'));
   log('No badge yet:', (await badge()) === null);
+
+  // ── The binders: a deck, active ones first, greyed ones at the end ──
+  const order = await page.evaluate(() => [...document.querySelectorAll('[role=tablist][aria-label=Binders] [role=tab]')].map((t) => t.innerText.trim()));
+  log('Binder tabs, active first:', order.slice(0, 2).join(',') === 'Study,Other' && order.indexOf('Secrets') < order.indexOf('Fitness') && order.indexOf('Secrets') < order.indexOf('Compete'), '|', order.join(','));
+  const front = await binder();
+  log('Study is in front, targeted, linked to MCAT prep:', front.id === 'study' && front.kind === 'Targeted' && /MCAT prep/.test(front.linked));
+  log('No emoji anywhere on the profile:', !/\p{Extended_Pictographic}/u.test(await text()));
+  log('Cards are pins:', await page.evaluate(() => document.querySelectorAll('[data-testid=group-study] .ach-pin svg').length >= 6));
+  await shot('ac-23-binder-deck');
+  await pressTab('Streaks');
+  log('Tapping a tab brings that binder to the front:', await until(async () => (await binder()).id === 'streaks'));
+  const streaks = await binder();
+  log('Streaks is general, nothing to link:', streaks.kind === 'General' && !streaks.linked && /every metric with a target/.test(streaks.text));
+  await swipe(-1);
+  log('Swiping back goes to the binder before it:', await until(async () => (await binder()).id === 'other'), '|', (await binder()).id);
+  await pressTab('Fitness');
+  await until(async () => (await binder()).id === 'fitness');
+  const fit = await binder();
+  log('Fitness greyed: nothing linked, says how to start:', fit.active === 'false' && /No metric linked yet/.test(fit.text));
+  log('Compete greyed until paired:', (await page.$eval('[data-testid=group-compete]', (e) => e.dataset.active)) === 'false');
+  log('Goals greyed until there is a goal:', (await page.$eval('[data-testid=group-goals]', (e) => e.dataset.active)) === 'false');
+  await shot('ac-24-binder-greyed');
+  // Link Water to Fitness from the greyed binder, then untick it again.
+  await pressText('Link a metric', '[data-testid=group-fitness]');
+  const ticks = () => page.evaluate(() => [...document.querySelectorAll('dialog[open] [role=checkbox]')].map((c) => `${c.innerText.split('\n')[0]}:${c.getAttribute('aria-checked')}`).join(','));
+  log('Link sheet lists metrics, none ticked:', await until(async () => !!(await page.$('dialog[open] [data-testid=link-list]'))) && (await ticks()) === 'MCAT prep:false,Water:false', '|', await ticks());
+  await shot('ac-25-link-sheet');
+  const tickWater = () => page.evaluate(() => [...document.querySelectorAll('dialog[open] [role=checkbox]')].find((c) => c.innerText.startsWith('Water')).click());
+  await tickWater();
+  log('Ticked: Water linked to Fitness, which lights up:', await until(async () => (await page.$eval('[data-testid=group-fitness]', (e) => e.dataset.active)) === 'true'));
+  log('… and the sheet says Linked here:', (await page.evaluate(() => [...document.querySelectorAll('dialog[open] [role=checkbox]')].find((c) => c.innerText.startsWith('Water')).innerText)).includes('Linked here'));
+  await tickWater();
+  log('Unticked: back to Other, Fitness greyed again:', await until(async () => (await page.$eval('[data-testid=group-fitness]', (e) => e.dataset.active)) === 'false'));
+  await pressText('Done', 'dialog');
+  await pressTab('Study');
+  await until(async () => (await binder()).id === 'study');
 
   // ── A 2h 5m session: Study session cards, plus overachiever ──
   await click('nav.fixed a[href="#/today"]');
@@ -198,20 +263,22 @@ try {
   log('Pinned in the showcase:', (await page.$eval('[data-testid=showcase]', (e) => e.innerText)).includes('Locked In'));
 
   // Secrets stay hidden.
+  await pressTab('Secrets');
   await page.evaluate(() => document.querySelector('[data-testid=group-secrets] li button').click());
   await wait(600);
   const secret = await sheet();
   log('A locked secret only gives a hint:', (secret ?? '').includes('???') && !(secret ?? '').includes('Bullseye'));
   await closeSheet();
 
-  // ── Themes: move Water to Health; the nudge goes ──
-  await pressText('Pick themes');
-  await page.select('select[aria-label="Theme for Water"]', 'health');
+  // ── Link metrics: move Water to Health; the nudge goes ──
+  await pressText('Link metrics');
+  await page.select('select[aria-label="Binder for Water"]', 'health');
   await wait(500);
   await shot('ac-10-themes');
   await pressText('Done', 'dialog');
-  log('Nudge gone once Water has a theme:', await until(async () => !(await page.$('[data-testid=theme-nudge]'))));
-  log('Health ladder appears:', !!(await page.$('[data-ladder="health.days"]')));
+  log('Nudge gone once Water is linked:', await until(async () => !(await page.$('[data-testid=theme-nudge]'))));
+  log('Health binder lights up, Other greys out:', (await page.$eval('[data-testid=group-health]', (e) => e.dataset.active)) === 'true' &&
+    (await page.$eval('[data-testid=group-other]', (e) => e.dataset.active)) === 'false');
 
   // ── Ten hours straight: Academic Menace, the Mythic ──
   await click('nav.fixed a[href="#/today"]');
@@ -238,6 +305,7 @@ try {
   await shot('ac-18-collected-all-2');
   await page.keyboard.press('Escape');
   await wait(800);
+  await pressTab('Study');
   const row = await page.$('[data-testid=group-study]');
   await row.scrollIntoView();
   await wait(300);
@@ -254,6 +322,7 @@ try {
   await page.reload({ waitUntil: 'networkidle0' });
   await wait(1500);
   await go('#/profile');
+  log('After reload: the deck opens on the binder you last looked at:', (await binder()).id === 'study');
   log('After reload: title, pin and collected cards kept:',
     (await page.$eval('[data-testid=profile-title]', (e) => e.textContent)) === 'Locked In' &&
     (await page.$eval('[data-testid=showcase]', (e) => e.innerText)).includes('Locked In') &&

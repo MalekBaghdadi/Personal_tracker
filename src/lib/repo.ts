@@ -1,5 +1,5 @@
 import {
-  arrayRemove, arrayUnion, collection, doc, getDocsFromServer, setDoc, updateDoc, writeBatch,
+  arrayRemove, arrayUnion, collection, deleteField, doc, getDocsFromServer, setDoc, updateDoc, writeBatch,
   type DocumentReference,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -336,8 +336,9 @@ export function deleteMetric(
 }
 
 /** Picking a theme stores it, so the metric no longer follows its icon. */
-export function setMetricTheme(uid: string, id: string, theme: ThemeId): void {
-  fire(updateDoc(paths.metric(uid, id), { theme, updatedAt: nowIso() }));
+/** Link a metric to a binder; null hands it back to the one its icon suggests. */
+export function setMetricTheme(uid: string, id: string, theme: ThemeId | null): void {
+  fire(updateDoc(paths.metric(uid, id), { theme: theme ?? deleteField(), updatedAt: nowIso() }));
 }
 
 // ── Achievements ───────────────────────────────────────────────────────────

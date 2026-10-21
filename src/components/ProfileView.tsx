@@ -48,11 +48,11 @@ export function SharedProfileView({ profile }: { profile: SharedProfile }) {
   return (
     <div data-testid="shared-profile">
       <div className="flex items-center gap-4">
-        <Avatar art={profile.title?.art[0] ?? profile.rankArt} tier={profile.title?.tier ?? null} size={64} label={profile.title ? `Wearing ${profile.title.name}` : profile.rank} />
+        <Avatar worn={profile.title} rank={profile.rank} size={64} label={profile.title ? `Wearing ${profile.title.name}` : profile.rank} />
         <div className="min-w-0">
           <p className="truncate text-[18px] font-semibold">{profile.name}</p>
           <p className="truncate text-[14px] font-medium" style={profile.title ? { color: ink(profile.title.tier) } : undefined}>{profile.title?.name ?? profile.rank}</p>
-          <p className="text-[13px] text-ink-3">Level {profile.level} · {profile.rankArt} {profile.rank}</p>
+          <p className="text-[13px] text-ink-3">Level {profile.level} · {profile.rank}</p>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-s2 px-3 py-2.5">

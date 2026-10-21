@@ -1,31 +1,37 @@
-import { useEffect, useState } from 'react';
-import { Pencil, Pin, PinOff, Settings as SettingsIcon, Shirt } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronLeft, ChevronRight, Link2, Pencil, Pin, PinOff, Settings as SettingsIcon, Shirt } from 'lucide-react';
 import { useData } from '../state/DataContext';
 import { useCompete } from '../state/CompeteContext';
+import { usePlans } from '../state/PlansContext';
 import { useAchievements } from '../state/AchievementsContext';
-import { GROUPS, LADDERS, SECRETS, TIERS, achievementById, type Ladder } from '../lib/achievementCatalog';
+import { SECRETS, TIERS, achievementById, type Ladder } from '../lib/achievementCatalog';
 import { bestText, needOf } from '../lib/achievements';
-import { THEMES, themeFromIcon, themeOf } from '../lib/themes';
+import { binderViews, unlinkTarget, type BinderId, type BinderView } from '../lib/binders';
+import { BINDER_ICON } from '../lib/binderIcons';
+import { THEMES, themeById, themeFromIcon, themeOf } from '../lib/themes';
 import { MAX_PINNED } from '../lib/profile';
 import { saveSettings, setMetricTheme } from '../lib/repo';
 import { formatLocalDate } from '../lib/dates';
+import { local } from '../lib/device';
 import { iconFor } from '../lib/icons';
 import { AchievementCard, Avatar, CardBack, MiniCard, useTierInk, type CardState } from '../components/AchievementCard';
 import { SharedProfileView, TierCounts } from '../components/ProfileView';
 import { Reveal } from '../components/Reveal';
-import { Button, FieldError, Label, Sheet, Switch, inputClass, useToast } from '../components/ui';
+import { Button, FieldError, Label, Sheet, Switch, cx, inputClass, prefersReducedMotion, useToast } from '../components/ui';
 import type { ThemeId } from '../lib/types';
 
 /**
  * Your profile: level, rank and title from collected cards, the cards
- * waiting to be flipped, a showcase, and the binder: every ladder from
- * Bronze to Mythic, plus secrets. Settings sit behind the gear.
+ * waiting to be flipped, a showcase, and the binders (lib/binders.ts), a deck
+ * you swipe through: every ladder from Bronze to Mythic, plus secrets.
+ * Settings sit behind the gear.
  */
 export function Profile({ collectNow }: { collectNow: boolean }) {
   const a = useAchievements();
   const [reveal, setReveal] = useState<string[] | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
-  const [themesOpen, setThemesOpen] = useState(false);
+  const [linksOpen, setLinksOpen] = useState(false);
+  const [linkBinder, setLinkBinder] = useState<ThemeId | null>(null);
 
   // From the banner's Collect (#/profile/collect): straight into the reveal.
   useEffect(() => {
@@ -61,14 +67,20 @@ export function Profile({ collectNow }: { collectNow: boolean }) {
       <ShareRow />
       {a.waiting.length > 0 && <ReadyShelf onFlip={flipFrom} onAll={() => setReveal(a.waiting.map((u) => u.id))} />}
       <Showcase onOpen={setDetail} />
-      <Nudge onPick={() => setThemesOpen(true)} />
-      <Binder onOpen={setDetail} onThemes={() => setThemesOpen(true)} />
+      <Nudge onPick={() => setLinksOpen(true)} />
+      <Binders onOpen={setDetail} onLink={(id) => themeById.has(id as ThemeId) && setLinkBinder(id as ThemeId)} />
+      <div className="mt-3 flex justify-center">
+        <Button variant="ghost" className="min-h-10 px-3" onClick={() => setLinksOpen(true)} data-tour="profile-themes">
+          <Link2 size={16} aria-hidden /> Link metrics to binders
+        </Button>
+      </div>
 
       <CardSheet id={detail} onClose={() => setDetail(null)} onFlip={(id) => {
         setDetail(null);
         flipFrom(id);
       }} />
-      <ThemesSheet open={themesOpen} onClose={() => setThemesOpen(false)} />
+      <LinksSheet open={linksOpen} onClose={() => setLinksOpen(false)} />
+      <LinkSheet id={linkBinder} onClose={() => setLinkBinder(null)} />
       {reveal && <Reveal ids={reveal} onClose={() => setReveal(null)} />}
     </div>
   );
@@ -91,7 +103,7 @@ function Identity() {
   return (
     <section aria-label="Your level and title" data-tour="profile-header" className="rounded-2xl border border-line bg-s1 p-4">
       <div className="flex items-center gap-4">
-        <Avatar art={title?.art[0] ?? summary.rank.art} tier={title?.tier ?? null} size={68} label={title ? `Wearing ${title.name}` : summary.rank.name} />
+        <Avatar worn={title} rank={summary.rank.name} size={68} label={title ? `Wearing ${title.name}` : summary.rank.name} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1">
             <h2 className="truncate text-[19px] font-semibold" data-testid="profile-name">{name}</h2>
@@ -100,10 +112,10 @@ function Identity() {
             </button>
           </div>
           <p className="truncate text-[15px] font-medium" style={title ? { color: ink(title.tier) } : undefined} data-testid="profile-title">
-            {title ? title.name : `${summary.rank.art} ${summary.rank.name}`}
+            {title ? title.name : summary.rank.name}
           </p>
           <p className="text-[13px] text-ink-3" data-testid="profile-level">
-            Level {summary.level}{title ? ` · ${summary.rank.art} ${summary.rank.name}` : ''}
+            Level {summary.level}{title ? ` · ${summary.rank.name}` : ''}
           </p>
         </div>
       </div>
@@ -271,7 +283,7 @@ function Showcase({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-// ── Metrics without a theme of their own ────────────────────────────────────
+// ── Metrics left in Other ───────────────────────────────────────────────────
 
 function Nudge({ onPick }: { onPick: () => void }) {
   const { metrics } = useData();
@@ -282,71 +294,237 @@ function Nudge({ onPick }: { onPick: () => void }) {
   return (
     <section className="mt-6 rounded-xl border border-line bg-s1 p-4" data-testid="theme-nudge">
       <p className="text-[14px]">
-        <span className="font-medium">{names}</span> {loose.length === 1 ? 'is' : 'are'} under Other. Give {loose.length === 1 ? 'it' : 'them'} a theme, like Study or Fitness, for cards made for {loose.length === 1 ? 'it' : 'them'}.
+        <span className="font-medium">{names}</span> {loose.length === 1 ? 'is' : 'are'} in the Other binder. Link {loose.length === 1 ? 'it' : 'them'} to one like Study or Fitness for cards made for {loose.length === 1 ? 'it' : 'them'}.
       </p>
-      <Button className="mt-3" onClick={onPick}>Pick themes</Button>
+      <Button className="mt-3" onClick={onPick}>Link metrics</Button>
     </section>
   );
 }
 
-// ── The binder ──────────────────────────────────────────────────────────────
+// ── The binders: a deck you swipe through ──────────────────────────────────
 
-function Binder({ onOpen, onThemes }: { onOpen: (id: string) => void; onThemes: () => void }) {
+const BINDER_KEY = 'pt.profile.binder';
+
+/** What a general binder counts, under its name. */
+const COUNTS: Partial<Record<BinderId, string>> = {
+  streaks: 'Counts every metric with a target.',
+  grind: 'Counts everything you log.',
+  goals: 'Counts your deadline goals and plans.',
+  compete: 'Counts your Compete wins.',
+  habits: 'Counts every timer and note.',
+  secrets: 'Hidden until you stumble into them. Tap one for a hint.',
+};
+
+/** Where a greyed general binder's button goes. */
+const START: Partial<Record<BinderId, { href: string; label: string }>> = {
+  streaks: { href: '#/metrics', label: 'Open Metrics' },
+  grind: { href: '#/metrics', label: 'Open Metrics' },
+  goals: { href: '#/metrics', label: 'Make a goal' },
+  compete: { href: '#/compete', label: 'Go to Compete' },
+  habits: { href: '#/today', label: 'Open Today' },
+};
+
+const nameList = (list: string[]) => (list.length <= 2 ? list.join(' and ') : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`);
+
+function Binders({ onOpen, onLink }: { onOpen: (id: string) => void; onLink: (id: BinderId) => void }) {
   const { evaluation, collected } = useAchievements();
-  const hasCollected = (l: Ladder) => l.steps.some((_, i) => collected.has(`${l.id}.${i + 1}`));
-  // What applies now, plus any ladder you still hold cards from (a metric that changed theme, say).
-  const shown = LADDERS.filter((l) => evaluation.ladders.includes(l) || hasCollected(l));
-  const count = (ls: Ladder[]) => {
-    let have = 0;
-    let all = 0;
-    for (const l of ls) l.steps.forEach((_, i) => {
-      all++;
-      if (collected.has(`${l.id}.${i + 1}`)) have++;
-    });
-    return `${have} / ${all}`;
+  const { metrics, goals } = useData();
+  const { pair } = useCompete();
+  const { plans } = usePlans();
+  const views = useMemo(
+    () => binderViews({
+      metrics: metrics.filter((m) => !m.archivedAt),
+      applicable: evaluation.ladders,
+      held: (l) => l.steps.some((_, i) => collected.has(`${l.id}.${i + 1}`) || evaluation.unlocked.has(`${l.id}.${i + 1}`)),
+      paired: !!pair,
+      hasGoals: goals.length > 0 || plans.length > 0,
+    }),
+    [metrics, evaluation, collected, pair, goals, plans],
+  );
+  const deck = useRef<HTMLDivElement>(null);
+  const pages = useRef<(HTMLDivElement | null)[]>([]);
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [index, setIndex] = useState(() => Math.max(0, views.findIndex((v) => v.binder.id === local.get(BINDER_KEY))));
+  const [height, setHeight] = useState<number | undefined>(undefined);
+  const [miniW, setMiniW] = useState(44);
+  const current = Math.min(index, views.length - 1);
+  const currentId = views[current]?.binder.id;
+
+  const goTo = (i: number, smooth = true) => {
+    const d = deck.current;
+    const p = pages.current[i];
+    if (!d || !p) return;
+    d.scrollTo({ left: p.offsetLeft - (d.clientWidth - p.clientWidth) / 2, behavior: smooth && !prefersReducedMotion() ? 'smooth' : 'auto' });
   };
+
+  // Open on the binder you last looked at.
+  useLayoutEffect(() => {
+    goTo(current, false);
+    // Once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Six minis fill a page's row: 52px at most, less on a narrow phone.
+  useLayoutEffect(() => {
+    const p = pages.current[0];
+    if (!p) return;
+    const fit = () => setMiniW(Math.max(34, Math.min(52, Math.floor((p.clientWidth - 32 - 5 * 6) / 6))));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(p);
+    return () => ro.disconnect();
+  }, []);
+
+  // The deck is as tall as the binder in front, not the tallest one.
+  useLayoutEffect(() => {
+    const p = pages.current[current];
+    if (!p) return;
+    const fit = () => setHeight(p.offsetHeight);
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(p);
+    return () => ro.disconnect();
+  }, [current, views]);
+
+  // Keep the chosen binder's chip in view, and remember the binder by its id (the order changes as binders light up).
+  useEffect(() => {
+    tabs.current[current]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (currentId) local.set(BINDER_KEY, currentId);
+  }, [current, currentId]);
+
+  const onScroll = () => {
+    const d = deck.current;
+    if (!d) return;
+    const mid = d.scrollLeft + d.clientWidth / 2;
+    let best = 0;
+    pages.current.forEach((p, i) => {
+      if (p && Math.abs(p.offsetLeft + p.clientWidth / 2 - mid) < Math.abs((pages.current[best]?.offsetLeft ?? 0) + (pages.current[best]?.clientWidth ?? 0) / 2 - mid)) best = i;
+    });
+    if (best !== current) setIndex(best);
+  };
+
   return (
-    <section aria-label="Binder" className="mt-7" data-tour="profile-binder">
-      <div className="mb-1 flex items-center justify-between gap-3">
-        <h2 className="text-[15px] font-semibold">Binder</h2>
-        <Button variant="ghost" className="min-h-10 px-3" onClick={onThemes} data-tour="profile-themes">Themes</Button>
+    <section aria-label="Binders" className="mt-7" data-tour="profile-binder">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h2 className="text-[15px] font-semibold">Binders</h2>
+        <span className="text-[13px] text-ink-3 tabular-nums" data-testid="binder-position">{current + 1} of {views.length}</span>
       </div>
-      {THEMES.map((t) => {
-        const ls = shown.filter((l) => l.theme === t.id);
-        if (!ls.length) return null;
-        return (
-          <Group key={t.id} title={`${t.emoji} ${t.label}`} count={count(ls)} testId={`group-${t.id}`}>
-            {ls.map((l) => <LadderRow key={l.id} ladder={l} onOpen={onOpen} />)}
-          </Group>
-        );
-      })}
-      {GROUPS.map((g) => {
-        const ls = shown.filter((l) => !l.theme && l.group === g.id);
-        if (!ls.length) return null;
-        return (
-          <Group key={g.id} title={`${g.emoji} ${g.title}`} count={count(ls)} testId={`group-${g.id}`}>
-            {ls.map((l) => <LadderRow key={l.id} ladder={l} onOpen={onOpen} />)}
-          </Group>
-        );
-      })}
-      <Secrets onOpen={onOpen} />
+      <div role="tablist" aria-label="Binders" className="no-scrollbar -mx-4 flex gap-1.5 overflow-x-auto px-4 pb-3" data-tour="profile-binder-tabs">
+        {views.map((v, i) => {
+          const Icon = BINDER_ICON[v.binder.id];
+          return (
+            <button
+              key={v.binder.id}
+              ref={(el) => { tabs.current[i] = el; }}
+              type="button"
+              role="tab"
+              aria-selected={i === current}
+              onClick={() => goTo(i)}
+              data-testid={`binder-tab-${v.binder.id}`}
+              className={cx(
+                'press inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium',
+                i === current ? 'bg-ink text-bg' : 'bg-s2 text-ink-2 hover:text-ink',
+                !v.active && i !== current && 'opacity-50',
+              )}
+            >
+              {Icon && <Icon size={14} aria-hidden />}
+              {v.binder.title}
+            </button>
+          );
+        })}
+      </div>
+      <div
+        ref={deck}
+        onScroll={onScroll}
+        className="binder-deck no-scrollbar -mx-4 flex snap-x snap-mandatory items-start gap-3 overflow-x-auto px-[6%]"
+        style={height ? { height } : undefined}
+      >
+        {views.map((v, i) => (
+          <div
+            key={v.binder.id}
+            ref={(el) => { pages.current[i] = el; }}
+            className="binder-page w-[88%] shrink-0 snap-center"
+            data-front={i === current}
+            // A tap on a binder peeking in at the side brings it to the front, without opening what was under the finger.
+            onClickCapture={i === current ? undefined : (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              goTo(i);
+            }}
+          >
+            <BinderPage view={v} front={i === current} miniW={miniW} onOpen={onOpen} onLink={() => onLink(v.binder.id)} />
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <Button variant="ghost" className="min-h-10 px-2.5" disabled={current === 0} onClick={() => goTo(current - 1)} aria-label="Previous binder">
+          <ChevronLeft size={18} aria-hidden /> <span className="max-w-[9rem] truncate">{views[current - 1]?.binder.title ?? ''}</span>
+        </Button>
+        <Button variant="ghost" className="min-h-10 px-2.5" disabled={current === views.length - 1} onClick={() => goTo(current + 1)} aria-label="Next binder">
+          <span className="max-w-[9rem] truncate">{views[current + 1]?.binder.title ?? ''}</span> <ChevronRight size={18} aria-hidden />
+        </Button>
+      </div>
     </section>
   );
 }
 
-function Group({ title, count, testId, children }: { title: string; count: string; testId: string; children: React.ReactNode }) {
+function BinderPage({ view, front, miniW, onOpen, onLink }: { view: BinderView; front: boolean; miniW: number; onOpen: (id: string) => void; onLink: () => void }) {
+  const { collected, evaluation } = useAchievements();
+  const { binder, active, linked, ladders, why } = view;
+  const Icon = BINDER_ICON[binder.id];
+  const secrets = binder.id === 'secrets';
+  const ids = secrets ? SECRETS.map((s) => s.id) : ladders.flatMap((l) => l.steps.map((_, i) => `${l.id}.${i + 1}`));
+  const have = ids.filter((id) => collected.has(id) || (secrets && evaluation.unlocked.has(id))).length;
+  const start = START[binder.id];
   return (
-    <div className="mt-4 rounded-2xl border border-line bg-s1 px-4 py-1" data-testid={testId}>
-      <div className="flex items-baseline justify-between gap-3 border-b border-line py-3">
-        <h3 className="text-[16px] font-semibold">{title}</h3>
-        <span className="text-[13px] text-ink-3 tabular-nums">{count}</span>
+    <div className={cx('rounded-2xl border border-line bg-s1 px-4 pb-1', !active && 'binder-off')} data-testid={`group-${binder.id}`} data-active={active}>
+      <div className="flex items-baseline justify-between gap-3 pt-3">
+        <h3 className="flex min-w-0 items-center gap-2 text-[17px] font-semibold">
+          {Icon && <Icon size={18} className="shrink-0 self-center text-ink-2" aria-hidden />}
+          <span className="truncate">{binder.title}</span>
+        </h3>
+        <span className="shrink-0 text-[13px] text-ink-3 tabular-nums">{secrets ? `${have} of ${ids.length} found` : `${have} / ${ids.length}`}</span>
       </div>
-      <div className="divide-y divide-line">{children}</div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line pt-1.5 pb-3 text-[13px]">
+        <span className={cx('rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-[0.08em] uppercase', binder.kind === 'targeted' ? 'bg-s3 text-ink' : 'bg-s2 text-ink-3')} data-testid="binder-kind">
+          {binder.kind === 'targeted' ? 'Targeted' : 'General'}
+        </span>
+        {binder.kind === 'targeted' ? (
+          <>
+            <span className="min-w-0 text-ink-2" data-testid="binder-linked">
+              {linked.length ? <>Linked: <span className="font-medium text-ink">{nameList(linked.map((m) => m.name))}</span></> : 'No metric linked'}
+            </span>
+            <button
+              type="button"
+              onClick={onLink}
+              data-tour={front ? 'profile-links' : undefined}
+              className="press ml-auto inline-flex min-h-9 items-center gap-1 rounded-lg px-2 font-medium text-ink-2 hover:bg-s2 hover:text-ink"
+            >
+              <Link2 size={15} aria-hidden /> {linked.length ? 'Change' : 'Link'}
+            </button>
+          </>
+        ) : (
+          <span className="text-ink-3">{COUNTS[binder.id]}</span>
+        )}
+      </div>
+      {!active && (
+        <div className="mt-3 rounded-xl bg-s2 p-3" data-testid="binder-why">
+          <p className="text-[14px] text-ink-2">{why}</p>
+          {binder.kind === 'targeted' ? (
+            <Button className="mt-2.5 bg-s3 hover:bg-raise" onClick={onLink}><Link2 size={16} aria-hidden /> Link a metric</Button>
+          ) : start ? (
+            <a href={start.href} className="press mt-2.5 inline-flex min-h-11 items-center rounded-lg bg-s3 px-4 text-[15px] font-medium hover:bg-raise">{start.label}</a>
+          ) : null}
+        </div>
+      )}
+      <div className={cx(!active && 'binder-off-cards')}>
+        {secrets ? <SecretRow miniW={miniW} onOpen={onOpen} /> : <div className="divide-y divide-line">{ladders.map((l) => <LadderRow key={l.id} ladder={l} miniW={miniW} onOpen={onOpen} />)}</div>}
+      </div>
     </div>
   );
 }
 
-function LadderRow({ ladder, onOpen }: { ladder: Ladder; onOpen: (id: string) => void }) {
+function LadderRow({ ladder, miniW, onOpen }: { ladder: Ladder; miniW: number; onOpen: (id: string) => void }) {
   const { evaluation, collected } = useAchievements();
   const ink = useTierInk();
   const best = evaluation.best.get(ladder.id) ?? 0;
@@ -371,7 +549,7 @@ function LadderRow({ ladder, onOpen }: { ladder: Ladder; onOpen: (id: string) =>
                 aria-label={`${s.name}, ${TIERS[i].name}, ${state === 'collected' ? 'collected' : state === 'ready' ? 'ready to collect' : 'locked'}`}
                 className="press block rounded-[10px]"
               >
-                <MiniCard def={achievementById.get(ids[i])!} state={state} />
+                <MiniCard def={achievementById.get(ids[i])!} state={state} w={miniW} />
               </button>
             </li>
           );
@@ -394,30 +572,22 @@ function LadderRow({ ladder, onOpen }: { ladder: Ladder; onOpen: (id: string) =>
   );
 }
 
-function Secrets({ onOpen }: { onOpen: (id: string) => void }) {
+function SecretRow({ miniW, onOpen }: { miniW: number; onOpen: (id: string) => void }) {
   const { evaluation, collected } = useAchievements();
-  const found = SECRETS.filter((s) => collected.has(s.id) || evaluation.unlocked.has(s.id)).length;
   return (
-    <div className="mt-4 rounded-2xl border border-line bg-s1 px-4 pb-4" data-testid="group-secrets">
-      <div className="flex items-baseline justify-between gap-3 border-b border-line py-3">
-        <h3 className="text-[16px] font-semibold">🤫 Secrets</h3>
-        <span className="text-[13px] text-ink-3">{found} of {SECRETS.length} found</span>
-      </div>
-      <p className="mt-3 text-[13px] text-ink-2">Hidden until you stumble into them. Tap one for a hint.</p>
-      <ul className="mt-3 grid grid-cols-6 justify-items-center gap-1.5">
-        {SECRETS.map((s) => {
-          const state = stateOf(s.id, collected, evaluation.unlocked);
-          const def = achievementById.get(s.id)!;
-          return (
-            <li key={s.id}>
-              <button type="button" onClick={() => onOpen(s.id)} aria-label={state === 'locked' ? 'Secret, locked' : `${s.name}, ${state === 'ready' ? 'ready to collect' : 'collected'}`} className="press block rounded-[10px]">
-                <MiniCard def={def} state={state} secretHidden />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+    <ul className="grid grid-cols-6 justify-items-center gap-1.5 pt-3 pb-3">
+      {SECRETS.map((s) => {
+        const state = stateOf(s.id, collected, evaluation.unlocked);
+        const def = achievementById.get(s.id)!;
+        return (
+          <li key={s.id}>
+            <button type="button" onClick={() => onOpen(s.id)} aria-label={state === 'locked' ? 'Secret, locked' : `${s.name}, ${state === 'ready' ? 'ready to collect' : 'collected'}`} className="press block rounded-[10px]">
+              <MiniCard def={def} state={state} secretHidden w={miniW} />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -516,15 +686,71 @@ function CardSheet({ id, onClose, onFlip }: { id: string | null; onClose: () => 
   );
 }
 
-// ── Themes ──────────────────────────────────────────────────────────────────
+// ── Linking metrics to binders ──────────────────────────────────────────────
 
-function ThemesSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** One binder: tick the metrics it counts. A metric sits in one binder, so ticking moves it here. */
+function LinkSheet({ id, onClose }: { id: ThemeId | null; onClose: () => void }) {
+  const { uid, metrics } = useData();
+  const active = metrics.filter((m) => !m.archivedAt);
+  const binder = id ? themeById.get(id) : undefined;
+  return (
+    <Sheet open={!!binder} onClose={onClose} title={binder ? `Link to ${binder.label}` : ''}>
+      {binder && id && (
+        <>
+          <p className="text-[14px] text-ink-2">
+            Tick the metrics this binder counts. Each metric sits in one binder, so ticking one here moves it from where it is now. Its whole history counts straight away, and cards you’ve collected stay yours.
+          </p>
+          {active.length === 0 ? (
+            <p className="mt-4 text-[14px] text-ink-3">Add a metric first.</p>
+          ) : (
+            <ul className="mt-4 flex flex-col gap-1" data-testid="link-list">
+              {active.map((m) => {
+                const Icon = iconFor(m.icon);
+                const now = themeOf(m);
+                const on = now === id;
+                const back = unlinkTarget(m, id);
+                const stuck = on && (back ?? themeFromIcon(m.icon)) === id;
+                return (
+                  <li key={m.id}>
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      disabled={stuck}
+                      onClick={() => setMetricTheme(uid, m.id, on ? back : id)}
+                      className="press flex min-h-12 w-full items-center gap-3 rounded-xl px-2 text-left hover:bg-s2 disabled:hover:bg-transparent"
+                    >
+                      <span className={cx('grid size-6 shrink-0 place-items-center rounded-md border', on ? 'border-ink bg-ink text-bg' : 'border-line')}>
+                        {on && <Check size={16} aria-hidden />}
+                      </span>
+                      <Icon size={18} className="shrink-0 text-ink-2" aria-hidden />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[15px]">{m.name}</span>
+                        <span className="block text-[12px] text-ink-3">
+                          {stuck ? 'Other is where unlinked metrics go' : on ? 'Linked here' : `Now in ${themeById.get(now)!.label}`}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <Button className="mt-4 w-full" onClick={onClose}>Done</Button>
+        </>
+      )}
+    </Sheet>
+  );
+}
+
+/** Every metric and the binder it's linked to, in one list. */
+function LinksSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { uid, metrics } = useData();
   const active = metrics.filter((m) => !m.archivedAt);
   return (
-    <Sheet open={open} onClose={onClose} title="Themes">
+    <Sheet open={open} onClose={onClose} title="Link metrics">
       <p className="text-[14px] text-ink-2">
-        A metric’s theme decides which themed cards it counts toward: time on a Study metric can earn Academic Menace, days on a Fitness one Gym Rat.
+        Each metric is linked to one targeted binder, which decides the themed cards it counts toward: time on a Study metric can earn Academic Menace, days on a Fitness one Gym Rat. General binders, like Streaks, count everything.
       </p>
       {active.length === 0 ? (
         <p className="mt-4 text-[14px] text-ink-3">Add a metric first.</p>
@@ -537,19 +763,19 @@ function ThemesSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
                 <Icon size={18} className="shrink-0 text-ink-2" aria-hidden />
                 <span className="min-w-0 flex-1 truncate text-[15px]">{m.name}</span>
                 <select
-                  aria-label={`Theme for ${m.name}`}
+                  aria-label={`Binder for ${m.name}`}
                   className={`${inputClass} w-auto max-w-[11rem] shrink-0`}
                   value={themeOf(m)}
                   onChange={(e) => setMetricTheme(uid, m.id, e.target.value as ThemeId)}
                 >
-                  {THEMES.map((t) => <option key={t.id} value={t.id}>{t.emoji} {t.label}</option>)}
+                  {THEMES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
                 </select>
               </li>
             );
           })}
         </ul>
       )}
-      <p className="mt-4 text-[13px] text-ink-3">Changing a theme moves that metric’s history to the new theme’s cards. Cards you’ve collected stay yours.</p>
+      <p className="mt-4 text-[13px] text-ink-3">Linked for you from each metric’s icon until you change it. Moving a metric moves its history to the new binder’s cards; cards you’ve collected stay yours.</p>
       <Button className="mt-4 w-full" onClick={onClose}>Done</Button>
     </Sheet>
   );

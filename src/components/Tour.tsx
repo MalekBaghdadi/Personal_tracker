@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useData } from '../state/DataContext';
 import { markTourSeen } from '../lib/repo';
-import { tourFor, type Tour, type TourStep } from '../lib/tours';
+import { tourFor, tourKey, type Tour, type TourStep } from '../lib/tours';
 
 const PAD = 6;
 const GAP = 12;
@@ -47,7 +47,7 @@ export function TourHost({ route }: { route: string }) {
   useEffect(() => {
     const tour = tourFor(route);
     if (!tour || active || !settings || !toursEnabled()) return;
-    if (seen?.includes(tour.id)) {
+    if (seen?.includes(tourKey(tour))) {
       finished.current.delete(tour.id); // replayed later from Settings
       return;
     }
@@ -69,7 +69,7 @@ export function TourHost({ route }: { route: string }) {
   const done = useCallback(() => {
     if (!active) return;
     finished.current.add(active.tour.id);
-    markTourSeen(uid, active.tour.id);
+    markTourSeen(uid, tourKey(active.tour));
     setActive(null);
   }, [active, uid]);
 

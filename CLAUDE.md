@@ -31,9 +31,12 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - A deadline goal or plan linked to a metric is drawn inside that metric's Today row (between bar and buttons), not as a
   card; the row also shows on days only the goal is scheduled, without changing either side's saved days or the streak.
 - Achievements (`lib/achievements.ts`, cards in `lib/achievementCatalog.ts`): unlocks are derived from the data; collecting a
-  card (`users/{uid}/achievements/{id}`) is the only stored fact, so card ids are never renamed. A metric's theme is its
-  `theme`, else its icon (`lib/themes.ts`), never its name, and must suit every user. Nothing rewards more water, food or sleep
-  than the target. The profile is shared with the Compete partner only while its switch is on.
+  card (`users/{uid}/achievements/{id}`) is the only stored fact, so card ids are never renamed. A metric's theme (its
+  targeted binder) is its `theme`, else its icon (`lib/themes.ts`), never its name, and must suit every user. Nothing rewards
+  more water, food or sleep than the target. The profile is shared with the Compete partner only while its switch is on.
+- Card art is a stained-glass enamel pin (`components/PinArt.tsx`), one icon per card in `lib/achievementArt.ts` (a new ladder
+  needs six there). No emoji on the profile; the catalog's emoji are only sent to partners on older apps. Binders
+  (`lib/binders.ts`): targeted ones count linked metrics, general ones everything; greyed binders go to the end.
 - On phones the Profile tab replaced Settings; Settings is unchanged behind Profile's gear (tests: Profile tab, then
   `main a[href="#/settings"]`).
 - New UI a new user should know about gets a `data-tour` marker and a step in `src/lib/tours.ts`.

@@ -6,6 +6,7 @@ import { xpOf } from '../lib/achievements';
 import { AchievementCard, CardBack, MiniCard, TIER_ON_DARK } from './AchievementCard';
 import { Confetti } from './Confetti';
 import { Button, cx, prefersReducedMotion } from './ui';
+import { rankIcon } from '../lib/achievementArt';
 
 /**
  * Collecting: each waiting card face down, one at a time. Tapping flips it
@@ -149,9 +150,10 @@ export function Reveal({ ids, onClose }: { ids: string[]; onClose: () => void })
 
 function LevelUp({ level }: { level: number }) {
   const rank = rankFor(level);
+  const Icon = rankIcon(rank.name);
   return (
     <p className="ach-pop rounded-xl bg-gradient-to-r from-[#e0a03a]/25 to-[#f472b6]/25 px-4 py-2 text-[15px] font-semibold" data-testid="level-up">
-      Level up! Level {level} · {rank.art} {rank.name}
+      Level up! Level {level} · <Icon size={17} className="-mt-0.5 inline" aria-hidden /> {rank.name}
     </p>
   );
 }

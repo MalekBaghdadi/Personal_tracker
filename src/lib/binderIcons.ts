@@ -1,0 +1,37 @@
+import {
+  BookOpen,
+  Clock3,
+  Cog,
+  Droplet,
+  Dumbbell,
+  EyeOff,
+  Flag,
+  Flame,
+  GraduationCap,
+  Laptop,
+  Leaf,
+  Moon,
+  Palette,
+  Sparkles,
+  Trophy,
+  type LucideIcon,
+} from 'lucide-react';
+
+/** Each binder's icon: the nine themes, the shared groups and Secrets. Kept apart and small: the metric editor uses it. */
+export const BINDER_ICON: Record<string, LucideIcon> = {
+  study: GraduationCap,
+  code: Laptop,
+  reading: BookOpen,
+  fitness: Dumbbell,
+  mind: Leaf,
+  creative: Palette,
+  health: Droplet,
+  sleep: Moon,
+  other: Sparkles,
+  streaks: Flame,
+  grind: Cog,
+  goals: Flag,
+  compete: Trophy,
+  habits: Clock3,
+  secrets: EyeOff,
+};

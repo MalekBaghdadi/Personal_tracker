@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bestText, evaluate, needFor, needOf, xpOf, type AchievementInput, type CompeteWin, type Finished } from './achievements';
 import { ACHIEVEMENTS, LADDERS, SECRETS, achievementById, levelFor, rankFor, xpForLevel } from './achievementCatalog';
 import { themeFromIcon, themeOf } from './themes';
+import { artOf, hasArt } from './achievementArt';
 import { buildDayStats } from './admin';
 import { dayOf } from './dates';
 import type { Entry, Metric } from './types';
@@ -86,11 +87,15 @@ describe('the catalogue', () => {
     expect(achievementById.get('study.session.6')?.tier).toBe(5);
     expect(SECRETS.length).toBe(16);
   });
-  it('no ladder shows the same main art twice', () => {
+  it('every card has its own pin art, and no ladder shows the same icon twice', () => {
+    for (const a of ACHIEVEMENTS) expect(hasArt(a.id), a.id).toBe(true);
     for (const l of LADDERS) {
-      const mains = l.steps.map((s) => s.art[0]);
-      expect(new Set(mains).size, l.id).toBe(mains.length);
+      const icons = l.steps.map((_, i) => artOf(`${l.id}.${i + 1}`).icon);
+      expect(new Set(icons).size, l.id).toBe(icons.length);
     }
+  });
+  it('still carries emoji for partners on an older app', () => {
+    for (const a of ACHIEVEMENTS) expect(a.art[0], a.id).toBeTruthy();
   });
   it('every theme has a days ladder; health and sleep have only that', () => {
     for (const t of ['study', 'code', 'reading', 'fitness', 'mind', 'creative', 'health', 'sleep', 'other']) {

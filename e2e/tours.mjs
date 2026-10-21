@@ -114,7 +114,8 @@ try {
     }
   }
   log('Profile tour steps:', profileTitles.join(' → '));
-  log('Nothing waiting, so no Ready to collect step:', !profileTitles.includes('Ready to collect') && profileTitles.includes('The binder'));
+  log('Nothing waiting, so no Ready to collect step:', !profileTitles.includes('Ready to collect') && profileTitles.includes('Your binders'));
+  log('Binder steps: targeted (linked metrics) and general:', profileTitles.includes('Targeted binders') && profileTitles.includes('General binders') && profileTitles.includes('All links at once'));
   await tourBtn('Done');
   await click('main a[href="#/settings"]');
   await wait(1300);

@@ -9,6 +9,7 @@ import { uuid } from '../lib/device';
 import { nowIso } from '../lib/dates';
 import { ICONS } from '../lib/icons';
 import { THEMES, themeFromIcon } from '../lib/themes';
+import { BINDER_ICON } from '../lib/binderIcons';
 import { PALETTE, hueFor } from '../lib/palette';
 import { formatNumber } from '../lib/format';
 import { Button, DayPicker, FieldError, Label, Segmented, Sheet, Switch, cx, inputClass, useToast } from './ui';
@@ -361,9 +362,11 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       </div>
 
       <div>
-        <Label>Theme</Label>
-        <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Theme">
-          {THEMES.map((t) => (
+        <Label>Achievement binder</Label>
+        <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Achievement binder">
+          {THEMES.map((t) => {
+            const BinderIcon = BINDER_ICON[t.id];
+            return (
             <button
               key={t.id}
               type="button"
@@ -375,13 +378,14 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
                 shownTheme === t.id ? 'bg-s3 text-ink ring-1 ring-ink/30' : 'bg-s2 text-ink-2 hover:text-ink',
               )}
             >
-              <span aria-hidden>{t.emoji}</span>
+              <BinderIcon size={15} className="shrink-0" aria-hidden />
               <span className="truncate">{t.label}</span>
             </button>
-          ))}
+            );
+          })}
         </div>
         <p className="mt-1.5 text-[13px] text-ink-3">
-          Which themed achievements it counts toward: time on a Study metric can earn Academic Menace.{achTheme ? '' : ' Until you pick one, it follows the icon.'}
+          The binder on your Profile this metric is linked to: time on a Study metric can earn Academic Menace.{achTheme ? '' : ' Linked for you from its icon until you pick one.'}
         </p>
       </div>
 

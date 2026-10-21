@@ -10,6 +10,7 @@ import { ThemeProvider } from './state/theme';
 import { useAppBadge } from './state/badge';
 import { SideNav, TabBar, TimerBar, UpdatePrompt } from './components/Chrome';
 import { AchievementBanner } from './components/AchievementBanner';
+import { PinDefs } from './components/PinDefs';
 import { ToastProvider, cx } from './components/ui';
 import { AuthScreen } from './screens/Auth';
 import { Onboarding } from './screens/Onboarding';
@@ -126,6 +127,7 @@ function Shell() {
                 <TabBar route={phoneTab} />
                 <TourHost route={route} />
                 <AchievementBanner />
+                <PinDefs />
               </div>
             )}
             <UpdatePrompt />

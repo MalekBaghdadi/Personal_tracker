@@ -17,8 +17,13 @@ export interface TourStep {
 export interface Tour {
   id: TourId;
   name: string;
+  /** Bumped when a tour changes enough to show again to people who saw the old one. */
+  rev?: number;
   steps: TourStep[];
 }
+
+/** How a tour is marked seen in settings.toursSeen: its id, plus its revision once it has one ('profile@2'). */
+export const tourKey = (t: Tour): string => (t.rev ? `${t.id}@${t.rev}` : t.id);
 
 export const TOURS: Tour[] = [
   {
@@ -103,12 +108,16 @@ export const TOURS: Tour[] = [
   {
     id: 'profile',
     name: 'Profile',
+    // 2: binders became a deck you swipe through, with targeted and general binders and linked metrics.
+    rev: 2,
     steps: [
       { title: 'Your profile', body: 'Achievements live here. Keep logging as usual and they unlock by themselves: long sessions, streaks, big days, goals finished, races won, and a few secrets.' },
       { target: 'profile-header', title: 'Level and title', body: 'Every card you collect gives XP, and levels come with a rank. Wear any card you’ve collected as your title.' },
       { target: 'profile-ready', title: 'Ready to collect', body: 'New achievements wait here face down. Tap one to flip it into your binder.' },
-      { target: 'profile-binder', title: 'The binder', body: 'Each row climbs from easy to brutal, Bronze to Mythic. Tap any card to see what it takes and how close you are.' },
-      { target: 'profile-themes', title: 'Themes', body: 'Each metric has a theme, like Study, Fitness or Reading, which picks the themed cards it counts toward. Change it here or in the metric’s editor.' },
+      { target: 'profile-binder', title: 'Your binders', body: 'Cards are kept in binders, one deck each. Swipe left and right to move between them, or tap a name above. Each row climbs from easy to brutal, Bronze to Mythic; tap any card to see what it takes.' },
+      { target: 'profile-links', title: 'Targeted binders', body: 'Study, Fitness, Health and the other theme binders only count the metrics linked to them. Links are made for you from each metric’s icon; tap Change to link different ones. A metric sits in one binder at a time.' },
+      { target: 'profile-binder-tabs', title: 'General binders', body: 'Streaks, The grind, Goals & plans, Compete, Odd hours & notes and Secrets count everything you log, so nothing is linked to them. A binder you can’t earn from yet is greyed out at the end, with what starts it.' },
+      { target: 'profile-themes', title: 'All links at once', body: 'See every metric and its binder here. You can also change a metric’s binder in its editor.' },
       { target: 'profile-share', title: 'Show it off', body: 'Paired in Compete? Let them see your title, level and showcase. Switch it off any time.' },
       { target: 'profile-settings', title: 'Settings', body: 'Settings live behind this gear: timezone, day start, export and restore, and these tutorials.' },
     ],

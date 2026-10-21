@@ -1,9 +1,13 @@
 import type { CSSProperties } from 'react';
 import { GROUPS, TIERS, type AchievementDef, type Tier } from '../lib/achievementCatalog';
 import { needOf } from '../lib/achievements';
+import { rankIcon } from '../lib/achievementArt';
+import { BINDER_ICON } from '../lib/binderIcons';
 import { themeById } from '../lib/themes';
 import { formatLocalDate } from '../lib/dates';
 import { useTheme } from '../state/theme';
+import { MiniBack } from './MiniBack';
+import { PinArt, SteelPin } from './PinArt';
 import { cx } from './ui';
 
 /*
@@ -28,22 +32,19 @@ export function useTierInk(): (tier: number) => string {
   return (tier) => INK[theme][tier] ?? INK[theme][0];
 }
 
-/** A round medallion: the worn card's art in its tier's metal, or the rank's emoji in plain steel. */
-export function Avatar({ art, tier, size = 64, label }: { art: string; tier: number | null; size?: number; label: string }) {
+/** A round medallion: the worn card's pin in its tier's metal, or the rank's icon on a plain steel coin. */
+export function Avatar({ worn, rank, size = 64, label }: { worn: { id: string; tier: number } | null | undefined; rank: string; size?: number; label: string }) {
   return (
-    <div className={cx('ach-avatar', tier !== null && `ach-t${tier}`)} style={{ width: size, height: size }} role="img" aria-label={label}>
-      <span style={{ fontSize: size * 0.48 }}>{art}</span>
+    <div className={cx('ach-avatar', worn && `ach-t${worn.tier}`)} style={{ width: size, height: size }} role="img" aria-label={label}>
+      <span>{worn ? <PinArt id={worn.id} tier={worn.tier} /> : <SteelPin icon={rankIcon(rank)} />}</span>
     </div>
   );
 }
 
-export function Art({ art, silhouette }: { art: readonly (string | undefined)[]; silhouette?: boolean }) {
+export function Art({ id, tier }: { id: string; tier: number }) {
   return (
     <div className="ach-art" aria-hidden>
-      <span className="ach-glyph">
-        <span className={cx('main', silhouette && 'ach-sil')}>{art[0]}</span>
-        {art[1] && <span className={cx('accent', silhouette && 'ach-sil')}>{art[1]}</span>}
-      </span>
+      <PinArt id={id} tier={tier} />
     </div>
   );
 }
@@ -56,16 +57,18 @@ function Pips({ tier }: { tier: number }) {
   );
 }
 
-/** Where a card lives, with its emoji: "🎓 Study", "🔥 Streaks", "🤫 Secret". */
-export function placeLabel(def: AchievementDef): string {
-  if (def.secret) return '🤫 Secret';
-  const l = def.ladder!;
-  if (l.theme) {
-    const t = themeById.get(l.theme)!;
-    return `${t.emoji} ${t.label}`;
-  }
-  const g = GROUPS.find((x) => x.id === l.group);
-  return g ? `${g.emoji} ${g.title}` : l.title;
+/** Where a card lives, with its binder's icon: Study, Streaks, Secret. */
+export function PlaceLabel({ def }: { def: AchievementDef }) {
+  const l = def.ladder;
+  const key = def.secret ? 'secrets' : l!.theme ?? l!.group;
+  const label = def.secret ? 'Secret' : l!.theme ? themeById.get(l!.theme)!.label : GROUPS.find((x) => x.id === l!.group)?.title ?? l!.title;
+  const Icon = BINDER_ICON[key];
+  return (
+    <span className="ach-place">
+      {Icon && <Icon aria-hidden />}
+      <span className="truncate">{label}</span>
+    </span>
+  );
 }
 
 const no = (n: number) => `#${String(n).padStart(3, '0')}`;
@@ -86,12 +89,12 @@ export function AchievementCard({ def, w = 260, on, locked, className }: { def: 
           <span>{TIERS[def.tier].name}</span>
           <Pips tier={def.tier} />
         </div>
-        {hidden ? <div className="ach-art"><span className="main ach-q">?</span></div> : <Art art={def.art} silhouette={locked} />}
+        {hidden ? <div className="ach-art"><span className="main ach-q">?</span></div> : <Art id={def.id} tier={def.tier} />}
         <div className="ach-name">{hidden ? '???' : def.name}</div>
         <div className="ach-need">{hidden ? def.secret!.hint : needOf(def)}</div>
         {locked ? <p className="ach-flavor opacity-60">Locked</p> : <p className="ach-flavor">“{def.flavor}”</p>}
         <div className="ach-foot">
-          <span className="truncate">{placeLabel(def)}</span>
+          <PlaceLabel def={def} />
           <span className="shrink-0">{on ? `${formatLocalDate(on, 'd MMM yyyy')} · ` : ''}{no(def.no)}</span>
         </div>
       </div>
@@ -118,14 +121,8 @@ export function CardBack({ tier, w = 260, label = 'Tap to flip', className }: { 
 export type CardState = 'collected' | 'ready' | 'locked';
 
 /** Art only: collected in full colour, ready face down with a glow, locked as a silhouette. */
-export function MiniCard({ def, state, w = 52, secretHidden }: { def: { tier: number; art: readonly (string | undefined)[] }; state: CardState; w?: number; secretHidden?: boolean }) {
-  if (state === 'ready') {
-    return (
-      <div aria-hidden className={cx('ach ach-mini ach-back ach-wait', `ach-t${def.tier}`)} style={width(w)}>
-        <div className="ach-face"><span className="ach-seal"><span>!</span></span></div>
-      </div>
-    );
-  }
+export function MiniCard({ def, state, w = 52, secretHidden }: { def: { id: string; tier: number }; state: CardState; w?: number; secretHidden?: boolean }) {
+  if (state === 'ready') return <MiniBack tier={def.tier} w={w} />;
   const locked = state === 'locked';
   return (
     <div aria-hidden className={cx('ach ach-mini', `ach-t${def.tier}`, locked && 'ach-locked')} style={width(w)}>
@@ -134,7 +131,7 @@ export function MiniCard({ def, state, w = 52, secretHidden }: { def: { tier: nu
         {locked && secretHidden ? (
           <div className="ach-art"><span className="main ach-q">?</span></div>
         ) : (
-          <Art art={def.art} silhouette={locked} />
+          <Art id={def.id} tier={def.tier} />
         )}
       </div>
       {!locked && def.tier >= 3 && <div className="ach-foil" />}

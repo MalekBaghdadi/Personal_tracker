@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, Download, LogOut, PlayCircle, Upload, Users } from 'lucide-react';
-import { TOURS } from '../lib/tours';
+import { TOURS, tourKey } from '../lib/tours';
 import { isAdmin } from '../lib/admin';
 import { signOut } from 'firebase/auth';
 import { auth } from '../lib/firebase';
@@ -130,7 +130,7 @@ export function Settings() {
               <Button
                 key={t.id}
                 onClick={() => {
-                  replayTour(uid, t.id);
+                  replayTour(uid, tourKey(t));
                   window.location.hash = tourHref(t.id)!;
                 }}
               >

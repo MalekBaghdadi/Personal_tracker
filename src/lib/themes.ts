@@ -9,21 +9,20 @@ import type { Metric, ThemeId } from './types';
 export interface Theme {
   id: ThemeId;
   label: string;
-  emoji: string;
   /** What belongs here, for the picker. */
   examples: string;
 }
 
 export const THEMES: Theme[] = [
-  { id: 'study', label: 'Study', emoji: '🎓', examples: 'Exams, courses, revision' },
-  { id: 'code', label: 'Code & work', emoji: '💻', examples: 'Coding, projects, deep work' },
-  { id: 'reading', label: 'Reading', emoji: '📚', examples: 'Books, articles, pages' },
-  { id: 'fitness', label: 'Fitness', emoji: '💪', examples: 'Gym, running, walking, sport' },
-  { id: 'mind', label: 'Mind', emoji: '🧘', examples: 'Meditation, journaling, calm' },
-  { id: 'creative', label: 'Creative', emoji: '🎨', examples: 'Music, art, writing, making' },
-  { id: 'health', label: 'Health', emoji: '💧', examples: 'Water, food, habits' },
-  { id: 'sleep', label: 'Sleep', emoji: '😴', examples: 'Bedtime, hours slept' },
-  { id: 'other', label: 'Other', emoji: '✨', examples: 'Anything else' },
+  { id: 'study', label: 'Study', examples: 'Exams, courses, revision' },
+  { id: 'code', label: 'Code & work', examples: 'Coding, projects, deep work' },
+  { id: 'reading', label: 'Reading', examples: 'Books, articles, pages' },
+  { id: 'fitness', label: 'Fitness', examples: 'Gym, running, walking, sport' },
+  { id: 'mind', label: 'Mind', examples: 'Meditation, journaling, calm' },
+  { id: 'creative', label: 'Creative', examples: 'Music, art, writing, making' },
+  { id: 'health', label: 'Health', examples: 'Water, food, habits' },
+  { id: 'sleep', label: 'Sleep', examples: 'Bedtime, hours slept' },
+  { id: 'other', label: 'Other', examples: 'Anything else' },
 ];
 
 export const themeById = new Map(THEMES.map((t) => [t.id, t]));
