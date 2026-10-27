@@ -1,5 +1,6 @@
 import { addDays, formatLocalDate, weekdayOf } from './dates';
-import { isHit, isScheduled, restDays, streakDays, weekOf } from './streaks';
+import { isHitOn, isScheduled, restDays, streakDays, weekOf } from './streaks';
+import { targetOn } from './targets';
 import { formatDuration, formatNumber, formatValue } from './format';
 import { themeById, themeOf } from './themes';
 import { LADDERS, TIERS, achievementById, type AchievementDef, type Ladder, type LadderKind, type SecretKey } from './achievementCatalog';
@@ -90,9 +91,10 @@ const byOn = <T extends { on: string }>(a: T, b: T) => (a.on < b.on ? -1 : a.on 
  */
 function counts(m: Metric, d: string, s: DayStat | undefined, today: string): boolean {
   if (!s || s.count === 0) return false;
-  if (m.target == null) return true;
-  if (m.targetDirection !== 'at_least' && d >= today) return false;
-  return isHit(m, s.total, s.count) === true;
+  const t = targetOn(m, d);
+  if (t.target == null) return true;
+  if (t.targetDirection !== 'at_least' && d >= today) return false;
+  return isHitOn(m, d, s.total, s.count) === true;
 }
 
 const clockCache = new Map<string, Intl.DateTimeFormat>();
@@ -299,7 +301,9 @@ export function evaluate(input: AchievementInput): Evaluation {
     const stats = statsOf(m);
     for (const d of sortedDays(stats)) {
       const t = stats.get(d)!.total;
-      overEvents.push({ on: d, value: t / m.target!, detail: `${formatValue(m, t)} of ${m.name}, target ${formatValue(m, m.target!)}` });
+      const day = targetOn(m, d); // the target that applied that day
+      if (day.targetDirection !== 'at_least' || !((day.target ?? 0) > 0)) continue;
+      overEvents.push({ on: d, value: t / day.target!, detail: `${formatValue(m, t)} of ${m.name}, target ${formatValue(m, day.target!)}` });
     }
   }
   record(ladder('over'), firstReaching(stepsOf(ladder('over')), overEvents.sort(byOn)));

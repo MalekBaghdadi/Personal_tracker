@@ -4,6 +4,7 @@ import { statsFor, useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
 import { addDays, dateRange, formatLocalDate } from '../lib/dates';
 import { computeStreaks, hitRate } from '../lib/streaks';
+import { targetOn } from '../lib/targets';
 import { formatDuration, formatNumber, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import { SessionNotes } from '../components/SessionNotes';
@@ -69,10 +70,13 @@ function MetricStats({ metric }: { metric: Metric }) {
         label: formatLocalDate(d, 'd MMM'),
         total: totals[i + 6],
         avg: window.reduce((a, b) => a + b, 0) / 7,
+        // The target in force that day, so the line steps when it was changed.
+        goal: targetOn(metric, d).target,
+        goalMin: targetOn(metric, d).targetMin ?? null,
       };
     });
     return { rows, periodTotal: rows.reduce((s, r) => s + r.total, 0) };
-  }, [stats, today]);
+  }, [stats, today, metric]);
 
   const streaks = useMemo(() => computeStreaks(metric, stats, today, data.weekStartsOn), [metric, stats, today, data.weekStartsOn]);
   // Don't judge days before the metric existed (or before its first entry, if backfilled).
@@ -81,11 +85,13 @@ function MetricStats({ metric }: { metric: Metric }) {
     const periodStart = addDays(today, -(PERIOD - 1));
     return hitRate(metric, stats, first > periodStart ? first : periodStart, today, data.weekStartsOn);
   }, [metric, stats, today, dayOf, data.weekStartsOn]);
-  const ticks = useMemo(() => niceTicks(metric, Math.max(metric.target ?? 0, ...rows.map((r) => r.total))), [metric, rows]);
+  const ticks = useMemo(() => niceTicks(metric, Math.max(metric.target ?? 0, ...rows.map((r) => Math.max(r.total, r.goal ?? 0)))), [metric, rows]);
   const fmt = (v: number) => (metric.type === 'duration' ? formatDuration(v) : `${formatNumber(Math.round(v))} ${metric.unit}`);
   // A check-off's days are 0 or 1: History's calendar shows them; a bar chart wouldn't add anything.
   const check = metric.type === 'check';
   const range = metric.targetDirection === 'between' && metric.target != null;
+  // A target changed within these days is drawn as a step, not one flat line.
+  const stepped = !!metric.targetHistory?.length;
 
   return (
     <section className="py-5" data-tour="stats-metric" aria-labelledby={`stats-${metric.id}`}>
@@ -151,8 +157,17 @@ function MetricStats({ metric }: { metric: Metric }) {
                 );
               }}
             />
-            {metric.target != null && <ReferenceLine y={metric.target} stroke="var(--ink-3)" strokeDasharray="4 3" />}
-            {range && metric.targetMin != null && <ReferenceLine y={metric.targetMin} stroke="var(--ink-3)" strokeDasharray="4 3" />}
+            {stepped ? (
+              <>
+                <Line dataKey="goal" type="stepAfter" stroke="var(--ink-3)" strokeDasharray="4 3" dot={false} activeDot={false} isAnimationActive={false} connectNulls={false} />
+                {range && <Line dataKey="goalMin" type="stepAfter" stroke="var(--ink-3)" strokeDasharray="4 3" dot={false} activeDot={false} isAnimationActive={false} connectNulls={false} />}
+              </>
+            ) : (
+              <>
+                {metric.target != null && <ReferenceLine y={metric.target} stroke="var(--ink-3)" strokeDasharray="4 3" />}
+                {range && metric.targetMin != null && <ReferenceLine y={metric.targetMin} stroke="var(--ink-3)" strokeDasharray="4 3" />}
+              </>
+            )}
             <Bar dataKey="total" fill={hue} radius={[3, 3, 0, 0]} maxBarSize={14} isAnimationActive={false} />
             <Line dataKey="avg" type="monotone" stroke="var(--ink-2)" strokeWidth={2} dot={false} activeDot={false} isAnimationActive={false} />
           </ComposedChart>

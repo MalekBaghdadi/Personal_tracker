@@ -1,5 +1,5 @@
 import { addDays, weekdayOf } from './dates';
-import { isHit, isScheduled } from './streaks';
+import { isHitOn, isScheduled } from './streaks';
 import type { DayStats, Goal, Metric } from './types';
 
 /**
@@ -80,7 +80,7 @@ export function reviewWeek(
         if (!isScheduled(metric.schedule, d)) continue;
         scheduled++;
         const s = stats.get(d);
-        if (isHit(metric, s?.total ?? 0, s?.count ?? 0)) hits++;
+        if (isHitOn(metric, d, s?.total ?? 0, s?.count ?? 0)) hits++;
       }
       // The review covers exactly one week: up to the rest allowance of misses aren't due days.
       scheduled -= Math.min(metric.restDaysPerWeek ?? 0, scheduled - hits);

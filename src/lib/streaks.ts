@@ -1,7 +1,8 @@
 import { addDays, weekdayOf } from './dates';
-import type { DayStats, Metric, Schedule } from './types';
+import { targetOn } from './targets';
+import type { DayStats, Metric, Schedule, TargetSpec } from './types';
 
-type TargetFields = Pick<Metric, 'target' | 'targetDirection' | 'schedule'> & Partial<Pick<Metric, 'restDaysPerWeek' | 'restDates' | 'targetMin'>>;
+type TargetFields = Pick<Metric, 'target' | 'targetDirection' | 'schedule'> & Partial<Pick<Metric, 'restDaysPerWeek' | 'restDates' | 'targetMin' | 'targetHistory' | 'targetFrom'>>;
 type WeekStart = 0 | 1;
 
 export function isScheduled(schedule: Schedule, localDate: string): boolean {
@@ -14,16 +15,21 @@ export function isScheduled(schedule: Schedule, localDate: string): boolean {
  * would read as success. A range counts both ends. Returns null when the
  * metric has no target.
  */
-export function isHit(metric: TargetFields, total: number, count: number): boolean | null {
+export function isHit(metric: TargetSpec, total: number, count: number): boolean | null {
   if (metric.target == null) return null;
   if (metric.targetDirection === 'at_least') return total >= metric.target;
   if (metric.targetDirection === 'between') return count > 0 && total >= (metric.targetMin ?? 0) && total <= metric.target;
   return count > 0 && total <= metric.target;
 }
 
+/** Whether a day met the target that was in force on it. */
+export function isHitOn(metric: TargetFields, date: string, total: number, count: number): boolean | null {
+  return isHit(targetOn(metric, date), total, count);
+}
+
 function hitOn(metric: TargetFields, stats: DayStats, date: string): boolean {
   const s = stats.get(date);
-  return isHit(metric, s?.total ?? 0, s?.count ?? 0) === true;
+  return isHitOn(metric, date, s?.total ?? 0, s?.count ?? 0) === true;
 }
 
 function earliest(stats: DayStats): string | null {

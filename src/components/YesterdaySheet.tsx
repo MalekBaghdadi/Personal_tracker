@@ -5,6 +5,7 @@ import { useHue } from '../state/theme';
 import { addEntry, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
 import { addDays, formatLocalDate } from '../lib/dates';
 import { isHit, isScheduled, streakDays } from '../lib/streaks';
+import { targetOn } from '../lib/targets';
 import { formatChip, formatRange, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import { EntrySheet, type EntrySheetState } from './EntrySheet';
@@ -102,7 +103,9 @@ function Row({
   const day = stats.get(date);
   const total = day?.total ?? 0;
   const scheduled = isScheduled(metric.schedule, date);
-  const hit = isHit(metric, total, day?.count ?? 0);
+  // The target that applied on that day, not necessarily today's.
+  const t = targetOn(metric, date);
+  const hit = isHit(t, total, day?.count ?? 0);
   const [minus, setMinus] = useState(false);
   const lastTap = useRef(0);
 
@@ -137,20 +140,20 @@ function Row({
   };
 
   const check = metric.type === 'check';
-  const range = metric.targetDirection === 'between';
+  const range = t.targetDirection === 'between';
   let status: string;
-  if (metric.target == null) status = 'No target';
+  if (t.target == null) status = 'No target';
   else if (hit) status = priorRun > 0 ? `${check ? 'Done' : range ? 'In range' : 'Target met'} · streak kept (${priorRun + 1} days)` : check ? 'Done' : range ? 'In range' : 'Target met';
   else if (check) status = priorRun > 0 ? `Mark it done to restore your ${priorRun}-day streak` : 'Not done';
-  else if (range && total > 0 && total < (metric.targetMin ?? 0)) {
-    const short = formatValue(metric, (metric.targetMin ?? 0) - total);
+  else if (range && total > 0 && total < (t.targetMin ?? 0)) {
+    const short = formatValue(metric, (t.targetMin ?? 0) - total);
     status = priorRun > 0 ? `${short} more restores your ${priorRun}-day streak` : `${short} short of the range`;
-  } else if (range && total > metric.target) status = `${formatValue(metric, total - metric.target)} over the range`;
-  else if (metric.targetDirection === 'at_least') {
-    const short = formatValue(metric, metric.target - total);
+  } else if (range && total > t.target) status = `${formatValue(metric, total - t.target)} over the range`;
+  else if (t.targetDirection === 'at_least') {
+    const short = formatValue(metric, t.target - total);
     status = priorRun > 0 ? `${short} more restores your ${priorRun}-day streak` : `${short} short of the target`;
   } else {
-    status = total === 0 ? (priorRun > 0 ? `Log it to restore your ${priorRun}-day streak` : 'Nothing logged') : `${formatValue(metric, total - metric.target)} over the ceiling`;
+    status = total === 0 ? (priorRun > 0 ? `Log it to restore your ${priorRun}-day streak` : 'Nothing logged') : `${formatValue(metric, total - t.target)} over the ceiling`;
   }
 
   return (
@@ -163,8 +166,8 @@ function Row({
         {!check && (
           <span className={cx('shrink-0 text-[17px] font-medium', total === 0 && 'text-ink-3')}>
             {formatValue(metric, total)}
-            {metric.target != null && (
-              <span className="text-[13px] font-normal text-ink-3"> / {range ? formatRange(metric, metric.targetMin ?? 0, metric.target) : formatValue(metric, metric.target)}</span>
+            {t.target != null && (
+              <span className="text-[13px] font-normal text-ink-3"> / {range ? formatRange(metric, t.targetMin ?? 0, t.target) : formatValue(metric, t.target)}</span>
             )}
           </span>
         )}

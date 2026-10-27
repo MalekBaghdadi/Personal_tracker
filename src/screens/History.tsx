@@ -5,7 +5,8 @@ import { usePlans } from '../state/PlansContext';
 import { Inline, TaskSheet, TickButton } from '../components/Plans';
 import { useHue } from '../state/theme';
 import { addDays, formatLocalDate, formatTimeIn, weekdayOf } from '../lib/dates';
-import { isHit, isScheduled, restDays, streakDays, streakLevel } from '../lib/streaks';
+import { targetOn } from '../lib/targets';
+import { isHitOn, isScheduled, restDays, streakDays, streakLevel } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { entryRows, mergedLabel } from '../lib/entryRows';
 import { EntrySheet, sourceLabel, type EntrySheetState } from '../components/EntrySheet';
@@ -40,7 +41,7 @@ function monthSummary(metric: Metric, stats: DayStats, days: string[], today: st
       const s = stats.get(d);
       if (s) acc.total += s.total;
       if (d <= today && d >= since && isScheduled(metric.schedule, d) && !rest.has(d)) {
-        const h = isHit(metric, s?.total ?? 0, s?.count ?? 0);
+        const h = isHitOn(metric, d, s?.total ?? 0, s?.count ?? 0);
         if (h) acc.hits++;
         // Today only counts once it's a hit, so the month doesn't dip every morning.
         if (d < today || h) acc.scheduled++;
@@ -253,7 +254,7 @@ function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; 
           const total = s?.total ?? 0;
           const isRest = rest.has(d);
           const scheduled = isScheduled(metric.schedule, d) && !isRest;
-          const hit = isHit(metric, total, s?.count ?? 0);
+          const hit = isHitOn(metric, d, total, s?.count ?? 0);
           // GitHub-style: each day further into a streak is brighter. A logged
           // day that isn't part of one gets a faint tint. No target, no streaks:
           // shade by amount instead.
@@ -349,7 +350,7 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
           let streakSum = 0;
           for (const m of shown) {
             const s = statsFor(data, m.id).get(d);
-            const hit = isHit(m, s?.total ?? 0, s?.count ?? 0);
+            const hit = isHitOn(m, d, s?.total ?? 0, s?.count ?? 0);
             // streakDays holds every due day, rest days left out.
             const counts = m.target != null && (streaks.get(m.id)?.has(d) ?? false) && d >= sinces.get(m.id)! && (d < today || hit);
             if (counts) {
@@ -619,7 +620,8 @@ function PlanTasksSection({ date }: { date: string }) {
 function DayGroup({ metric, entries, date, onEdit }: { metric: Metric; entries: Entry[]; date: string; onEdit: (s: EntrySheetState) => void }) {
   const hue = useHue(metric.color);
   const total = metric.type === 'check' ? Math.min(1, entries.length) : entries.reduce((s, e) => s + e.value, 0);
-  const hit = isHit(metric, total, entries.length);
+  const hit = isHitOn(metric, date, total, entries.length);
+  const direction = targetOn(metric, date).targetDirection;
   const { today } = useData();
   return (
     <section aria-label={metric.name}>
@@ -630,8 +632,8 @@ function DayGroup({ metric, entries, date, onEdit }: { metric: Metric; entries: 
         </h3>
         <span className="text-[14px]">
           <span className="font-medium">{metric.type === 'check' ? 'Done' : formatValue(metric, total)}</span>
-          {hit === true && metric.type !== 'check' && (metric.targetDirection === 'at_least' || date < today) && <span className="text-ink-3"> · {metric.targetDirection === 'between' ? 'in range' : 'target met'}</span>}
-          {hit === false && date < today && <span className="text-ink-3"> · {metric.targetDirection === 'between' ? 'out of range' : 'target missed'}</span>}
+          {hit === true && metric.type !== 'check' && (direction === 'at_least' || date < today) && <span className="text-ink-3"> · {direction === 'between' ? 'in range' : 'target met'}</span>}
+          {hit === false && date < today && <span className="text-ink-3"> · {direction === 'between' ? 'out of range' : 'target missed'}</span>}
         </span>
       </div>
       <EntryList metric={metric} entries={entries} onEdit={onEdit} />

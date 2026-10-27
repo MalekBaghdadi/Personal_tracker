@@ -1,5 +1,6 @@
 import { addDays } from './dates';
-import { isHit, isScheduled, restDays, weekOf } from './streaks';
+import { isHitOn, isScheduled, restDays, weekOf } from './streaks';
+import { targetOn } from './targets';
 import type { DayStats, Entry, Metric, MetricType } from './types';
 
 /*
@@ -178,10 +179,10 @@ export function shareMetric(metric: Metric, stats: DayStats, from: string, today
     const s = stats.get(d);
     const t = s?.total ?? 0;
     let status: DayStatus;
-    if (metric.target == null) status = 'n';
+    if (targetOn(metric, d).target == null) status = 'n';
     else if (!isScheduled(metric.schedule, d) || d < since) status = 'o';
     else if (rest.has(d)) status = 'r';
-    else status = isHit(metric, t, s?.count ?? 0) ? 'h' : 'd';
+    else status = isHitOn(metric, d, t, s?.count ?? 0) ? 'h' : 'd';
     if (t > 0 || status === 'h' || status === 'd' || status === 'r') days[d] = { t, s: status };
   }
   return { name: metric.name, type: metric.type, unit: metric.unit, target: metric.target, color: metric.color, icon: metric.icon, days };

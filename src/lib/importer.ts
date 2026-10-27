@@ -1,5 +1,5 @@
 import { achievementById } from './achievementCatalog';
-import type { CalendarItem, CollectedAchievement, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Schedule } from './types';
+import type { CalendarItem, CollectedAchievement, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Schedule, TargetVersion } from './types';
 
 /**
  * Restoring a JSON export. Import only ever adds: a document whose id is
@@ -104,6 +104,15 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
       createdAt: isStr(m.createdAt) ? m.createdAt : now,
       updatedAt: now,
     };
+    // Earlier targets are kept only when well formed; otherwise the current target applies throughout.
+    const history = arr(m.targetHistory).filter((v): v is TargetVersion =>
+      isObj(v) && (v.from === null || isStr(v.from)) && (v.target === null || typeof v.target === 'number')
+      && (v.targetDirection === 'at_least' || v.targetDirection === 'at_most' || v.targetDirection === 'between'));
+    if (history.length && isStr(m.targetFrom)) metric.targetHistory = history;
+    else {
+      delete metric.targetHistory;
+      delete metric.targetFrom;
+    }
     plan.metrics.push(metric);
     resolved.set(m.id, metric);
     byName.set(nameKey(metric), metric);

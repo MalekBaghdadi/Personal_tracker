@@ -6,12 +6,13 @@ import { sideMetricIds } from '../lib/compete';
 import { useTheme } from '../state/theme';
 import { deleteMetric, saveMetric, setArchived } from '../lib/repo';
 import { uuid } from '../lib/device';
-import { nowIso } from '../lib/dates';
+import { formatLocalDate, nowIso } from '../lib/dates';
+import { changeTarget, targetPeriods } from '../lib/targets';
 import { ICONS } from '../lib/icons';
 import { THEMES, themeFromIcon } from '../lib/themes';
 import { BINDER_ICON } from '../lib/binderIcons';
 import { PALETTE, hueFor } from '../lib/palette';
-import { formatNumber } from '../lib/format';
+import { formatNumber, formatTarget } from '../lib/format';
 import { Button, DayPicker, FieldError, Label, Segmented, Sheet, Switch, cx, inputClass, useToast } from './ui';
 import { CountInput, DurationInput, parseCount, parseDuration, splitDuration } from './inputs';
 import type { Metric, MetricType, Schedule, TargetDirection, ThemeId } from '../lib/types';
@@ -30,7 +31,7 @@ function quickAddToText(m: Pick<Metric, 'type' | 'quickAdd'>): string {
 }
 
 function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () => void; onGoal?: (metricId: string) => void }) {
-  const { uid, metrics, entries, timer, settings, goals } = useData();
+  const { uid, metrics, entries, timer, settings, goals, today, dayOf } = useData();
   const theme = useTheme();
   const toast = useToast();
 
@@ -50,6 +51,11 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const [minHours, setMinHours] = useState(minSplit.hours);
   const [minMinutes, setMinMinutes] = useState(minSplit.minutes);
   const [minCount, setMinCount] = useState(initial?.targetMin != null && initial.type === 'count' ? String(initial.targetMin) : '');
+  // Editing the target of an existing metric asks from which day the new one applies; earlier days keep theirs.
+  const targetKey = [direction, tHours, tMinutes, tCount, minHours, minMinutes, minCount].join('|');
+  const [initialKey] = useState(targetKey);
+  const targetEdited = !!initial && targetKey !== initialKey;
+  const [applyFrom, setApplyFrom] = useState(today);
   const [schedule, setSchedule] = useState<Schedule>(initial?.schedule ?? { kind: 'daily' });
   const [timerEnabled, setTimerEnabled] = useState(initial?.timerEnabled ?? true);
   const [restPerWeek, setRestPerWeek] = useState(initial?.restDaysPerWeek ?? 0);
@@ -117,6 +123,8 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       errs.quick = 'Use positive numbers separated by commas.';
     } else if (quickAdd.length > 5) errs.quick = 'Up to five buttons.';
     if ((check || (range && type !== 'duration')) && raced) errs.target = 'This metric is in a Compete race, which needs an “at least” amount or a time range. Take it out of the race first.';
+    if (initial && targetEdited && !check && !/^\d{4}-\d{2}-\d{2}$/.test(applyFrom)) errs.from = 'Pick the day the new target starts.';
+    else if (initial && targetEdited && !check && applyFrom > today) errs.from = 'The new target can start today at the latest.';
     if (check && activeGoal) errs.target = 'This metric has a deadline goal, which adds up amounts. Archive the goal first.';
 
     if (schedule.kind === 'days_of_week' && schedule.days.length === 0) errs.schedule = 'Pick at least one day, or choose every day.';
@@ -124,14 +132,18 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
     if (Object.keys(errs).length) return;
 
     const now = nowIso();
+    const nextTarget = { target, targetDirection: check ? 'at_least' as const : direction, targetMin };
+    // Days before the chosen one keep the target they had. A check-off's target is always 1, so it replaces the old amounts outright.
+    const firstDay = initial ? entries.reduce((min, e) => (e.metricId === initial.id && e.localDate < min ? e.localDate : min), dayOf(initial.createdAt)) : today;
+    const targetFields = initial && (targetEdited || (check && initial.type !== 'check'))
+      ? changeTarget(initial, nextTarget, check ? firstDay : applyFrom, firstDay)
+      : { ...nextTarget, ...(initial?.targetHistory?.length ? { targetHistory: initial.targetHistory, targetFrom: initial.targetFrom ?? null } : {}) };
     const metric: Metric = {
       id: initial?.id ?? uuid(),
       name: trimmed,
       type,
       unit: type === 'duration' ? 'min' : check ? 'days' : unit.trim(),
-      target,
-      targetDirection: check ? 'at_least' : direction,
-      targetMin,
+      ...targetFields,
       schedule,
       timerEnabled: type === 'duration' && timerEnabled,
       restDaysPerWeek: Math.min(restPerWeek, maxRest),
@@ -277,8 +289,31 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
           <p className="mt-1.5 text-[13px] text-ink-3">
             {direction === 'at_most' ? 'A day counts only if you logged something and stayed at or under. ' : ''}
             {direction === 'between' ? 'A day counts only if you logged something and ended up between the two, both included. ' : 'Leave blank for no target. '}
-            Changing a target recalculates past streaks against the new value.
+            {initial ? 'Changing a target only affects the days from the date you choose; earlier days keep the target they had.' : ''}
           </p>
+          {targetEdited && (
+            <div className="mt-3">
+              <Label htmlFor="m-from">New target applies from</Label>
+              <input id="m-from" type="date" className={inputClass} value={applyFrom} max={today} onChange={(e) => setApplyFrom(e.target.value)} />
+              <FieldError>{errors.from}</FieldError>
+              <p className="mt-1.5 text-[13px] text-ink-3">Pick an earlier day to fix the past. Targets you set after that day are replaced.</p>
+            </div>
+          )}
+          {initial && (initial.targetHistory?.length ?? 0) > 0 && (
+            <p className="mt-3 text-[13px] text-ink-2">Target history</p>
+          )}
+          {initial && (initial.targetHistory?.length ?? 0) > 0 && (
+            <ul className="mt-1 divide-y divide-line border-y border-line text-[13px]" aria-label="Target history">
+              {targetPeriods(initial).map((p, i) => (
+                <li key={i} className="flex justify-between gap-3 py-1.5">
+                  <span>{formatTarget({ ...initial, ...p }) ?? 'No target'}</span>
+                  <span className="text-ink-3">
+                    {p.from && p.to ? `${formatLocalDate(p.from, 'd MMM')} – ${formatLocalDate(p.to, 'd MMM')}` : p.to ? `until ${formatLocalDate(p.to, 'd MMM')}` : `from ${formatLocalDate(p.from!, 'd MMM')}`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

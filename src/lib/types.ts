@@ -10,6 +10,18 @@ export type Schedule =
 /** What a metric is about, for themed achievements (lib/themes.ts). */
 export type ThemeId = 'study' | 'code' | 'reading' | 'fitness' | 'mind' | 'creative' | 'health' | 'sleep' | 'other';
 
+/** A metric's target as it was for a stretch of days (the fields a day is judged against). */
+export interface TargetSpec {
+  target: number | null;
+  targetDirection: TargetDirection;
+  targetMin?: number | null;
+}
+
+/** An earlier target, in force from `from` (null: since the start) until the next version began. */
+export interface TargetVersion extends TargetSpec {
+  from: string | null;
+}
+
 export interface Metric {
   id: string;
   name: string;
@@ -20,6 +32,14 @@ export interface Metric {
   targetDirection: TargetDirection;
   /** Lower bound, only for 'between' (target is then the upper bound). Base unit. */
   targetMin?: number | null;
+  /**
+   * Targets this metric had before the current one, oldest first, so a day is
+   * judged against the target in force on it (`targetOn`), not today's. Absent:
+   * the current target has always applied.
+   */
+  targetHistory?: TargetVersion[];
+  /** First day the current target applies. Absent or null: since the start. */
+  targetFrom?: string | null;
   schedule: Schedule;
   timerEnabled: boolean;
   /** Due days a week that may be missed without breaking the streak. Absent or 0: none. */

@@ -7,7 +7,7 @@ import { buildDayStats, fetchProfiles, fetchUserData, isAdmin, type UserData } f
 import { DEFAULT_DAY_START_HOUR, addDays, dayOf, deviceTimezone, formatLocalDate, todayIn, weekdayOf } from '../lib/dates';
 import { computePlan, planStatusLabel } from '../lib/plans';
 import { PlanBar } from '../components/Plans';
-import { computeStreaks, isHit, isScheduled } from '../lib/streaks';
+import { computeStreaks, isHitOn, isScheduled } from '../lib/streaks';
 import { computeGoal } from '../lib/goals';
 import { formatTarget, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
@@ -294,7 +294,7 @@ function MetricCard({ metric, stats, today, weekStartsOn }: { metric: Metric; st
         {days.map((d) => {
           const s = stats.get(d);
           const due = isScheduled(metric.schedule, d);
-          const hit = s ? isHit(metric, s.total, s.count) : null;
+          const hit = s ? isHitOn(metric, d, s.total, s.count) : null;
           const full = s && (hit === true || hit === null);
           return (
             <li key={d} className="text-center">
