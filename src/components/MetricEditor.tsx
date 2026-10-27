@@ -68,8 +68,9 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const entryIds = initial ? entries.filter((e) => e.metricId === initial.id).map((e) => e.id) : [];
   const goalIds = initial ? goals.filter((g) => g.metricId === initial.id).map((g) => g.id) : [];
   const activeGoal = initial ? goals.find((g) => g.metricId === initial.id && !g.archivedAt) : undefined;
-  // Compete races "at least" amounts and goals add amounts up: a check-off or
-  // a range can be neither, so a metric in use there can't become one.
+  // Compete races "at least" amounts (or time ranges) and goals add amounts up:
+  // a check-off can be neither, and a range of counts can't be raced, so a
+  // metric in use there can't become one.
   const { pair, links } = useCompete();
   const raced = !!initial && !!pair && !pair.endedAt && links.some((l) => !l.endedAt && sideMetricIds(l, uid).includes(initial.id));
 
@@ -115,7 +116,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
     if (quickAdd.some((v) => !Number.isFinite(v) || v <= 0 || (type === 'count' && !Number.isInteger(v)))) {
       errs.quick = 'Use positive numbers separated by commas.';
     } else if (quickAdd.length > 5) errs.quick = 'Up to five buttons.';
-    if ((check || range) && raced) errs.target = 'This metric is in a Compete race, which needs an “at least” amount. Take it out of the race first.';
+    if ((check || (range && type !== 'duration')) && raced) errs.target = 'This metric is in a Compete race, which needs an “at least” amount or a time range. Take it out of the race first.';
     if (check && activeGoal) errs.target = 'This metric has a deadline goal, which adds up amounts. Archive the goal first.';
 
     if (schedule.kind === 'days_of_week' && schedule.days.length === 0) errs.schedule = 'Pick at least one day, or choose every day.';

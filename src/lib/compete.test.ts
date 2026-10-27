@@ -404,4 +404,8 @@ describe('sides with several metrics', () => {
     expect(canJoin(pages, { type: 'count' }, 'chapters')).toBe(false);
     expect(canJoin(metric({ targetDirection: 'at_most' }), { type: 'duration' }, 'h')).toBe(false);
   });
+  it('a time range can be raced, a range of counts or a ceiling can\u2019t', () => {
+    expect(canJoin(metric({ id: 'r', targetDirection: 'between', targetMin: H, target: 4 * H }), { type: 'duration' }, 'h')).toBe(true);
+    expect(canJoin(metric({ id: 'c', type: 'count', unit: 'kcal', targetDirection: 'between', targetMin: 1800, target: 2200 }), { type: 'count' }, 'kcal')).toBe(false);
+  });
 });

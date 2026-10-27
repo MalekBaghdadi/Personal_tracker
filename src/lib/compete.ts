@@ -150,11 +150,14 @@ export interface Score {
 }
 
 /**
- * A metric can be raced on when more is better; a ceiling or a range
- * (calories) has no sensible winner. Check-offs aren't raced (yet): their
- * days are 0 or 1, and an older partner app wouldn't know the type.
+ * A metric can be raced on when more is better, or when it's a time range
+ * (study 1 to 4 hours): the total still counts, and a target day is a day
+ * inside the range. A ceiling, or a range of counts (calories), has no
+ * sensible winner. Check-offs aren't raced (yet): their days are 0 or 1, and
+ * an older partner app wouldn't know the type.
  */
-export const canLink = (m: Metric): boolean => !m.archivedAt && m.targetDirection === 'at_least' && m.type !== 'check';
+export const canLink = (m: Metric): boolean =>
+  !m.archivedAt && (m.targetDirection === 'at_least' ? m.type !== 'check' : m.targetDirection === 'between' && m.type === 'duration');
 
 /** A metric can be added to a side when it can be summed with it: time with time, or counts of the same unit. */
 export const canJoin = (m: Metric, link: Pick<Link, 'type'>, unit: string): boolean =>

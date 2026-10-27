@@ -550,7 +550,7 @@ function TeamForm({ link }: { link: Link }) {
         </form>
       ) : (
         <p className="text-[14px] text-ink-2">
-          No other {first.type === 'duration' ? 'time' : first.unit} metrics to add. Races take “at least” metrics of the same kind, each on one race at a time.
+          No other {first.type === 'duration' ? 'time' : first.unit} metrics to add. Races take “at least” metrics (or time ranges) of the same kind, each on one race at a time.
         </p>
       )}
       <p className="-mt-2 text-[13px] text-ink-3">
@@ -650,7 +650,7 @@ function LinkForm({ onDone }: { onDone: () => void }) {
   const metric = free.find((m) => m.id === metricId);
   if (!pair) return null;
   if (free.length === 0) {
-    return <p className="mt-2 text-[15px] text-ink-2">All your metrics that can be raced on are already linked. Races work on “at least” metrics, like study time.</p>;
+    return <p className="mt-2 text-[15px] text-ink-2">All your metrics that can be raced on are already linked. Races work on “at least” metrics and time ranges, like study time.</p>;
   }
   return (
     <form noValidate className="mt-2 flex flex-col gap-4" onSubmit={(e) => {
@@ -689,7 +689,7 @@ function LinkRequest({ link }: { link: Link }) {
         <span className="font-medium">{partnerName}</span> wants to race {theirs ? <>their <span className="font-medium">{theirs}</span></> : <>a {typeWord(link.type)} metric</>}.
       </p>
       {options.length === 0 ? (
-        <p className="mt-2 text-[14px] text-ink-2">You have no free “at least” {typeWord(link.type)} metric to race with. Create one under Metrics, then come back.</p>
+        <p className="mt-2 text-[14px] text-ink-2">You have no free {typeWord(link.type)} metric to race with. Create one under Metrics, then come back.</p>
       ) : (
         <>
           <Label htmlFor={`lr-${link.id}`}><span className="mt-3 block">Race it against your</span></Label>
