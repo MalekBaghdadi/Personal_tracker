@@ -689,7 +689,7 @@ function LinkRequest({ link }: { link: Link }) {
         <span className="font-medium">{partnerName}</span> wants to race {theirs ? <>their <span className="font-medium">{theirs}</span></> : <>a {typeWord(link.type)} metric</>}.
       </p>
       {options.length === 0 ? (
-        <p className="mt-2 text-[14px] text-ink-2">You have no free {typeWord(link.type)} metric to race with. Create one under Metrics, then come back.</p>
+        <p className="mt-2 text-[14px] text-ink-2">You have no free {link.type === 'duration' ? '“at least” or range time' : '“at least” count'} metric to race with. Create one under Metrics, then come back.</p>
       ) : (
         <>
           <Label htmlFor={`lr-${link.id}`}><span className="mt-3 block">Race it against your</span></Label>
