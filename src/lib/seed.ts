@@ -26,11 +26,13 @@ export const SUGGESTIONS: Seed[] = [
   { name: 'Meditation', type: 'duration', unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: true, quickAdd: [5 * MIN, 10 * MIN, 20 * MIN], icon: 'Leaf' },
   { name: 'Coding', type: 'duration', unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: true, quickAdd: [30 * MIN, 60 * MIN], icon: 'Code' },
   { name: 'Language practice', type: 'duration', unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: true, quickAdd: [10 * MIN, 15 * MIN, 30 * MIN], icon: 'Languages' },
+  { name: 'Quotes', type: 'phrase', unit: 'phrases', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: false, quickAdd: [], icon: 'Quote' },
   { name: 'Music practice', type: 'duration', unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: true, quickAdd: [15 * MIN, 30 * MIN], icon: 'Guitar' },
 ];
 
 /** A user's own first-run metric: a name and a kind, everything else defaulted. */
 export function customSeed(name: string, type: Metric['type'], unit: string): Seed {
+  if (type === 'phrase') return { name, type, unit: 'phrases', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: false, quickAdd: [], icon: 'Quote' };
   if (type === 'check') return { name, type, unit: 'days', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: false, quickAdd: [], icon: 'Target' };
   return type === 'duration'
     ? { name, type, unit: 'min', targetDirection: 'at_least', schedule: { kind: 'daily' }, timerEnabled: true, quickAdd: [15 * MIN, 30 * MIN, 60 * MIN], icon: 'Target' }
@@ -63,8 +65,10 @@ export function finishSetup(uid: string, picks: (Seed & { target: number | null 
       name: p.name,
       type: p.type,
       unit: p.unit,
-      // A check-off is done or not: its target is always 1.
-      target: p.type === 'check' ? 1 : p.target,
+      // A check-off is done or not: its target is always 1. A phrase metric always asks for at least one a day.
+      target: p.type === 'check' ? 1 : p.type === 'phrase' ? p.target ?? 1 : p.target,
+      // A phrase metric starts in the Phrases binder.
+      ...(p.type === 'phrase' ? { theme: 'wisdom' as const } : {}),
       targetDirection: p.targetDirection,
       schedule: p.schedule,
       timerEnabled: p.timerEnabled,

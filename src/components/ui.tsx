@@ -204,7 +204,9 @@ export function Segmented<T extends string | number>({
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
           className={cx(
-            'press relative min-h-10 flex-1 rounded-md px-3 text-[14px] font-medium',
+            // Four or more options share the width: tighter padding, and labels never wrap.
+            'press relative min-h-10 flex-1 rounded-md text-[14px] font-medium whitespace-nowrap',
+            options.length > 3 ? 'px-1' : 'px-3',
             value === o.value ? 'text-ink' : 'text-ink-2 hover:text-ink',
           )}
         >

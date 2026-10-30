@@ -133,6 +133,7 @@ import {
   Piano,
   Pin,
   Plus,
+  Quote,
   Rainbow,
   Rat,
   Repeat,
@@ -229,6 +230,10 @@ const LADDER_ART: Record<string, Art[]> = {
   'creative.days': [[PencilLine, 'yellow'], [Magnet, 'red'], [Piano, 'ivory'], [FolderOpen, 'yellow'], [Ticket, 'orange'], [Palette, 'orange']],
   'health.days': [[Droplet, 'blue'], [Salad, 'green'], [Stethoscope, 'teal'], [Fuel, 'green'], [ShieldPlus, 'green'], [Castle, 'ivory']],
   'sleep.days': [[Bed, 'blue'], [Cloud, 'ivory'], [CloudMoon, 'purple'], [BedSingle, 'blue'], [Crown, 'yellow'], [Hourglass, 'yellow']],
+  'wisdom.phrases': [[Feather, 'ivory'], [Backpack, 'orange'], [Quote, 'blue'], [NotebookPen, 'brown'], [ScrollText, 'brown'], [Library, 'purple']],
+  'wisdom.reviews': [[Eye, 'teal'], [Repeat, 'blue'], [Satellite, 'ivory'], [RotateCcwClock, 'purple'], [Sprout, 'green'], [Brain, 'pink']],
+  'wisdom.recall': [[Mic, 'ivory'], [BookHeart, 'pink'], [Megaphone, 'orange'], [Footprints, 'brown'], [Castle, 'ivory'], [Scroll, 'brown']],
+  'wisdom.days': [[CalendarCheck, 'green'], [Lamp, 'yellow'], [BookOpenText, 'blue'], [WandSparkles, 'purple'], [Crown, 'yellow'], [Sparkles, 'yellow']],
   'other.session': [[Flame, 'orange'], [ScanEye, 'teal'], [WavesHorizontal, 'blue'], [Clock, 'ivory'], [Cog, 'ivory'], [Skull, 'ivory']],
   'other.hours': [[Compass, 'teal'], [Pin, 'red'], [Badge, 'yellow'], [Award, 'yellow'], [Shield, 'blue'], [Mountain, 'brown']],
   'other.days': [[Egg, 'ivory'], [Calendar, 'red'], [BrickWall, 'brown'], [TrainFront, 'red'], [Trophy, 'yellow'], [CalendarDays, 'red']],
@@ -265,6 +270,9 @@ const SECRET_ART: Record<SecretKey, Art> = {
   earlyFinisher: [Gauge, 'teal'],
   phoenix: [Bird, 'teal'],
   mondayPerson: [Cat, 'orange'],
+  revisionSpree: [Tornado, 'orange'],
+  wordPerfect: [BadgeCheck, 'green'],
+  longBreath: [Wind, 'teal'],
 };
 
 const FALLBACK: Art = [Sparkles, 'ivory'];

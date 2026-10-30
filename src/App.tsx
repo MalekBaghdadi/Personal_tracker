@@ -25,21 +25,22 @@ const Admin = lazy(() => import('./screens/Admin').then((m) => ({ default: m.Adm
 const Compete = lazy(() => import('./screens/Compete').then((m) => ({ default: m.Compete })));
 const Profile = lazy(() => import('./screens/Profile').then((m) => ({ default: m.Profile })));
 import { Metrics } from './screens/Metrics';
+import { Phrases } from './screens/Phrases';
 import { TourHost } from './components/Tour';
 import { Settings } from './screens/Settings';
 
-export type Route = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'profile' | 'settings' | 'goals' | 'plans' | 'admin';
-const ROUTES: Route[] = ['today', 'history', 'stats', 'compete', 'metrics', 'profile', 'settings', 'goals', 'plans', 'admin'];
+export type Route = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'profile' | 'settings' | 'goals' | 'plans' | 'admin' | 'phrases';
+const ROUTES: Route[] = ['today', 'history', 'stats', 'compete', 'metrics', 'profile', 'settings', 'goals', 'plans', 'admin', 'phrases'];
 
 /**
  * `#/history/2026-10-02` → day '2026-10-02'; `#/goals/<id>` → goal id; `#/plans/<id>` → plan id; `#/admin/<uid>` → user id;
- * `#/profile/collect` → the profile, straight into collecting.
+ * `#/profile/collect` → the profile, straight into collecting; `#/phrases/<id>` → a phrase metric's collection.
  */
 function readRoute(): { route: Route; day: string | null; id: string | null } {
   const [r, param] = window.location.hash.replace(/^#\/?/, '').split('/') as [Route, string | undefined];
   const route = ROUTES.includes(r) ? r : 'today';
   const day = route === 'history' && param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param : null;
-  const id = (route === 'goals' || route === 'plans' || route === 'admin' || route === 'profile') && param ? param : null;
+  const id = (route === 'goals' || route === 'plans' || route === 'admin' || route === 'profile' || route === 'phrases') && param ? param : null;
   return { route, day, id };
 }
 
@@ -82,8 +83,8 @@ function Shell() {
   const { ready, settings, timer } = useData();
   const { route, day, id } = useRoute();
   useAppBadge();
-  // The goal screen hangs off Metrics, where the Goals list lives; admin off Settings.
-  const tab: Route = route === 'goals' || route === 'plans' ? 'metrics' : route === 'admin' ? 'settings' : route;
+  // The goal screen hangs off Metrics, where the Goals list lives; admin off Settings; a collection off Today.
+  const tab: Route = route === 'goals' || route === 'plans' ? 'metrics' : route === 'admin' ? 'settings' : route === 'phrases' ? 'today' : route;
   // On phones Settings has no tab of its own: it opens from the profile.
   const phoneTab: Route = tab === 'settings' ? 'profile' : tab;
 
@@ -122,6 +123,7 @@ function Shell() {
                     {route === 'goals' && <Suspense fallback={null}><GoalDetail id={id} /></Suspense>}
                     {route === 'plans' && <Suspense fallback={null}><PlanDetail id={id} /></Suspense>}
                     {route === 'admin' && <Suspense fallback={null}><Admin id={id} /></Suspense>}
+                    {route === 'phrases' && <Phrases id={id} />}
                   </main>
                 </div>
                 <TabBar route={phoneTab} />

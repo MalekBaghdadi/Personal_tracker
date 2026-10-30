@@ -31,7 +31,7 @@ function quickAddToText(m: Pick<Metric, 'type' | 'quickAdd'>): string {
 }
 
 function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () => void; onGoal?: (metricId: string) => void }) {
-  const { uid, metrics, entries, timer, settings, goals, today, dayOf } = useData();
+  const { uid, metrics, entries, reviews, timer, settings, goals, today, dayOf } = useData();
   const theme = useTheme();
   const toast = useToast();
 
@@ -45,7 +45,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const tSplit = initial?.target != null && initial.type === 'duration' ? splitDuration(initial.target) : { hours: '', minutes: '' };
   const [tHours, setTHours] = useState(tSplit.hours);
   const [tMinutes, setTMinutes] = useState(tSplit.minutes);
-  const [tCount, setTCount] = useState(initial?.target != null && initial.type === 'count' ? String(initial.target) : '');
+  const [tCount, setTCount] = useState(initial?.target != null && (initial.type === 'count' || initial.type === 'phrase') ? String(initial.target) : '');
   // A range's lower end; the fields above are then its upper end.
   const minSplit = initial?.targetMin != null && initial.type === 'duration' ? splitDuration(initial.targetMin) : { hours: '', minutes: '' };
   const [minHours, setMinHours] = useState(minSplit.hours);
@@ -67,12 +67,13 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const [icon, setIcon] = useState(initial?.icon ?? 'Target');
   // Unset, the theme follows the icon (themeOf); picking one stores it.
   const [achTheme, setAchTheme] = useState<ThemeId | undefined>(initial?.theme);
-  const shownTheme = achTheme ?? themeFromIcon(icon);
+  const shownTheme = achTheme ?? (type === 'phrase' ? 'wisdom' : themeFromIcon(icon));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const entryIds = initial ? entries.filter((e) => e.metricId === initial.id).map((e) => e.id) : [];
   const goalIds = initial ? goals.filter((g) => g.metricId === initial.id).map((g) => g.id) : [];
+  const reviewIds = initial ? reviews.filter((r) => r.metricId === initial.id).map((r) => r.id) : [];
   const activeGoal = initial ? goals.find((g) => g.metricId === initial.id && !g.archivedAt) : undefined;
   // Compete races "at least" amounts (or time ranges) and goals add amounts up:
   // a check-off can be neither, and a range of counts can't be raced, so a
@@ -83,8 +84,14 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const changeType = (t: MetricType) => {
     if (t === type) return;
     setType(t);
-    if (t !== 'check') setQuick(t === 'duration' ? '15, 30, 60' : '1, 5, 10');
+    if (t !== 'check' && t !== 'phrase') setQuick(t === 'duration' ? '15, 30, 60' : '1, 5, 10');
     if (t !== 'duration') setTimerEnabled(false);
+    if (t === 'phrase') {
+      // A phrase metric asks for a number of phrases a day, at least; one is the usual start.
+      setDirection('at_least');
+      if (!tCount.trim()) setTCount('1');
+      if (icon === 'Target') setIcon('Quote');
+    } else if (icon === 'Quote' && !initial) setIcon('Target');
   };
 
   const save = () => {
@@ -93,13 +100,17 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
     if (!trimmed) errs.name = 'Give it a name.';
     if (type === 'count' && !unit.trim()) errs.unit = 'Name the unit, such as kcal or pages.';
     const check = type === 'check';
-    const range = !check && direction === 'between';
+    const phrase = type === 'phrase';
+    const range = !check && !phrase && direction === 'between';
 
     // A check-off's target is always 1: the day is done or it isn't.
     let target: number | null = check ? 1 : null;
     let targetMin: number | null = null;
     if (check) {
       // Nothing to read.
+    } else if (phrase) {
+      target = parseCount(tCount);
+      if (!(target > 0)) errs.target = 'Enter a whole number of phrases above zero.';
     } else if (type === 'duration') {
       if (tHours.trim() || tMinutes.trim()) {
         target = parseDuration(tHours, tMinutes);
@@ -117,7 +128,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       else if (!(target > targetMin!)) errs.target = 'The upper end has to be more than the lower end.';
     }
 
-    const parts = check ? [] : quick.split(/[,\s]+/).filter(Boolean);
+    const parts = check || phrase ? [] : quick.split(/[,\s]+/).filter(Boolean);
     const quickAdd = parts.map(Number);
     if (quickAdd.some((v) => !Number.isFinite(v) || v <= 0 || (type === 'count' && !Number.isInteger(v)))) {
       errs.quick = 'Use positive numbers separated by commas.';
@@ -132,7 +143,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
     if (Object.keys(errs).length) return;
 
     const now = nowIso();
-    const nextTarget = { target, targetDirection: check ? 'at_least' as const : direction, targetMin };
+    const nextTarget = { target, targetDirection: check || phrase ? 'at_least' as const : direction, targetMin };
     // Days before the chosen one keep the target they had. A check-off's target is always 1, so it replaces the old amounts outright.
     const firstDay = initial ? entries.reduce((min, e) => (e.metricId === initial.id && e.localDate < min ? e.localDate : min), dayOf(initial.createdAt)) : today;
     const targetFields = initial && (targetEdited || (check && initial.type !== 'check'))
@@ -142,7 +153,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       id: initial?.id ?? uuid(),
       name: trimmed,
       type,
-      unit: type === 'duration' ? 'min' : check ? 'days' : unit.trim(),
+      unit: type === 'duration' ? 'min' : check ? 'days' : phrase ? 'phrases' : unit.trim(),
       ...targetFields,
       schedule,
       timerEnabled: type === 'duration' && timerEnabled,
@@ -152,7 +163,8 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       quickAdd: [...new Set(quickAdd.map((v) => (type === 'duration' ? Math.round(v * 60) : v)))].sort((a, b) => a - b),
       color,
       icon,
-      ...(achTheme ? { theme: achTheme } : {}),
+      // A phrase metric is linked to the Phrases binder up front, so changing its icon later never drops it.
+      ...(achTheme ? { theme: achTheme } : phrase ? { theme: 'wisdom' as const } : {}),
       order: initial?.order ?? metrics.reduce((max, m) => Math.max(max, m.order + 1), 0),
       archivedAt: initial?.archivedAt ?? null,
       createdAt: initial?.createdAt ?? now,
@@ -167,7 +179,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
     const n = entryIds.length;
     const g = goalIds.length;
     const parts = [
-      ...(n > 0 ? [`${formatNumber(n)} ${n === 1 ? 'entry' : 'entries'}`] : []),
+      ...(n > 0 ? [`${formatNumber(n)} ${initial.type === 'phrase' ? (n === 1 ? 'phrase' : 'phrases') : n === 1 ? 'entry' : 'entries'}`] : []),
       ...(g > 0 ? [`${g} deadline ${g === 1 ? 'goal' : 'goals'}`] : []),
     ];
     return (
@@ -181,7 +193,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
           <Button
             variant="danger"
             onClick={() => {
-              deleteMetric(uid, initial.id, entryIds, timer?.metricId === initial.id ? timer : null, goalIds);
+              deleteMetric(uid, initial.id, entryIds, timer?.metricId === initial.id ? timer : null, goalIds, reviewIds);
               toast(`Deleted ${initial.name}`);
               onDone();
             }}
@@ -218,8 +230,8 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
           <div className="text-[15px]">
             {initial?.type === 'check' || type !== 'check' ? (
               <p>
-                {type === 'duration' ? 'Time' : type === 'count' ? 'A number' : 'Check off'}
-                <span className="block text-[13px] text-ink-3">Fixed once entries exist{type !== 'check' ? ', except for switching to check off' : ''}.</span>
+                {type === 'duration' ? 'Time' : type === 'count' ? 'A number' : type === 'phrase' ? 'Phrases' : 'Check off'}
+                <span className="block text-[13px] text-ink-3">Fixed once entries exist{type !== 'check' && type !== 'phrase' ? ', except for switching to check off' : ''}.</span>
               </p>
             ) : (
               <p>
@@ -227,7 +239,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
                 <span className="block text-[13px] text-ink-3">Every day with anything logged counts as done, so your streak and history stay. This can’t be switched back.</span>
               </p>
             )}
-            {initial && initial.type !== 'check' && (
+            {initial && initial.type !== 'check' && initial.type !== 'phrase' && (
               <button
                 type="button"
                 onClick={() => changeType(type === 'check' ? initial.type : 'check')}
@@ -238,9 +250,14 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
             )}
           </div>
         ) : (
-          <Segmented label="Measured as" value={type} onChange={changeType} options={[{ value: 'duration', label: 'Time' }, { value: 'count', label: 'A number' }, { value: 'check', label: 'Check off' }]} />
+          <Segmented label="Measured as" value={type} onChange={changeType} options={[{ value: 'duration', label: 'Time' }, { value: 'count', label: 'A number' }, { value: 'check', label: 'Check off' }, { value: 'phrase', label: 'Phrases' }]} />
         )}
         {type === 'check' && entryIds.length === 0 && <p className="mt-1.5 text-[13px] text-ink-3">Done or not done: one tap on Today, no amounts.</p>}
+        {type === 'phrase' && entryIds.length === 0 && (
+          <p className="mt-1.5 text-[13px] text-ink-3">
+            Collect a quote, saying or hadith a day. Each day you also review one from before, and a day only counts when both are done.
+          </p>
+        )}
       </div>
 
       {type === 'count' && (
@@ -255,8 +272,8 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
         errors.target && <FieldError>{errors.target}</FieldError>
       ) : (
         <div>
-          <Label>Daily target</Label>
-          <Segmented label="Target direction" value={direction} onChange={setDirection} options={[{ value: 'at_least', label: 'At least' }, { value: 'at_most', label: 'At most' }, { value: 'between', label: 'Range' }]} />
+          <Label>{type === 'phrase' ? 'Phrases to add each day' : 'Daily target'}</Label>
+          {type !== 'phrase' && <Segmented label="Target direction" value={direction} onChange={setDirection} options={[{ value: 'at_least', label: 'At least' }, { value: 'at_most', label: 'At most' }, { value: 'between', label: 'Range' }]} />}
           {direction === 'between' ? (
             <div className="mt-2 flex flex-col gap-2">
               <div>
@@ -281,14 +298,15 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
               {type === 'duration' ? (
                 <DurationInput idPrefix="m-target" hours={tHours} minutes={tMinutes} onHours={setTHours} onMinutes={setTMinutes} />
               ) : (
-                <CountInput id="m-target" value={tCount} onChange={setTCount} unit={unit || 'units'} />
+                <CountInput id="m-target" value={tCount} onChange={setTCount} unit={type === 'phrase' ? 'phrases' : unit || 'units'} />
               )}
             </div>
           )}
           <FieldError>{errors.target}</FieldError>
           <p className="mt-1.5 text-[13px] text-ink-3">
+            {type === 'phrase' ? 'At least this many. The day counts once they’re added and the day’s review is done. ' : ''}
             {direction === 'at_most' ? 'A day counts only if you logged something and stayed at or under. ' : ''}
-            {direction === 'between' ? 'A day counts only if you logged something and ended up between the two, both included. ' : 'Leave blank for no target. '}
+            {type === 'phrase' ? '' : direction === 'between' ? 'A day counts only if you logged something and ended up between the two, both included. ' : 'Leave blank for no target. '}
             {initial ? 'Changing a target only affects the days from the date you choose; earlier days keep the target they had.' : ''}
           </p>
           {targetEdited && (
@@ -350,7 +368,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
 
       {type === 'duration' && <Switch checked={timerEnabled} onChange={setTimerEnabled} label="Show a start/stop timer" />}
 
-      {type !== 'check' && (
+      {type !== 'check' && type !== 'phrase' && (
         <div>
           <Label htmlFor="m-quick">One-tap buttons ({type === 'duration' ? 'minutes' : unit || 'units'})</Label>
           <input id="m-quick" className={inputClass} inputMode="text" value={quick} onChange={(e) => setQuick(e.target.value)} placeholder="15, 30, 60" />

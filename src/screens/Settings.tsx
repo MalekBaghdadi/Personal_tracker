@@ -28,7 +28,7 @@ function allTimezones(current: string): string[] {
 }
 
 export function Settings() {
-  const { uid, user, settings, tz, dayStart, metrics, entries, items, goals, timer, dayOf } = useData();
+  const { uid, user, settings, tz, dayStart, metrics, entries, reviews, items, goals, timer, dayOf } = useData();
   const allPlans = usePlans();
   const planExport = { plans: allPlans.plans, planSections: allPlans.sections, planTasks: allPlans.tasks };
   const { collected } = useAchievements();
@@ -41,6 +41,10 @@ export function Settings() {
     if (id === 'plans') {
       const p = allPlans.plans.find((x) => !x.archivedAt);
       return p ? `#/plans/${p.id}` : null;
+    }
+    if (id === 'phrases') {
+      const m = metrics.find((x) => x.type === 'phrase' && !x.archivedAt);
+      return m ? `#/phrases/${m.id}` : null;
     }
     return `#/${id}`;
   };
@@ -115,7 +119,7 @@ export function Settings() {
             {plural(entries.length, 'entry', 'entries')} across {plural(metrics.length, 'metric')}, archived ones included, plus {plural(items.length, 'event or reminder', 'events and reminders')} and {plural(goals.length, 'goal')}. Durations are in seconds.
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button onClick={() => exportJson(metrics, entries, items, goals, settings, planExport, [...collected.values()])}><Download size={17} /> JSON</Button>
+            <Button onClick={() => exportJson(metrics, entries, items, goals, settings, planExport, [...collected.values()], reviews)}><Download size={17} /> JSON</Button>
             <Button onClick={() => exportCsv(metrics, entries, items, goals, planExport, dayOf)}><Download size={17} /> CSV</Button>
           </div>
         </section>

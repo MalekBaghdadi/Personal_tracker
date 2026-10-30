@@ -1,10 +1,11 @@
 import { addDays, formatLocalDate, weekdayOf } from './dates';
-import { isHitOn, isScheduled, restDays, streakDays, weekOf } from './streaks';
+import { isHitDay, isScheduled, restDays, streakDays, weekOf } from './streaks';
 import { targetOn } from './targets';
 import { formatDuration, formatNumber, formatValue } from './format';
 import { themeById, themeOf } from './themes';
 import { LADDERS, TIERS, achievementById, type AchievementDef, type Ladder, type LadderKind, type SecretKey } from './achievementCatalog';
-import type { DayStat, DayStats, Entry, Metric } from './types';
+import { REMEMBERED } from './phrases';
+import type { DayStat, DayStats, Entry, Metric, Review } from './types';
 
 /*
  * Which achievements are unlocked, worked out from the data every time, like
@@ -36,6 +37,8 @@ export interface AchievementInput {
   metrics: Metric[];
   /** Non-deleted. */
   entries: Entry[];
+  /** Non-deleted phrase reviews. */
+  reviews: Review[];
   /** metricId → day → totals, check-offs counted as 1 (buildDayStats). */
   dayStats: Map<string, DayStats>;
   today: string;
@@ -94,7 +97,7 @@ function counts(m: Metric, d: string, s: DayStat | undefined, today: string): bo
   const t = targetOn(m, d);
   if (t.target == null) return true;
   if (t.targetDirection !== 'at_least' && d >= today) return false;
-  return isHitOn(m, d, s.total, s.count) === true;
+  return isHitDay(m, d, s) === true;
 }
 
 const clockCache = new Map<string, Intl.DateTimeFormat>();
@@ -126,6 +129,11 @@ export function evaluate(input: AchievementInput): Evaluation {
     .filter((e) => byId.has(e.metricId) && e.localDate <= today)
     .sort((a, b) => a.localDate.localeCompare(b.localDate) || a.occurredAt.localeCompare(b.occurredAt));
   const timers = entries.filter((e) => e.source === 'timer' && byId.get(e.metricId)!.type === 'duration');
+  // Phrase reviews of metrics we know, up to today, in the order they happened.
+  const reviews = input.reviews
+    .filter((r) => byId.has(r.metricId) && r.localDate <= today)
+    .sort((a, b) => a.localDate.localeCompare(b.localDate) || a.createdAt.localeCompare(b.createdAt));
+  const phraseOf = new Map(entries.filter((e) => e.text).map((e) => [e.id, e.text!]));
   const statsOf = (m: Metric): DayStats => dayStats.get(m.id) ?? new Map();
   const sortedDays = (s: DayStats) => [...s.keys()].filter((d) => d <= today).sort();
 
@@ -205,6 +213,16 @@ export function evaluate(input: AchievementInput): Evaluation {
         sum += e.value;
         return { on: e.localDate, value: sum, detail: across || null };
       })));
+    } else if (l.kind === 'phrases' || l.kind === 'reviews' || l.kind === 'recall') {
+      const ids = new Set(mine.filter((m) => m.type === 'phrase').map((m) => m.id));
+      let n = 0;
+      const events: Event[] =
+        l.kind === 'phrases'
+          ? entries.filter((e) => ids.has(e.metricId) && e.text).map((e) => ({ on: e.localDate, value: ++n, detail: quote(e.text!) }))
+          : reviews
+            .filter((r) => ids.has(r.metricId) && (l.kind === 'reviews' || (r.mode === 'type' && (r.score ?? 0) >= REMEMBERED)))
+            .map((r) => ({ on: r.localDate, value: ++n, detail: phraseOf.has(r.entryId) ? quote(phraseOf.get(r.entryId)!) : null }));
+      record(l, firstReaching(steps, events));
     } else if (l.kind === 'days') {
       const days = new Map<string, string[]>();
       for (const m of mine) {
@@ -294,7 +312,7 @@ export function evaluate(input: AchievementInput): Evaluation {
   record(ladder('bigWeek'), firstReaching(stepsOf(ladder('bigWeek')), weekEvents));
 
   // At-least amounts only, and not Health or Sleep: double the water or the sleep isn't an achievement.
-  const amounts = metrics.filter((m) => m.targetDirection === 'at_least' && m.type !== 'check' && (m.target ?? 0) > 0);
+  const amounts = metrics.filter((m) => m.targetDirection === 'at_least' && m.type !== 'check' && m.type !== 'phrase' && (m.target ?? 0) > 0);
   const overMetrics = amounts.filter((m) => theme.get(m.id) !== 'health' && theme.get(m.id) !== 'sleep');
   const overEvents: Event[] = [];
   for (const m of overMetrics) {
@@ -403,6 +421,18 @@ export function evaluate(input: AchievementInput): Evaluation {
   const essay = noted.find((e) => e.note!.trim().length >= 200);
   secret('essayist', essay && { on: essay.localDate, detail: `${essay.note!.trim().length} characters` });
 
+  const perDayReviews = new Map<string, number>();
+  for (const r of reviews) {
+    const n = (perDayReviews.get(r.localDate) ?? 0) + 1;
+    perDayReviews.set(r.localDate, n);
+    if (n === 5 && !unlocked.has('secret.revisionSpree')) secret('revisionSpree', { on: r.localDate, detail: '5 reviews in one day' });
+  }
+  const wordPerfect = (words: number) => reviews.find((r) => r.mode === 'type' && r.style === 'full' && r.score === 1 && r.hints === 0 && r.words >= words);
+  const flawless = wordPerfect(10);
+  secret('wordPerfect', flawless && { on: flawless.localDate, detail: phraseOf.has(flawless.entryId) ? quote(phraseOf.get(flawless.entryId)!) : `${flawless.words} words` });
+  const longest = wordPerfect(30);
+  secret('longBreath', longest && { on: longest.localDate, detail: `${longest.words} words` });
+
   const mondays = sweepDays.filter((d) => weekdayOf(d) === 1);
   secret('mondayPerson', mondays.length >= 10 ? { on: mondays[9], detail: '10 perfect Mondays' } : null);
 
@@ -414,6 +444,7 @@ export function evaluate(input: AchievementInput): Evaluation {
       const mine = metrics.filter((m) => theme.get(m.id) === l.theme);
       if (l.kind === 'session') return mine.some(hasTimer);
       if (l.kind === 'hours') return mine.some(isDuration);
+      if (l.kind === 'phrases' || l.kind === 'reviews' || l.kind === 'recall') return mine.some((m) => m.type === 'phrase');
       return true;
     }
     switch (l.kind) {
@@ -462,6 +493,9 @@ export function needFor(l: Ladder, at: number): string {
     case 'earlyBird': return at === 1 ? 'Start a timer between 4 and 7am' : `Start ${at} timers between 4 and 7am`;
     case 'nightOwl': return at === 1 ? 'Have a timer running past midnight' : `${at} timers running past midnight`;
     case 'notes': return at === 1 ? 'Write a note on something you logged' : `Write ${at} notes on what you logged`;
+    case 'phrases': return `${plural(at, 'phrase')} added`;
+    case 'reviews': return `${plural(at, 'review')} done`;
+    case 'recall': return `${plural(at, 'phrase')} recalled from memory`;
   }
 }
 
@@ -501,6 +535,11 @@ export function bestText(l: Ladder, value: number): string {
       return plural(value, 'session');
     case 'notes':
       return plural(value, 'note');
+    case 'phrases':
+    case 'recall':
+      return plural(value, 'phrase');
+    case 'reviews':
+      return plural(value, 'review');
   }
 }
 

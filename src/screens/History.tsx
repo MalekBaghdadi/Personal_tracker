@@ -6,11 +6,12 @@ import { Inline, TaskSheet, TickButton } from '../components/Plans';
 import { useHue } from '../state/theme';
 import { addDays, formatLocalDate, formatTimeIn, weekdayOf } from '../lib/dates';
 import { targetOn } from '../lib/targets';
-import { isHitOn, isScheduled, restDays, streakDays, streakLevel } from '../lib/streaks';
+import { isHitDay, isScheduled, restDays, streakDays, streakLevel } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { entryRows, mergedLabel } from '../lib/entryRows';
 import { EntrySheet, sourceLabel, type EntrySheetState } from '../components/EntrySheet';
 import { Button, IconButton, Sheet, WEEKDAYS, cx } from '../components/ui';
+import { PhraseDayStatus } from '../components/PhraseControls';
 import { ALL, MetricPicker } from '../components/MetricPicker';
 import { AddItemButtons, ItemList, ItemSheet, type ItemSheetState } from '../components/Items';
 import type { DayStats, Entry, Metric, Plan, PlanTask } from '../lib/types';
@@ -41,7 +42,7 @@ function monthSummary(metric: Metric, stats: DayStats, days: string[], today: st
       const s = stats.get(d);
       if (s) acc.total += s.total;
       if (d <= today && d >= since && isScheduled(metric.schedule, d) && !rest.has(d)) {
-        const h = isHitOn(metric, d, s?.total ?? 0, s?.count ?? 0);
+        const h = isHitDay(metric, d, s);
         if (h) acc.hits++;
         // Today only counts once it's a hit, so the month doesn't dip every morning.
         if (d < today || h) acc.scheduled++;
@@ -254,7 +255,7 @@ function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; 
           const total = s?.total ?? 0;
           const isRest = rest.has(d);
           const scheduled = isScheduled(metric.schedule, d) && !isRest;
-          const hit = isHitOn(metric, d, total, s?.count ?? 0);
+          const hit = isHitDay(metric, d, s);
           // GitHub-style: each day further into a streak is brighter. A logged
           // day that isn't part of one gets a faint tint. No target, no streaks:
           // shade by amount instead.
@@ -264,7 +265,7 @@ function MetricMonth({ metric, month, onDay }: { metric: Metric; month: string; 
           else if (pos > 0) pct = LEVEL_PCT[streakLevel(pos)];
           else if (total > 0) pct = 14;
           const fill = pct > 0 ? `color-mix(in oklab, ${hue} ${Math.round(pct)}%, var(--s2))` : undefined;
-          const label = `${formatLocalDate(d, 'EEEE d MMMM')}: ${total > 0 ? (metric.type === 'check' ? 'done' : formatValue(metric, total)) : 'nothing logged'}${hit ? ', target met' : ''}${pos > 0 ? `, day ${pos} of a streak` : ''}${isRest ? ', rest day' : !scheduled ? ', not scheduled' : ''}`;
+          const label = `${formatLocalDate(d, 'EEEE d MMMM')}: ${total > 0 ? (metric.type === 'check' ? 'done' : formatValue(metric, total)) : 'nothing logged'}${hit ? ', target met' : ''}${s?.open ? ', review missing' : ''}${pos > 0 ? `, day ${pos} of a streak` : ''}${isRest ? ', rest day' : !scheduled ? ', not scheduled' : ''}`;
           return (
             <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} onFill={pct >= 70 ? 'dark' : undefined} muted={!scheduled}>
               {hit && <span aria-hidden className="absolute right-1.5 bottom-1.5 size-1.5 rounded-full bg-[#0e1420]/70" />}
@@ -350,7 +351,7 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
           let streakSum = 0;
           for (const m of shown) {
             const s = statsFor(data, m.id).get(d);
-            const hit = isHitOn(m, d, s?.total ?? 0, s?.count ?? 0);
+            const hit = isHitDay(m, d, s);
             // streakDays holds every due day, rest days left out.
             const counts = m.target != null && (streaks.get(m.id)?.has(d) ?? false) && d >= sinces.get(m.id)! && (d < today || hit);
             if (counts) {
@@ -442,7 +443,7 @@ function SummaryRow({ metric, total, hits, scheduled }: { metric: Metric; total:
 function EntryList({ metric, entries, onEdit }: { metric: Metric; entries: Entry[]; onEdit: (s: EntrySheetState) => void }) {
   const { tz } = useData();
   // A check metric's entries each just mean "done"; there's no total to edit.
-  const rows = useMemo(() => (metric.type === 'check' ? entries.map((entry) => ({ kind: 'single' as const, entry })) : entryRows(entries)), [entries, metric.type]);
+  const rows = useMemo(() => (metric.type === 'check' || metric.type === 'phrase' ? entries.map((entry) => ({ kind: 'single' as const, entry })) : entryRows(entries)), [entries, metric.type]);
   return (
     <ul className="divide-y divide-line border-y border-line">
       {rows.map((r) => {
@@ -458,12 +459,21 @@ function EntryList({ metric, entries, onEdit }: { metric: Metric; entries: Entry
             >
               <span className="w-12 shrink-0 text-[14px] text-ink-3">{formatTimeIn(first.occurredAt, tz)}</span>
               <span className="min-w-0 flex-1">
-                <span className="block text-[15px] font-medium">{metric.type === 'check' ? 'Done' : formatValue(metric, merged ? r.total : r.entry.value)}</span>
-                <span className="block truncate text-[13px] text-ink-3">
-                  {merged
-                    ? `${mergedLabel(r.entries)} · last at ${formatTimeIn(last.occurredAt, tz)}`
-                    : `${sourceLabel(r.entry.source)}${r.entry.note ? ` · ${r.entry.note}` : ''}`}
-                </span>
+                {metric.type === 'phrase' ? (
+                  <>
+                    <span dir="auto" className="line-clamp-2 block text-[15px] font-medium">{first.text}</span>
+                    <span dir="auto" className="block truncate text-[13px] text-ink-3">{first.reference || 'No source'}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="block text-[15px] font-medium">{metric.type === 'check' ? 'Done' : formatValue(metric, merged ? r.total : r.entry.value)}</span>
+                    <span className="block truncate text-[13px] text-ink-3">
+                      {merged
+                        ? `${mergedLabel(r.entries)} · last at ${formatTimeIn(last.occurredAt, tz)}`
+                        : `${sourceLabel(r.entry.source)}${r.entry.note ? ` · ${r.entry.note}` : ''}`}
+                    </span>
+                  </>
+                )}
               </span>
               <Pencil size={16} className="shrink-0 text-ink-3" aria-label={merged ? 'Edit total' : 'Edit'} />
             </button>
@@ -493,7 +503,7 @@ function DaySheet({ metric, date, onClose }: { metric: Metric; date: string | nu
         ) : (
           <>
             <p className="mb-2 text-[14px] text-ink-2">
-              {metric.type === 'check' ? <span className="font-medium text-ink">Done</span> : <>Total <span className="font-medium text-ink">{formatValue(metric, total)}</span></>} from {dayEntries.length} {dayEntries.length === 1 ? 'entry' : 'entries'}
+              {metric.type === 'phrase' ? <><span className="font-medium text-ink">{formatValue(metric, total)}</span> added</> : metric.type === 'check' ? <span className="font-medium text-ink">Done</span> : <>Total <span className="font-medium text-ink">{formatValue(metric, total)}</span></>}{metric.type === 'phrase' ? '' : <> from {dayEntries.length} {dayEntries.length === 1 ? 'entry' : 'entries'}</>}
             </p>
             <EntryList metric={metric} entries={dayEntries} onEdit={setEdit} />
           </>
@@ -501,9 +511,10 @@ function DaySheet({ metric, date, onClose }: { metric: Metric; date: string | nu
         {/* A check metric is done or not: once it is, there's nothing more to add. */}
         {!(metric.type === 'check' && dayEntries.length > 0) && (
           <Button className="mt-4 w-full" onClick={() => date && setEdit({ mode: 'add', metric, date })}>
-            <Plus size={18} /> {metric.type === 'check' ? 'Mark done on this day' : 'Add an entry for this day'}
+            <Plus size={18} /> {metric.type === 'check' ? 'Mark done on this day' : metric.type === 'phrase' ? 'Add a phrase for this day' : 'Add an entry for this day'}
           </Button>
         )}
+        {metric.type === 'phrase' && date && <PhraseDayStatus metric={metric} date={date} />}
       </Sheet>
       <EntrySheet state={edit} onClose={() => setEdit(null)} />
     </>
@@ -619,10 +630,13 @@ function PlanTasksSection({ date }: { date: string }) {
 
 function DayGroup({ metric, entries, date, onEdit }: { metric: Metric; entries: Entry[]; date: string; onEdit: (s: EntrySheetState) => void }) {
   const hue = useHue(metric.color);
+  const data = useData();
   const total = metric.type === 'check' ? Math.min(1, entries.length) : entries.reduce((s, e) => s + e.value, 0);
-  const hit = isHitOn(metric, date, total, entries.length);
+  // The day's stat, not just its entries: a phrase day also needs its review to be a hit.
+  const hit = isHitDay(metric, date, statsFor(data, metric.id).get(date));
   const direction = targetOn(metric, date).targetDirection;
-  const { today } = useData();
+  const { today } = data;
+  const phrase = metric.type === 'phrase';
   return (
     <section aria-label={metric.name}>
       <div className="mb-1.5 flex items-baseline justify-between gap-3">
@@ -632,11 +646,12 @@ function DayGroup({ metric, entries, date, onEdit }: { metric: Metric; entries: 
         </h3>
         <span className="text-[14px]">
           <span className="font-medium">{metric.type === 'check' ? 'Done' : formatValue(metric, total)}</span>
-          {hit === true && metric.type !== 'check' && (direction === 'at_least' || date < today) && <span className="text-ink-3"> · {direction === 'between' ? 'in range' : 'target met'}</span>}
-          {hit === false && date < today && <span className="text-ink-3"> · {direction === 'between' ? 'out of range' : 'target missed'}</span>}
+          {hit === true && metric.type !== 'check' && !phrase && (direction === 'at_least' || date < today) && <span className="text-ink-3"> · {direction === 'between' ? 'in range' : 'target met'}</span>}
+          {hit === false && date < today && !phrase && <span className="text-ink-3"> · {direction === 'between' ? 'out of range' : 'target missed'}</span>}
         </span>
       </div>
       <EntryList metric={metric} entries={entries} onEdit={onEdit} />
+      {phrase && <PhraseDayStatus metric={metric} date={date} />}
     </section>
   );
 }

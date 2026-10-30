@@ -4,12 +4,14 @@ import { statsFor, useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
 import { addEntry, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
 import { addDays, formatLocalDate } from '../lib/dates';
-import { isHit, isScheduled, streakDays } from '../lib/streaks';
+import { isHit, isHitDay, isScheduled, streakDays } from '../lib/streaks';
+import { usePhraseDay } from '../state/phrases';
 import { targetOn } from '../lib/targets';
 import { formatChip, formatRange, formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import { EntrySheet, type EntrySheetState } from './EntrySheet';
 import { CheckButton } from './CheckButton';
+import { PhraseControls } from './PhraseControls';
 import { Sheet, cx } from './ui';
 import type { Metric } from '../lib/types';
 
@@ -105,7 +107,10 @@ function Row({
   const scheduled = isScheduled(metric.schedule, date);
   // The target that applied on that day, not necessarily today's.
   const t = targetOn(metric, date);
-  const hit = isHit(t, total, day?.count ?? 0);
+  const phrase = metric.type === 'phrase';
+  const ph = usePhraseDay(metric, date);
+  // A phrase day is only a hit once it has its review too.
+  const hit = phrase ? isHitDay(metric, date, day) : isHit(t, total, day?.count ?? 0);
   const [minus, setMinus] = useState(false);
   const lastTap = useRef(0);
 
@@ -142,7 +147,13 @@ function Row({
   const check = metric.type === 'check';
   const range = t.targetDirection === 'between';
   let status: string;
-  if (t.target == null) status = 'No target';
+  if (phrase) {
+    const missing = Math.max(0, ph.target - ph.added.length);
+    const todo = [...(missing > 0 ? [`add ${missing} more`] : []), ...(ph.owed && !ph.reviewDone ? ['review one'] : [])].join(' and ');
+    status = hit
+      ? priorRun > 0 ? `Done · streak kept (${priorRun + 1} days)` : 'Done'
+      : todo ? `${todo.charAt(0).toUpperCase()}${todo.slice(1)}${priorRun > 0 ? ` to keep your ${priorRun}-day streak` : ''}` : 'Nothing logged';
+  } else if (t.target == null) status = 'No target';
   else if (hit) status = priorRun > 0 ? `${check ? 'Done' : range ? 'In range' : 'Target met'} · streak kept (${priorRun + 1} days)` : check ? 'Done' : range ? 'In range' : 'Target met';
   else if (check) status = priorRun > 0 ? `Mark it done to restore your ${priorRun}-day streak` : 'Not done';
   else if (range && total > 0 && total < (t.targetMin ?? 0)) {
@@ -177,6 +188,8 @@ function Row({
         <div className="mt-2">
           <CheckButton metric={metric} date={date} suffix=" yesterday" onDone={onNotice} />
         </div>
+      ) : phrase ? (
+        <PhraseControls metric={metric} day={date} />
       ) : (
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         <button

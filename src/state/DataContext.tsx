@@ -6,7 +6,7 @@ import { DEFAULT_DAY_START_HOUR, dayOf, deviceTimezone, nowIso, todayIn } from '
 import { buildDayStats, saveProfile } from '../lib/admin';
 import { forgetOwnTimer, ownTimer, paths, reassertOwnTimer, timerClosedRef } from '../lib/repo';
 import { seedAccount } from '../lib/seed';
-import type { ActiveTimer, CalendarItem, DayStats, Entry, Goal, Metric, Settings } from '../lib/types';
+import type { ActiveTimer, CalendarItem, DayStats, Entry, Goal, Metric, Review, Settings } from '../lib/types';
 
 export type SyncState = 'synced' | 'pending' | 'offline';
 
@@ -18,6 +18,8 @@ interface Data {
   metricById: Map<string, Metric>;
   /** Non-deleted entries. */
   entries: Entry[];
+  /** Non-deleted phrase reviews. */
+  reviews: Review[];
   /** Deadline goals, archived included, whose metric still exists. Nearest deadline first. */
   goals: Goal[];
   /** Non-deleted events and reminders. */
@@ -63,6 +65,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   const uid = user.uid;
   const [metrics, setMetrics] = useState<Metric[] | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [items, setItems] = useState<CalendarItem[]>([]);
   const [rawGoals, setRawGoals] = useState<Goal[]>([]);
   const [settings, setSettings] = useState<Settings | null | undefined>(undefined);
@@ -76,7 +79,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   const serverTimer = useRef<{ value: ActiveTimer | null; seq: number }>({ value: null, seq: 0 });
   const [serverTimerSeq, setServerTimerSeq] = useState(0);
 
-  // Six listeners for the whole app: entries is a single query over all
+  // Seven listeners for the whole app: entries is a single query over all
   // non-deleted entries; everything else is derived in memory.
   useEffect(() => {
     const track = (key: string) => (m: SnapshotMetadata) =>
@@ -114,6 +117,10 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
         setEntries(snap.docs.map((d) => d.data() as Entry));
         setEntriesReady(true);
       }, (err) => console.error('[entries]', err)),
+      onSnapshot(query(paths.reviews(uid), where('deletedAt', '==', null)), opts, (snap) => {
+        track('reviews')(snap.metadata);
+        setReviews(snap.docs.map((d) => d.data() as Review));
+      }, (err) => console.error('[reviews]', err)),
       onSnapshot(paths.goals(uid), opts, (snap) => {
         track('goals')(snap.metadata);
         setRawGoals(snap.docs.map((d) => d.data() as Goal));
@@ -206,11 +213,15 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
     };
   }, [tz, dayStart]);
 
-  // Keyed on the check metrics only, so other metric edits don't rebuild every day total.
-  const checkIds = (metrics ?? []).filter((m) => m.type === 'check').map((m) => m.id).join(',');
+  // Keyed on the check and phrase metrics only, so other metric edits don't rebuild every day total.
+  const specialIds = (metrics ?? []).filter((m) => m.type === 'check' || m.type === 'phrase').map((m) => `${m.id}:${m.type}`).join(',');
   const dayStats = useMemo(
-    () => buildDayStats(entries, checkIds ? checkIds.split(',').map((id) => ({ id, type: 'check' as const })) : []),
-    [entries, checkIds],
+    () => buildDayStats(
+      entries,
+      specialIds ? specialIds.split(',').map((s) => ({ id: s.split(':')[0], type: s.split(':')[1] as 'check' | 'phrase' })) : [],
+      reviews,
+    ),
+    [entries, specialIds, reviews],
   );
 
   const metricById = useMemo(() => new Map((metrics ?? []).map((m) => [m.id, m])), [metrics]);
@@ -247,6 +258,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       metrics: metrics ?? [],
       metricById,
       entries,
+      reviews,
       goals,
       items,
       itemsByDate,
@@ -262,7 +274,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       ready: metrics !== null && settings !== undefined,
       entriesReady,
     }),
-    [uid, user, metrics, metricById, entries, goals, items, itemsByDate, dayStats, settings, timer, tz, dayStart, dayOfFn, today, sync, entriesReady],
+    [uid, user, metrics, metricById, entries, reviews, goals, items, itemsByDate, dayStats, settings, timer, tz, dayStart, dayOfFn, today, sync, entriesReady],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

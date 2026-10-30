@@ -1,5 +1,5 @@
 import { achievementById } from './achievementCatalog';
-import type { CalendarItem, CollectedAchievement, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Schedule, TargetVersion } from './types';
+import type { CalendarItem, CollectedAchievement, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Review, Schedule, TargetVersion } from './types';
 
 /**
  * Restoring a JSON export. Import only ever adds: a document whose id is
@@ -22,6 +22,8 @@ export interface ExistingData {
   planTaskIds?: Set<string>;
   /** Every collected card's id. */
   achievementIds?: Set<string>;
+  /** Every review id on the server, deleted ones included. */
+  reviewIds?: Set<string>;
 }
 
 export interface ImportPlan {
@@ -34,6 +36,8 @@ export interface ImportPlan {
   planTasks: PlanTask[];
   /** Collected cards this account doesn't have yet. */
   achievements: CollectedAchievement[];
+  /** Phrase reviews this account doesn't have yet. */
+  reviews: Review[];
   /** Backup metrics folded into an existing metric of the same name. */
   mergedMetrics: number;
   /** Already in the account (or deleted from it). */
@@ -63,7 +67,7 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
   if (!isExport(backup)) return { ok: false, error: NOT_AN_EXPORT };
 
   const plan: ImportPlan = {
-    metrics: [], entries: [], items: [], goals: [], plans: [], planSections: [], planTasks: [], achievements: [],
+    metrics: [], entries: [], items: [], goals: [], plans: [], planSections: [], planTasks: [], achievements: [], reviews: [],
     mergedMetrics: 0, skipped: { metrics: 0, entries: 0, items: 0, goals: 0, plans: 0 }, invalid: 0, archivedGoals: 0,
   };
 
@@ -74,7 +78,7 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
   let order = existing.metrics.reduce((max, m) => Math.max(max, m.order), -1);
 
   for (const raw of arr(backup.metrics)) {
-    if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.name) || (raw.type !== 'duration' && raw.type !== 'count' && raw.type !== 'check') || !isObj(raw.schedule)) {
+    if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.name) || (raw.type !== 'duration' && raw.type !== 'count' && raw.type !== 'check' && raw.type !== 'phrase') || !isObj(raw.schedule)) {
       plan.invalid++;
       continue;
     }
@@ -145,6 +149,7 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
       value: Math.round(e.value),
       source: e.source === 'timer' || e.source === 'quick_add' ? e.source : 'manual',
       note: strOrNull(e.note),
+      ...(metric.type === 'phrase' && isStr(e.text) ? { text: e.text, reference: strOrNull(e.reference) } : {}),
       occurredAt: isStr(e.occurredAt) ? e.occurredAt : `${e.localDate}T12:00:00.000Z`,
       createdAt: isStr(e.createdAt) ? e.createdAt : now,
       updatedAt: now,
@@ -311,9 +316,40 @@ export function planImport(backup: unknown, existing: ExistingData, now: string)
     plan.achievements.push({ id: raw.id, on: raw.on, detail: strOrNull(raw.detail), collectedAt: isStr(raw.collectedAt) ? raw.collectedAt : now });
   }
 
+  // ── Reviews: of phrase metrics that are in the account or came along ──
+  const reviewIds = new Set(existing.reviewIds ?? []);
+  for (const raw of arr(backup.reviews)) {
+    if (!isObj(raw) || !isStr(raw.id) || !isStr(raw.entryId) || !isStr(raw.localDate) || !DATE.test(raw.localDate)) {
+      plan.invalid++;
+      continue;
+    }
+    if (reviewIds.has(raw.id)) continue;
+    const metric = metricFor(raw.metricId);
+    if (!metric || metric.type !== 'phrase') {
+      plan.invalid++;
+      continue;
+    }
+    reviewIds.add(raw.id);
+    const r = raw as unknown as Review;
+    plan.reviews.push({
+      id: r.id,
+      metricId: metric.id,
+      entryId: r.entryId,
+      localDate: r.localDate,
+      mode: r.mode === 'type' ? 'type' : 'tap',
+      style: r.style === 'blanks' || r.style === 'full' ? r.style : null,
+      score: typeof r.score === 'number' ? Math.max(0, Math.min(1, r.score)) : null,
+      hints: typeof r.hints === 'number' && r.hints > 0 ? Math.round(r.hints) : 0,
+      words: typeof r.words === 'number' && r.words > 0 ? Math.round(r.words) : 0,
+      createdAt: isStr(r.createdAt) ? r.createdAt : now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+  }
+
   return { ok: true, plan };
 }
 
 export function importIsEmpty(p: ImportPlan): boolean {
-  return p.metrics.length + p.entries.length + p.items.length + p.goals.length + p.plans.length + p.planSections.length + p.planTasks.length + p.achievements.length === 0;
+  return p.metrics.length + p.entries.length + p.items.length + p.goals.length + p.plans.length + p.planSections.length + p.planTasks.length + p.achievements.length + p.reviews.length === 0;
 }

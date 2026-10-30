@@ -6,7 +6,7 @@ import { db } from './firebase';
 import { deviceId, uuid } from './device';
 import { nowIso } from './dates';
 import type { ExistingData, ImportPlan } from './importer';
-import type { ActiveTimer, CalendarItem, CollectedAchievement, Entry, EntrySource, Goal, Metric, Settings, ThemeId } from './types';
+import type { ActiveTimer, CalendarItem, CollectedAchievement, Entry, EntrySource, Goal, Metric, Review, Settings, ThemeId } from './types';
 
 /**
  * Every write here returns immediately. With the persistent cache, Firestore
@@ -38,6 +38,8 @@ export const paths = {
   planTask: (uid: string, id: string) => doc(db, 'users', uid, 'planTasks', id),
   achievements: (uid: string) => collection(db, 'users', uid, 'achievements'),
   achievement: (uid: string, id: string) => doc(db, 'users', uid, 'achievements', id),
+  reviews: (uid: string) => collection(db, 'users', uid, 'reviews'),
+  review: (uid: string, id: string) => doc(db, 'users', uid, 'reviews', id),
 };
 
 // ── Entries ────────────────────────────────────────────────────────────────
@@ -49,6 +51,9 @@ export interface NewEntry {
   localDate: string;
   occurredAt?: string;
   note?: string | null;
+  /** A phrase entry's text and where it comes from. */
+  text?: string;
+  reference?: string | null;
 }
 
 export function buildEntry(input: NewEntry): Entry {
@@ -60,6 +65,8 @@ export function buildEntry(input: NewEntry): Entry {
     value: Math.round(input.value),
     source: input.source,
     note: input.note?.trim() || null,
+    // Firestore refuses undefined, so these only exist on phrases.
+    ...(input.text !== undefined ? { text: input.text.trim(), reference: input.reference?.trim() || null } : {}),
     occurredAt: input.occurredAt ?? now,
     createdAt: now,
     updatedAt: now,
@@ -78,7 +85,7 @@ export function addEntry(uid: string, input: NewEntry): string {
 export function updateEntry(
   uid: string,
   id: string,
-  patch: Partial<Pick<Entry, 'value' | 'localDate' | 'note' | 'occurredAt'>>,
+  patch: Partial<Pick<Entry, 'value' | 'localDate' | 'note' | 'occurredAt' | 'text' | 'reference'>>,
 ): void {
   // Field-level update, so concurrent edits on two devices merge per field.
   fire(updateDoc(paths.entry(uid, id), { ...patch, updatedAt: nowIso() }));
@@ -133,6 +140,27 @@ export function undoSubtraction(uid: string, undo: SubtractionUndo): void {
     batch.update(paths.entry(uid, u.id), u.deleted ? { deletedAt: null, updatedAt: now } : { value: u.value, updatedAt: now });
   }
   fire(batch.commit());
+}
+
+// ── Reviews ────────────────────────────────────────────────────────────────
+
+export type NewReview = Pick<Review, 'metricId' | 'entryId' | 'localDate' | 'mode' | 'style' | 'score' | 'hints' | 'words'>;
+
+/** One review of one phrase → one new document. Returns the id for undo. */
+export function addReview(uid: string, input: NewReview): string {
+  const now = nowIso();
+  const review: Review = { ...input, id: uuid(), createdAt: now, updatedAt: now, deletedAt: null };
+  fire(setDoc(paths.review(uid, review.id), review));
+  return review.id;
+}
+
+export function softDeleteReview(uid: string, id: string): void {
+  const now = nowIso();
+  fire(updateDoc(paths.review(uid, id), { deletedAt: now, updatedAt: now }));
+}
+
+export function restoreReview(uid: string, id: string): void {
+  fire(updateDoc(paths.review(uid, id), { deletedAt: null, updatedAt: nowIso() }));
 }
 
 // ── Deadline goals ─────────────────────────────────────────────────────────
@@ -312,9 +340,10 @@ export function deleteMetric(
   entryIds: string[],
   runningTimer: ActiveTimer | null,
   goalIds: string[] = [],
+  reviewIds: string[] = [],
 ): void {
   const now = nowIso();
-  const refs: DocumentReference[] = entryIds.map((e) => paths.entry(uid, e));
+  const refs: DocumentReference[] = [...entryIds.map((e) => paths.entry(uid, e)), ...reviewIds.map((r) => paths.review(uid, r))];
   const chunks: DocumentReference[][] = [];
   for (let i = 0; i < refs.length; i += MAX_BATCH) chunks.push(refs.slice(i, i + MAX_BATCH));
   if (chunks.length === 0) chunks.push([]);
@@ -382,7 +411,7 @@ export function replayTour(uid: string, id: string): void {
  * may not know about documents deleted on another device.
  */
 export async function fetchExisting(uid: string): Promise<ExistingData> {
-  const [metrics, entries, items, goals, plans, planSections, planTasks, achievements] = await Promise.all([
+  const [metrics, entries, items, goals, plans, planSections, planTasks, achievements, reviews] = await Promise.all([
     getDocsFromServer(paths.metrics(uid)),
     getDocsFromServer(paths.entries(uid)),
     getDocsFromServer(paths.items(uid)),
@@ -391,6 +420,7 @@ export async function fetchExisting(uid: string): Promise<ExistingData> {
     getDocsFromServer(paths.planSections(uid)),
     getDocsFromServer(paths.planTasks(uid)),
     getDocsFromServer(paths.achievements(uid)),
+    getDocsFromServer(paths.reviews(uid)),
   ]);
   return {
     metrics: metrics.docs.map((d) => d.data() as Metric),
@@ -401,6 +431,7 @@ export async function fetchExisting(uid: string): Promise<ExistingData> {
     planSectionIds: new Set(planSections.docs.map((d) => d.id)),
     planTaskIds: new Set(planTasks.docs.map((d) => d.id)),
     achievementIds: new Set(achievements.docs.map((d) => d.id)),
+    reviewIds: new Set(reviews.docs.map((d) => d.id)),
   };
 }
 
@@ -415,6 +446,7 @@ export function applyImport(uid: string, plan: ImportPlan): void {
     ...plan.planSections.map((s) => [paths.planSection(uid, s.id), s] as [DocumentReference, object]),
     ...plan.planTasks.map((t) => [paths.planTask(uid, t.id), t] as [DocumentReference, object]),
     ...plan.achievements.map((c) => [paths.achievement(uid, c.id), c] as [DocumentReference, object]),
+    ...plan.reviews.map((r) => [paths.review(uid, r.id), r] as [DocumentReference, object]),
   ];
   for (let i = 0; i < writes.length; i += MAX_BATCH) {
     const batch = writeBatch(db);

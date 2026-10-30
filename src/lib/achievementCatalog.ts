@@ -25,7 +25,8 @@ export type LadderKind =
   | 'bigDay' | 'bigWeek' | 'over'
   | 'finisher' | 'tasks'
   | 'weeksWon' | 'challengesWon'
-  | 'earlyBird' | 'nightOwl' | 'notes';
+  | 'earlyBird' | 'nightOwl' | 'notes'
+  | 'phrases' | 'reviews' | 'recall';
 
 export type Group = 'theme' | 'streaks' | 'grind' | 'goals' | 'compete' | 'habits';
 
@@ -73,7 +74,8 @@ export interface Secret extends Card {
 
 export type SecretKey =
   | 'over9000' | 'hibernation' | 'speedrun' | 'newYear' | 'weekendWarrior' | 'phoenix' | 'photoFinish' | 'paidInFull'
-  | 'earlyFinisher' | 'strategicRest' | 'timeTraveller' | 'juggler' | 'forgotTimer' | 'bullseye' | 'essayist' | 'mondayPerson';
+  | 'earlyFinisher' | 'strategicRest' | 'timeTraveller' | 'juggler' | 'forgotTimer' | 'bullseye' | 'essayist' | 'mondayPerson'
+  | 'revisionSpree' | 'wordPerfect' | 'longBreath';
 
 const M = 60;
 const H = 3600;
@@ -100,6 +102,10 @@ interface ThemeCards {
   theme: ThemeId;
   session?: { at: number[]; rows: Row[] };
   hours?: { at: number[]; rows: Row[] };
+  /** Phrase metrics: phrases added, reviews done, phrases recalled from memory. */
+  phrases?: { at: number[]; rows: Row[] };
+  reviews?: { at: number[]; rows: Row[] };
+  recall?: { at: number[]; rows: Row[] };
   days: Row[];
 }
 
@@ -325,6 +331,50 @@ const THEMED: ThemeCards[] = [
     ],
   },
   {
+    theme: 'wisdom',
+    phrases: {
+      at: [1, 10, 30, 100, 300, 1000],
+      rows: [
+        ['First Words', '✍️ 💬', 'Your first phrase is in the collection. Every library starts with one.'],
+        ['Pocket Anthology', '👖 📖', 'Ten phrases. Small enough to carry, big enough to quote.'],
+        ['Quotable', '💬 😎', 'Thirty phrases. People are starting to ask where you got that.'],
+        ['Commonplace Book', '📓 🖋️', '100 phrases. Writers kept these for centuries. Now so do you.'],
+        ['Scroll Keeper', '📜 🗝️', '300 phrases. The archive has a keeper, and it’s you.'],
+        ['Living Library', '🏛️ 📚', '1,000 phrases. Some people have bookshelves. You have a collection.'],
+      ],
+    },
+    reviews: {
+      at: [1, 10, 30, 100, 300, 1000],
+      rows: [
+        ['Second Look', '👀 🔁', 'First review done. The phrase was glad to see you again.'],
+        ['Revisit Regular', '🚪 🔁', 'Ten reviews. You keep coming back, and so do the words.'],
+        ['Spaced Out (On Purpose)', '🛰️ 📅', 'Thirty reviews. Spacing out is the whole technique.'],
+        ['Repeat Offender', '🔁 😏', '100 reviews. Caught remembering again.'],
+        ['Memory Gardener', '🌱 🧠', '300 reviews. Everything you water stays green.'],
+        ['Never Forgets', '🐘 💭', '1,000 reviews. The elephants asked for tips.'],
+      ],
+    },
+    recall: {
+      at: [1, 5, 15, 40, 100, 250],
+      rows: [
+        ['Off the Top', '🎤 🧠', 'One phrase recalled from memory. No peeking. (Fine, a little.)'],
+        ['By Heart', '❤️ 🧠', 'Five from memory. The words live in you now.'],
+        ['Recitation Ready', '🎙️ ✅', 'Fifteen from memory. Name any one.'],
+        ['Walking Archive', '🚶 🗄️', 'Forty from memory. A search bar with legs.'],
+        ['Memory Palace', '🏰 🧠', '100 from memory. There are rooms you haven’t even visited yet.'],
+        ['Oral Tradition', '🗣️ 📜', '250 from memory. Before books, there was you.'],
+      ],
+    },
+    days: [
+      ['Daily Dose', '💊 📖', 'Seven days of adding one and revisiting one. A habit takes root.'],
+      ['Wise Habit', '🦉 ✅', 'Thirty days. Add one, revisit one. It adds up.'],
+      ['Quiet Scholar', '🕯️ 📚', '75 days of adding and revisiting. Quiet, steady, unstoppable.'],
+      ['Sage in Training', '🧙 📜', '150 days. The beard is optional.'],
+      ['Keeper of Sayings', '👑 💬', '300 days. A phrase a day keeps forgetting away.'],
+      ['Lamp That Never Dims', '🪔 ✨', '500 days. Still lit.'],
+    ],
+  },
+  {
     theme: 'other',
     session: {
       at: LONG,
@@ -362,6 +412,9 @@ const THEMED: ThemeCards[] = [
 const themedLadders: Ladder[] = THEMED.flatMap((t) => [
   ...(t.session ? [ladder(`${t.theme}.session`, 'session', 'theme', 'Longest session', t.session.at, t.session.rows, t.theme)] : []),
   ...(t.hours ? [ladder(`${t.theme}.hours`, 'hours', 'theme', 'Hours in total', t.hours.at, t.hours.rows, t.theme)] : []),
+  ...(t.phrases ? [ladder(`${t.theme}.phrases`, 'phrases', 'theme', 'Phrases collected', t.phrases.at, t.phrases.rows, t.theme)] : []),
+  ...(t.reviews ? [ladder(`${t.theme}.reviews`, 'reviews', 'theme', 'Reviews done', t.reviews.at, t.reviews.rows, t.theme)] : []),
+  ...(t.recall ? [ladder(`${t.theme}.recall`, 'recall', 'theme', 'Recalled from memory', t.recall.at, t.recall.rows, t.theme)] : []),
   ladder(`${t.theme}.days`, 'days', 'theme', t.theme === 'sleep' ? 'Nights on target' : 'Days on target', DAYS, t.days, t.theme),
 ]);
 
@@ -501,6 +554,9 @@ const SECRET_ROWS: SecretRow[] = [
   ['paidInFull', 2, 'Paid in Full', '💰 🤝', 'Win a challenge with a prize on the line.', 'Pay up. It’s in writing.', 'Winner gets…'],
   ['earlyFinisher', 2, 'Ahead of Schedule', '🏎️ 📅', 'Finish a goal or plan a week or more before its deadline.', 'Deadlines are for other people.', 'Why wait?'],
   ['phoenix', 3, 'Phoenix', '🔥 🐦', 'Lose a streak of 7 or more, then build it back to 7.', 'Rose from the ashes. Slightly singed.', 'Fall down. Get back up. Seven times.'],
+  ['revisionSpree', 1, 'Revision Spree', '🏃 🔁', 'Do 5 reviews in one day.', 'Five reviews before bed. The phrases are exhausted.', 'More than one a day.'],
+  ['wordPerfect', 1, 'Word Perfect', '💯 🗣️', 'Type a phrase of 10 words or more out perfectly from memory, with no hints.', 'Every word, in order. Not one hint.', 'No hints. No slips.'],
+  ['longBreath', 2, 'Long Breath', '🫁 📜', 'Type a phrase of 30 words or more out perfectly from memory, with no hints.', 'Thirty words in one breath. Impressive lungs and memory.', 'The long ones are the hard ones.'],
   ['mondayPerson', 3, 'Monday Person', '📅 😺', 'Meet every target on 10 Mondays.', 'Loves Mondays. Scientists are baffled.', 'The least popular day of the week.'],
 ];
 

@@ -52,14 +52,15 @@ const days = (from: string, to: string) => {
   return out;
 };
 
-interface Opts { today?: string; tz?: string; goals?: Finished[]; plans?: Finished[]; tasks?: AchievementInput['tasks']; wins?: CompeteWin[] }
+interface Opts { today?: string; tz?: string; goals?: Finished[]; plans?: Finished[]; tasks?: AchievementInput['tasks']; wins?: CompeteWin[]; reviews?: AchievementInput['reviews'] }
 
 function run(metrics: Metric[], entries: Entry[], o: Opts = {}) {
   const tz = o.tz ?? 'UTC';
   return evaluate({
     metrics,
     entries,
-    dayStats: buildDayStats(entries, metrics),
+    reviews: o.reviews ?? [],
+    dayStats: buildDayStats(entries, metrics, o.reviews ?? []),
     today: o.today ?? '2026-10-20',
     tz,
     dayOf: (iso) => dayOf(iso, tz, 0),
@@ -85,7 +86,7 @@ describe('the catalogue', () => {
     }
     expect(achievementById.get('study.session.6')?.name).toBe('Academic Menace');
     expect(achievementById.get('study.session.6')?.tier).toBe(5);
-    expect(SECRETS.length).toBe(16);
+    expect(SECRETS.length).toBe(19);
   });
   it('every card has its own pin art, and no ladder shows the same icon twice', () => {
     for (const a of ACHIEVEMENTS) expect(hasArt(a.id), a.id).toBe(true);
@@ -98,7 +99,7 @@ describe('the catalogue', () => {
     for (const a of ACHIEVEMENTS) expect(a.art[0], a.id).toBeTruthy();
   });
   it('every theme has a days ladder; health and sleep have only that', () => {
-    for (const t of ['study', 'code', 'reading', 'fitness', 'mind', 'creative', 'health', 'sleep', 'other']) {
+    for (const t of ['study', 'code', 'reading', 'fitness', 'mind', 'creative', 'health', 'sleep', 'wisdom', 'other']) {
       expect(LADDERS.some((l) => l.id === `${t}.days`)).toBe(true);
     }
     expect(LADDERS.filter((l) => l.theme === 'health' || l.theme === 'sleep').map((l) => l.kind)).toEqual(['days', 'days']);

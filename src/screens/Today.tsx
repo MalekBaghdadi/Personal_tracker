@@ -6,7 +6,7 @@ import { PlanCard } from '../components/Plans';
 import { useTimerActions } from '../state/TimerContext';
 import { useHue } from '../state/theme';
 import { addEntry, setRestDay, softDeleteEntry, subtractFromDay, undoSubtraction } from '../lib/repo';
-import { computeStreaks, isHit, isScheduled, restDays, weekOf } from '../lib/streaks';
+import { computeStreaks, isHitDay, isScheduled, restDays, weekOf } from '../lib/streaks';
 import { formatChip, formatRange, formatValue, formatValueParts } from '../lib/format';
 import { formatLocalDate } from '../lib/dates';
 import { iconFor } from '../lib/icons';
@@ -17,6 +17,7 @@ import { GoalCard, GoalInline } from '../components/Goals';
 import { StartEarlierSheet, useLongPress } from '../components/StartEarlier';
 import { YesterdaySheet } from '../components/YesterdaySheet';
 import { CheckButton } from '../components/CheckButton';
+import { PhraseControls, PhraseSteps } from '../components/PhraseControls';
 import { cx, useBump, useToast } from '../components/ui';
 import type { Goal, Metric, Plan } from '../lib/types';
 
@@ -158,7 +159,6 @@ function MetricRow({ metric, offDay, goal, plans, onManual }: {
   const stats = statsFor(data, metric.id);
   const day = stats.get(today);
   const total = day?.total ?? 0;
-  const count = day?.count ?? 0;
   const { weekStartsOn } = data;
   const streak = useMemo(() => computeStreaks(metric, stats, today, weekStartsOn), [metric, stats, today, weekStartsOn]);
   // Rest days this week (see restDays): the allowance left decides whether
@@ -172,12 +172,13 @@ function MetricRow({ metric, offDay, goal, plans, onManual }: {
     return restDays(metric, stats, since > week ? since : week, today, today, weekStartsOn);
   }, [allowance, metric, stats, today, weekStartsOn, data.dayOf]);
   const restingToday = restThisWeek.has(today);
-  const canRest = !offDay && allowance > 0 && !restingToday && restThisWeek.size < allowance && isHit(metric, total, count) !== true;
+  const canRest = !offDay && allowance > 0 && !restingToday && restThisWeek.size < allowance && isHitDay(metric, today, day) !== true;
   const markRest = (on: boolean) => {
     setRestDay(uid, metric.id, today, on);
     if (on) toast(`Rest day: ${metric.name} streak kept`, { label: 'Undo', run: () => setRestDay(uid, metric.id, today, false) });
   };
-  const hit = isHit(metric, total, count);
+  // A phrase day is only a hit once it has its review too (day.open).
+  const hit = isHitDay(metric, today, day);
   const running = timer?.metricId === metric.id;
   const parts = formatValueParts(metric, total);
   const bumped = useBump(total);
@@ -216,6 +217,7 @@ function MetricRow({ metric, offDay, goal, plans, onManual }: {
   const hold = useLongPress(() => setStartEarlier(true));
 
   const check = metric.type === 'check';
+  const phrase = metric.type === 'phrase';
   const range = metric.targetDirection === 'between' && metric.target != null;
   const rangeMin = range ? metric.targetMin ?? 0 : 0;
   const progress = metric.target ? Math.min(1, total / metric.target) : 0;
@@ -291,6 +293,7 @@ function MetricRow({ metric, offDay, goal, plans, onManual }: {
               {range && rangeMin > 0 && <span className="absolute -top-[3px] h-[9px] w-[2px] rounded-full bg-ink-3" style={{ left: `${(rangeMin / metric.target!) * 100}%` }} />}
             </div>
           )}
+          {phrase && !offDay && <PhraseSteps metric={metric} day={today} />}
           {/* Goals linked to this metric, under its bar and before its buttons. */}
           {(goal || plans.length > 0) && (
             <div className="mt-4 mb-1.5 flex flex-col gap-3" data-tour="today-linked">
@@ -305,6 +308,8 @@ function MetricRow({ metric, offDay, goal, plans, onManual }: {
         <div className="mt-2.5 flex items-center">
           <CheckButton metric={metric} date={today} tour="today-check" onDone={(text, undo) => toast(text, { label: 'Undo', run: undo })} />
         </div>
+      ) : phrase ? (
+        <PhraseControls metric={metric} day={today} tour />
       ) : (
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button

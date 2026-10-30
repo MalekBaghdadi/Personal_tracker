@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { statsFor, useData } from '../state/DataContext';
+import { usePhraseDay } from '../state/phrases';
+import { REMEMBERED } from '../lib/phrases';
 import { useHue } from '../state/theme';
 import { addDays, dateRange, formatLocalDate } from '../lib/dates';
 import { computeStreaks, hitRate } from '../lib/streaks';
@@ -112,6 +114,8 @@ function MetricStats({ metric }: { metric: Metric }) {
         />
       </dl>
 
+      {metric.type === 'phrase' && <PhraseStats metric={metric} />}
+
       {!check && <>
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-ink-3" aria-hidden>
         <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-1.5 rounded-sm" style={{ background: hue }} />Daily total</span>
@@ -176,6 +180,29 @@ function MetricStats({ metric }: { metric: Metric }) {
       </>}
       <SessionNotes metric={metric} title="Notes" />
     </section>
+  );
+}
+
+/** A phrase metric's reviews over the same 30 days, and the way to its collection. */
+function PhraseStats({ metric }: { metric: Metric }) {
+  const { today } = useData();
+  const ph = usePhraseDay(metric, today);
+  const since = addDays(today, -(PERIOD - 1));
+  const recent = ph.reviews.filter((r) => r.localDate >= since);
+  const tests = recent.filter((r) => r.mode === 'type' && r.score != null);
+  const good = tests.filter((r) => (r.score ?? 0) >= REMEMBERED).length;
+  return (
+    <div className="mt-4">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4" aria-label={`${metric.name} reviews`}>
+        <Stat label="Phrases collected" value={formatNumber(ph.all.length)} />
+        <Stat label={`Reviews, ${PERIOD} days`} value={formatNumber(recent.length)} />
+        <Stat label="Tested from memory" value={formatNumber(tests.length)} />
+        <Stat label="Remembered" value={tests.length ? `${Math.round((good / tests.length) * 100)}%` : '–'} suffix={tests.length ? `${good} of ${tests.length}` : undefined} />
+      </dl>
+      <a href={`#/phrases/${metric.id}`} className="press mt-3 inline-flex min-h-10 items-center rounded-lg bg-s2 px-3 text-[14px] font-medium hover:bg-s3">
+        Open the collection
+      </a>
+    </div>
   );
 }
 

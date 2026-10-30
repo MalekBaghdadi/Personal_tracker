@@ -22,6 +22,7 @@ export const THEMES: Theme[] = [
   { id: 'creative', label: 'Creative', examples: 'Music, art, writing, making' },
   { id: 'health', label: 'Health', examples: 'Water, food, habits' },
   { id: 'sleep', label: 'Sleep', examples: 'Bedtime, hours slept' },
+  { id: 'wisdom', label: 'Phrases', examples: 'Quotes, sayings, verses, ahadeeth' },
   { id: 'other', label: 'Other', examples: 'Anything else' },
 ];
 
@@ -37,6 +38,7 @@ const BY_ICON: Record<string, ThemeId> = {
   Music: 'creative', Guitar: 'creative',
   Heart: 'health', Droplet: 'health', Flame: 'health', Coffee: 'health',
   Moon: 'sleep',
+  Quote: 'wisdom', ScrollText: 'wisdom', BookMarked: 'wisdom',
 };
 
 export function themeFromIcon(icon: string): ThemeId {

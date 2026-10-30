@@ -64,7 +64,7 @@ function announceEnabled(): boolean {
  * profile summary published to the Compete pair while sharing is on.
  */
 export function AchievementsProvider({ children }: { children: ReactNode }) {
-  const { uid, user, metrics, entries, dayStats, today, tz, dayOf, weekStartsOn, goals, settings, metricById, ready: dataReady, entriesReady } = useData();
+  const { uid, user, metrics, entries, reviews, dayStats, today, tz, dayOf, weekStartsOn, goals, settings, metricById, ready: dataReady, entriesReady } = useData();
   const plans = usePlans();
   const { pair, links, challenges, sides, theirScore, now, partnerName, partnerUid } = useCompete();
   const [collected, setCollected] = useState<Map<string, CollectedAchievement> | null>(null);
@@ -126,8 +126,8 @@ export function AchievementsProvider({ children }: { children: ReactNode }) {
   );
 
   const evaluation = useMemo(
-    () => evaluate({ metrics, entries, dayStats, today, tz, dayOf, weekStartsOn, goals: goalsDone, plans: plansDone, tasks: plans.tasks, wins }),
-    [metrics, entries, dayStats, today, tz, dayOf, weekStartsOn, goalsDone, plansDone, plans.tasks, wins],
+    () => evaluate({ metrics, entries, reviews, dayStats, today, tz, dayOf, weekStartsOn, goals: goalsDone, plans: plansDone, tasks: plans.tasks, wins }),
+    [metrics, entries, reviews, dayStats, today, tz, dayOf, weekStartsOn, goalsDone, plansDone, plans.tasks, wins],
   );
 
   const col = collected ?? EMPTY;

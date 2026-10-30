@@ -34,8 +34,8 @@ const ids = (c: BinderContext) => binderViews(c).map((v) => v.binder.id);
 const view = (c: BinderContext, id: string) => binderViews(c).find((v) => v.binder.id === id)!;
 
 describe('binders', () => {
-  it('nine targeted binders, six general ones, every ladder in exactly one', () => {
-    expect(BINDERS.filter((b) => b.kind === 'targeted').map((b) => b.id)).toEqual(['study', 'code', 'reading', 'fitness', 'mind', 'creative', 'health', 'sleep', 'other']);
+  it('ten targeted binders, six general ones, every ladder in exactly one', () => {
+    expect(BINDERS.filter((b) => b.kind === 'targeted').map((b) => b.id)).toEqual(['study', 'code', 'reading', 'fitness', 'mind', 'creative', 'health', 'sleep', 'wisdom', 'other']);
     expect(BINDERS.filter((b) => b.kind === 'general').map((b) => b.id)).toEqual(['streaks', 'grind', 'goals', 'compete', 'habits', 'secrets']);
     const all = BINDERS.flatMap((b) => b.ladders.map((l) => l.id));
     expect(all.sort()).toEqual(LADDERS.map((l) => l.id).sort());

@@ -1,6 +1,6 @@
 import {
-  Activity, Bike, BookOpen, Brain, Code, Coffee, Droplet, Dumbbell, Flame, Footprints, Guitar,
-  GraduationCap, Heart, Languages, Laptop, Leaf, Moon, Music, Network, Pencil, Smile, Sun,
+  Activity, Bike, BookMarked, BookOpen, Brain, Code, Coffee, Droplet, Dumbbell, Flame, Footprints, Guitar,
+  GraduationCap, Heart, Languages, Laptop, Leaf, Moon, Music, Network, Pencil, Quote, ScrollText, Smile, Sun,
   Target, Timer, type LucideIcon,
 } from 'lucide-react';
 
@@ -11,7 +11,7 @@ import {
 export const ICONS: Record<string, LucideIcon> = {
   GraduationCap, BookOpen, Network, Dumbbell, Flame, Brain, Code, Laptop, Pencil, Languages,
   Music, Guitar, Activity, Bike, Footprints, Heart, Droplet, Coffee, Moon, Sun, Leaf, Smile,
-  Target, Timer,
+  Target, Timer, BookMarked, Quote, ScrollText,
 };
 
 export function iconFor(name: string): LucideIcon {

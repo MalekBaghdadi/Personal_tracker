@@ -88,7 +88,7 @@ export function Onboarding() {
 
 function describe(s: Seed): string {
   const per = s.targetDirection === 'at_most' ? 'at most a day' : 'daily';
-  const kind = s.type === 'duration' ? 'time' : s.type === 'check' ? 'check off' : s.unit;
+  const kind = s.type === 'duration' ? 'time' : s.type === 'check' ? 'check off' : s.type === 'phrase' ? 'phrases to collect and review' : s.unit;
   const when = s.schedule.kind === 'days_of_week' ? s.schedule.days.map((d) => WEEKDAYS[d]).join(', ') : per;
   return `${kind} · ${when}`;
 }
@@ -189,7 +189,7 @@ function Pick({ initial, onNext, onSkip }: { initial: Seed[]; onNext: (picks: Se
               label="Kind"
               value={type}
               onChange={setType}
-              options={[{ value: 'duration', label: 'Time' }, { value: 'count', label: 'Count' }, { value: 'check', label: 'Check off' }]}
+              options={[{ value: 'duration', label: 'Time' }, { value: 'count', label: 'Count' }, { value: 'check', label: 'Check off' }, { value: 'phrase', label: 'Phrases' }]}
             />
           </div>
           {type === 'count' && (
@@ -277,7 +277,7 @@ function Targets({
         const dur = r.type === 'duration' && r.target != null ? splitDuration(r.target) : { hours: '', minutes: '' };
         return [r.key, {
           ...dur,
-          count: r.type === 'count' && r.target != null ? String(r.target) : '',
+          count: (r.type === 'count' || r.type === 'phrase') && r.target != null ? String(r.target) : r.type === 'phrase' ? '1' : '',
           days: r.schedule.kind === 'days_of_week' ? r.schedule.days : [],
         }];
       }),
@@ -297,7 +297,7 @@ function Targets({
       }
       let target: number | null = r.type === 'check' ? 1 : null;
       if (r.type === 'duration' && (d.hours || d.minutes)) target = parseDuration(d.hours, d.minutes);
-      if (r.type === 'count' && d.count) target = parseCount(d.count);
+      if ((r.type === 'count' || r.type === 'phrase') && d.count) target = parseCount(d.count);
       if (target !== null && !(target > 0)) {
         setError(`${r.name}: enter a value above zero, or leave it blank.`);
         return;
@@ -355,12 +355,12 @@ function TargetRow({
       <div className="mb-2 flex items-center gap-2">
         <Icon size={17} style={{ color: hue }} aria-hidden />
         <span className="text-[15px] font-medium">{row.name}</span>
-        <span className="text-[13px] text-ink-3">{row.type === 'check' ? 'check off, done or not' : range ? 'range, set under Metrics' : ceiling ? 'at most, per day' : 'at least, per day'}</span>
+        <span className="text-[13px] text-ink-3">{row.type === 'check' ? 'check off, done or not' : row.type === 'phrase' ? 'phrases to add, at least, per day' : range ? 'range, set under Metrics' : ceiling ? 'at most, per day' : 'at least, per day'}</span>
       </div>
       {row.type === 'check' || range ? null : row.type === 'duration' ? (
         <DurationInput idPrefix={`ob-${row.key}`} hours={draft.hours} minutes={draft.minutes} onHours={(v) => onChange({ hours: v })} onMinutes={(v) => onChange({ minutes: v })} />
       ) : (
-        <CountInput id={`ob-${row.key}`} value={draft.count} onChange={(v) => onChange({ count: v })} unit={row.unit} />
+        <CountInput id={`ob-${row.key}`} value={draft.count} onChange={(v) => onChange({ count: v })} unit={row.type === 'phrase' ? 'phrases' : row.unit} />
       )}
       {row.schedule.kind === 'days_of_week' && (
         <div className="mt-3">

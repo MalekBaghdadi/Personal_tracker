@@ -1,5 +1,9 @@
-/** 'check' is done or not done: one tap a day, stored as an entry of 1, target always 1. */
-export type MetricType = 'duration' | 'count' | 'check';
+/**
+ * 'check' is done or not done: one tap a day, stored as an entry of 1, target always 1.
+ * 'phrase' collects a phrase (quote, saying, hadith) per entry, each worth 1, and asks
+ * for a review of an older one every day; the day only counts when both are done.
+ */
+export type MetricType = 'duration' | 'count' | 'check' | 'phrase';
 /** 'between' is a range: `targetMin` to `target`, both inclusive (e.g. 1,800–2,200 kcal). */
 export type TargetDirection = 'at_least' | 'at_most' | 'between';
 
@@ -8,7 +12,7 @@ export type Schedule =
   | { kind: 'days_of_week'; days: number[] }; // 0 = Sunday
 
 /** What a metric is about, for themed achievements (lib/themes.ts). */
-export type ThemeId = 'study' | 'code' | 'reading' | 'fitness' | 'mind' | 'creative' | 'health' | 'sleep' | 'other';
+export type ThemeId = 'study' | 'code' | 'reading' | 'fitness' | 'mind' | 'creative' | 'health' | 'sleep' | 'wisdom' | 'other';
 
 /** A metric's target as it was for a stretch of days (the fields a day is judged against). */
 export interface TargetSpec {
@@ -69,7 +73,35 @@ export interface Entry {
   value: number;
   source: EntrySource;
   note: string | null;
+  /** Phrase metrics only: the phrase itself (value is always 1). */
+  text?: string;
+  /** Phrase metrics only: where it comes from (a book, a narrator, an author). */
+  reference?: string | null;
   occurredAt: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+/**
+ * One review of one phrase (users/{uid}/reviews/{id}). 'tap' is "I've reviewed it";
+ * 'type' is a test from memory: `style` says how it was asked, `score` is the share of
+ * words recalled (0 to 1) and `hints` how many helps were used. A day with a phrase to
+ * review only counts once it has a review.
+ */
+export interface Review {
+  id: string;
+  metricId: string;
+  /** The phrase entry that was reviewed. */
+  entryId: string;
+  /** Tracking day it was done. */
+  localDate: string;
+  mode: 'tap' | 'type';
+  style: 'blanks' | 'full' | null;
+  score: number | null;
+  hints: number;
+  /** Words in the phrase, for the long-recall achievements. */
+  words: number;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -169,6 +201,8 @@ export interface CalendarItem {
 export interface DayStat {
   total: number;
   count: number;
+  /** A phrase day that still owes its review: not a hit however many phrases were added. */
+  open?: boolean;
 }
 
 export type DayStats = Map<string, DayStat>;

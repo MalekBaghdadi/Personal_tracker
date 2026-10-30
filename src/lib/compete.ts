@@ -158,7 +158,7 @@ export interface Score {
  * an older partner app wouldn't know the type.
  */
 export const canLink = (m: Metric): boolean =>
-  !m.archivedAt && (m.targetDirection === 'at_least' ? m.type !== 'check' : m.targetDirection === 'between' && m.type === 'duration');
+  !m.archivedAt && (m.targetDirection === 'at_least' ? m.type !== 'check' && m.type !== 'phrase' : m.targetDirection === 'between' && m.type === 'duration');
 
 /** A metric can be added to a side when it can be summed with it: time with time, or counts of the same unit. */
 export const canJoin = (m: Metric, link: Pick<Link, 'type'>, unit: string): boolean =>

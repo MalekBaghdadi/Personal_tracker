@@ -1,7 +1,8 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where, type DocumentReference } from 'firebase/firestore';
 import { db } from './firebase';
 import { paths } from './repo';
-import type { CollectedAchievement, DayStats, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Settings } from './types';
+import { reviewOwed } from './phrases';
+import type { CollectedAchievement, DayStats, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Review, Settings } from './types';
 
 /**
  * Malek's account (malekbaghdadi07@gmail.com). It may read every user's data;
@@ -67,6 +68,7 @@ export interface UserData {
   planSections: PlanSection[];
   planTasks: PlanTask[];
   achievements: CollectedAchievement[];
+  reviews: Review[];
 }
 
 /**
@@ -85,7 +87,7 @@ async function docOrNull<T>(ref: DocumentReference): Promise<{ value: T | null; 
 
 export async function fetchUserData(uid: string): Promise<Loaded<UserData>> {
   const live = where('deletedAt', '==', null);
-  const [profile, settings, metrics, entries, goals, plans, planSections, planTasks, achievements] = await Promise.all([
+  const [profile, settings, metrics, entries, goals, plans, planSections, planTasks, achievements, reviews] = await Promise.all([
     docOrNull<Profile>(profileRef(uid)),
     docOrNull<Settings>(paths.settings(uid)),
     getDocs(paths.metrics(uid)),
@@ -95,6 +97,7 @@ export async function fetchUserData(uid: string): Promise<Loaded<UserData>> {
     getDocs(query(paths.planSections(uid), live)),
     getDocs(query(paths.planTasks(uid), live)),
     getDocs(paths.achievements(uid)),
+    getDocs(query(paths.reviews(uid), live)),
   ]);
   return {
     data: {
@@ -107,8 +110,9 @@ export async function fetchUserData(uid: string): Promise<Loaded<UserData>> {
       planSections: planSections.docs.map((d) => d.data() as PlanSection),
       planTasks: planTasks.docs.map((d) => d.data() as PlanTask),
       achievements: achievements.docs.map((d) => d.data() as CollectedAchievement),
+      reviews: reviews.docs.map((d) => d.data() as Review),
     },
-    fromCache: profile.fromCache || settings.fromCache || [metrics, entries, goals, plans, planSections, planTasks, achievements].some((s) => s.metadata.fromCache),
+    fromCache: profile.fromCache || settings.fromCache || [metrics, entries, goals, plans, planSections, planTasks, achievements, reviews].some((s) => s.metadata.fromCache),
   };
 }
 
@@ -116,9 +120,15 @@ export async function fetchUserData(uid: string): Promise<Loaded<UserData>> {
  * metricId → localDate → aggregate. The same figures DataContext derives for
  * the signed-in user. A check metric's day total is 1 if anything is logged:
  * two taps from two offline devices are still one done day, and a metric
- * switched to check keeps its old entries (minutes, say) as done days.
+ * switched to check keeps its old entries (minutes, say) as done days. A phrase
+ * day is `open` while it owes a review (an older phrase exists and no review was
+ * done that day), which keeps it from being a hit.
  */
-export function buildDayStats(entries: Entry[], metrics: Pick<Metric, 'id' | 'type'>[] = []): Map<string, DayStats> {
+export function buildDayStats(
+  entries: Entry[],
+  metrics: Pick<Metric, 'id' | 'type'>[] = [],
+  reviews: Pick<Review, 'metricId' | 'localDate'>[] = [],
+): Map<string, DayStats> {
   const out = new Map<string, DayStats>();
   for (const e of entries) {
     let m = out.get(e.metricId);
@@ -129,9 +139,26 @@ export function buildDayStats(entries: Entry[], metrics: Pick<Metric, 'id' | 'ty
       s.count += 1;
     } else m.set(e.localDate, { total: e.value, count: 1 });
   }
+  let reviewed: Map<string, Set<string>> | null = null;
   for (const metric of metrics) {
-    if (metric.type !== 'check') continue;
-    for (const s of out.get(metric.id)?.values() ?? []) s.total = 1;
+    if (metric.type === 'check') {
+      for (const s of out.get(metric.id)?.values() ?? []) s.total = 1;
+    } else if (metric.type === 'phrase') {
+      const days = out.get(metric.id);
+      if (!days) continue;
+      if (!reviewed) {
+        reviewed = new Map();
+        for (const r of reviews) {
+          const set = reviewed.get(r.metricId);
+          if (set) set.add(r.localDate);
+          else reviewed.set(r.metricId, new Set([r.localDate]));
+        }
+      }
+      let first: string | null = null;
+      for (const d of days.keys()) if (first === null || d < first) first = d;
+      const done = reviewed.get(metric.id);
+      for (const [d, s] of days) if (reviewOwed(first, d) && !done?.has(d)) s.open = true;
+    }
   }
   return out;
 }

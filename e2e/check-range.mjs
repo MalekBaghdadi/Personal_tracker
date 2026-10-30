@@ -61,7 +61,7 @@ try {
   // ── Gym: timed, with yesterday logged, then switched to check off ──
   await click('nav.fixed a[href="#/metrics"]');
   await click('::-p-text(New metric)');
-  log('New metric offers Check off:', await page.evaluate(() => [...document.querySelectorAll('[aria-label="Measured as"] [role=radio]')].map((b) => b.textContent).join(',') === 'Time,A number,Check off'));
+  log('New metric offers Check off:', await page.evaluate(() => [...document.querySelectorAll('[aria-label="Measured as"] [role=radio]')].map((b) => b.textContent).join(',') === 'Time,A number,Check off,Phrases'));
   await page.type('#m-name', 'Gym');
   await page.type('#m-target-h', '1');
   await click('::-p-text(Create metric)');

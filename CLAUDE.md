@@ -28,6 +28,9 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - Plans (task-based deadline goals, `lib/plans.ts`): a tick is `doneAt` on its own task doc, never an entry; progress,
   the current task (first undone) and pace are derived; dates only shape the pace line, nothing is ever overdue.
   The parser (`lib/planMarkdown.ts`) is tested against `e2e/fixtures/uptime-plan.md`.
+- Phrases (`type: 'phrase'`, `lib/phrases.ts`): a phrase is an entry of 1 with `text` and `reference`; reviews are their own docs
+  (`users/{uid}/reviews/{id}`). A day owes a review once an older phrase exists, and is only a hit with it (`DayStat.open`, `isHitDay`):
+  never judge a phrase day with `isHitOn` and a bare total. Not raceable in Compete; linked to the `wisdom` (Phrases) binder.
 - A deadline goal or plan linked to a metric is drawn inside that metric's Today row (between bar and buttons), not as a
   card; the row also shows on days only the goal is scheduled, without changing either side's saved days or the streak.
 - Achievements (`lib/achievements.ts`, cards in `lib/achievementCatalog.ts`): unlocks are derived from the data; collecting a

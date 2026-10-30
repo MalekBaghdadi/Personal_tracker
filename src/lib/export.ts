@@ -1,4 +1,4 @@
-import type { CalendarItem, CollectedAchievement, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Settings } from './types';
+import type { CalendarItem, CollectedAchievement, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Review, Settings } from './types';
 
 /** Plans travel together: the plan docs, their sections and tasks. */
 export interface PlanExport {
@@ -31,6 +31,7 @@ export function exportJson(
   settings: Settings | null,
   plans?: PlanExport,
   achievements: CollectedAchievement[] = [],
+  reviews: Review[] = [],
 ): void {
   const payload = {
     format: 'personal-tracker/1',
@@ -47,6 +48,8 @@ export function exportJson(
     planTasks: plans?.planTasks ?? [],
     // Collected cards only; what's unlocked is worked out from the data.
     achievements,
+    // Phrase reviews; the phrases themselves are entries with text.
+    reviews,
   };
   download(`logbook-${stamp()}.json`, 'application/json', JSON.stringify(payload, null, 2));
 }
@@ -63,15 +66,15 @@ export function toCsv(rows: unknown[][]): string {
 
 export function entriesCsv(metrics: Metric[], entries: Entry[]): string {
   const byId = new Map(metrics.map((m) => [m.id, m]));
-  const header = ['entry_id', 'local_date', 'metric', 'metric_id', 'metric_archived', 'type', 'value', 'value_unit', 'source', 'occurred_at', 'note', 'created_at', 'updated_at'];
+  const header = ['entry_id', 'local_date', 'metric', 'metric_id', 'metric_archived', 'type', 'value', 'value_unit', 'source', 'occurred_at', 'note', 'phrase', 'reference', 'created_at', 'updated_at'];
   const rows = [...entries]
     .sort((a, b) => a.localDate.localeCompare(b.localDate) || a.occurredAt.localeCompare(b.occurredAt))
     .map((e) => {
       const m = byId.get(e.metricId);
       return [
         e.id, e.localDate, m?.name ?? '', e.metricId, m?.archivedAt ? 'yes' : 'no', m?.type ?? '',
-        e.value, m?.type === 'duration' ? 'seconds' : m?.type === 'check' ? 'done' : (m?.unit ?? ''), e.source, e.occurredAt,
-        e.note, e.createdAt, e.updatedAt,
+        e.value, m?.type === 'duration' ? 'seconds' : m?.type === 'check' ? 'done' : m?.type === 'phrase' ? 'phrases' : (m?.unit ?? ''), e.source, e.occurredAt,
+        e.note, e.text ?? '', e.reference ?? '', e.createdAt, e.updatedAt,
       ];
     });
   return toCsv([header, ...rows]);

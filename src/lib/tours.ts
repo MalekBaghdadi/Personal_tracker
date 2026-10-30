@@ -5,7 +5,7 @@
  * A step without a target is a centred card.
  */
 
-export type TourId = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'profile' | 'settings' | 'goals' | 'plans';
+export type TourId = 'today' | 'history' | 'stats' | 'compete' | 'metrics' | 'profile' | 'settings' | 'goals' | 'plans' | 'phrases';
 
 export interface TourStep {
   /** data-tour value to spotlight; the first match on the page. */
@@ -41,6 +41,8 @@ export const TOURS: Tour[] = [
       { target: 'today-custom', title: 'Any amount', body: 'Type an exact amount, or log it to another day.' },
       { target: 'today-toggle', title: 'Add or take away', body: 'Switch to − and the chips subtract instead, for when you logged too much.' },
       { target: 'today-check', title: 'Check off', body: 'Some things are just done or not. Tap once when it’s done; tap again if you tapped by mistake.' },
+      { target: 'today-phrase-add', title: 'Phrases', body: 'A phrase metric collects a quote, saying or hadith a day. Add the day’s phrases here with their source. Each one goes into your collection.' },
+      { target: 'today-phrase-review', title: 'Review one', body: 'Every day you also review a phrase from an earlier day, picked at random. Read it and tap reviewed, or test yourself from memory with blanks and hints. The day only counts once you’ve added your phrases and done the review.' },
       { target: 'today-rest', title: 'Rest day', body: 'Taking a day off? Tap Rest day and the streak stays. Forget to, and your weekly rest day is used for you.' },
       { target: 'today-timer', title: 'Timer', body: 'Start a timer and it logs the time when you stop. Forgot to start it? Press and hold to start earlier.' },
     ],
@@ -120,6 +122,16 @@ export const TOURS: Tour[] = [
       { target: 'profile-themes', title: 'All links at once', body: 'See every metric and its binder here. You can also change a metric’s binder in its editor.' },
       { target: 'profile-share', title: 'Show it off', body: 'Paired in Compete? Let them see your title, level and showcase. Switch it off any time.' },
       { target: 'profile-settings', title: 'Settings', body: 'Settings live behind this gear: timezone, day start, export and restore, and these tutorials.' },
+    ],
+  },
+  {
+    id: 'phrases',
+    name: 'Phrase collection',
+    steps: [
+      { target: 'phrases-actions', title: 'Add or review', body: 'Add a phrase from here too, or review a random one right now. An extra review still counts toward your cards.' },
+      { target: 'phrases-search', title: 'Find one', body: 'Search the text or the source. Arabic searches ignore the diacritics.' },
+      { target: 'phrases-filter', title: 'Needs a look', body: 'Filter to phrases you haven’t reviewed yet, or ones you recalled badly last time. Those come up more often in your daily review.' },
+      { target: 'phrases-list', title: 'Your phrases', body: 'Newest first, with when you added each one and how your last review went. Tap one to fix a typo, change its source or delete it.' },
     ],
   },
   {

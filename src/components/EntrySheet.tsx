@@ -4,7 +4,8 @@ import { CountInput, DurationInput, parseCount, parseDuration, splitDuration } f
 import { useData } from '../state/DataContext';
 import { useCompete } from '../state/CompeteContext';
 import { addEntry, restoreEntry, softDeleteEntry, subtractFromDay, undoSubtraction, updateEntry } from '../lib/repo';
-import { formatTimeIn, instantAt } from '../lib/dates';
+import { formatLocalDate, formatTimeIn, instantAt } from '../lib/dates';
+import { wordsOf } from '../lib/phrases';
 import { formatDuration, formatValue } from '../lib/format';
 import type { Entry, Metric } from '../lib/types';
 
@@ -27,15 +28,18 @@ export function EntrySheet({ state, onClose }: { state: EntrySheetState | null; 
       onClose={onClose}
       title={
         !state ? ''
-          : state.mode === 'edit' ? `Edit ${state.metric.name} entry`
+          : state.mode === 'edit' ? (state.metric.type === 'phrase' ? `Edit ${state.metric.name} phrase` : `Edit ${state.metric.name} entry`)
           : state.mode === 'total' ? `Edit ${state.metric.name} total`
           : state.subtract ? `Subtract from ${state.metric.name}`
           : state.metric.type === 'check' ? `Mark ${state.metric.name} done`
+          : state.metric.type === 'phrase' ? `Add to ${state.metric.name}`
           : `Add to ${state.metric.name}`
       }
     >
       {state?.mode === 'total' ? (
         <TotalForm key={state.entryIds.join(',')} metric={state.metric} entryIds={state.entryIds} onDone={onClose} />
+      ) : state?.metric.type === 'phrase' ? (
+        <PhraseForm key={state.mode === 'edit' ? state.entry.id : `${state.metric.id}-${state.date}`} state={state} onDone={onClose} />
       ) : state ? (
         <EntryForm key={state.mode === 'edit' ? state.entry.id : `${state.metric.id}-${state.date}-${state.subtract ? 'sub' : 'add'}`} state={state} onDone={onClose} />
       ) : null}
@@ -208,6 +212,119 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
             }}
           >
             Delete entry
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+/**
+ * A phrase metric's entry: the phrase, where it's from, and the day it counts for.
+ * One phrase is one entry of 1, so adding, undoing and the day's count work like
+ * any other metric.
+ */
+function PhraseForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 'total' }>; onDone: () => void }) {
+  const { uid, tz, today, entries } = useData();
+  const toast = useToast();
+  const metric = state.metric;
+  const existing = state.mode === 'edit' ? state.entry : null;
+  const [text, setText] = useState(existing?.text ?? '');
+  const [reference, setReference] = useState(existing?.reference ?? '');
+  const [date, setDate] = useState(existing?.localDate ?? (state.mode === 'add' ? state.date : undefined) ?? today);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDup, setConfirmDup] = useState(false);
+
+  // The same phrase twice is almost always a slip: say so, but let it through on a second tap.
+  const duplicate = useMemo(() => {
+    const keyOf = (t: string) => wordsOf(t).map((w) => w.key).filter(Boolean).join(' ');
+    const mine = keyOf(text);
+    if (!mine) return null;
+    return entries.find((e) => e.metricId === metric.id && e.id !== existing?.id && e.text && keyOf(e.text) === mine) ?? null;
+  }, [entries, metric.id, existing?.id, text]);
+  useEffect(() => setConfirmDup(false), [text]);
+
+  const submit = () => {
+    const t = text.trim();
+    if (!t) return setError('Write the phrase first.');
+    if (!date) return setError('Choose a date.');
+    if (duplicate && !confirmDup) {
+      setConfirmDup(true);
+      return;
+    }
+    const ref = reference.trim() || null;
+    if (existing) {
+      const patch: Parameters<typeof updateEntry>[2] = {};
+      if (t !== existing.text) patch.text = t;
+      if (ref !== (existing.reference ?? null)) patch.reference = ref;
+      if (date !== existing.localDate) {
+        patch.localDate = date;
+        patch.occurredAt = instantAt(date, formatTimeIn(existing.occurredAt, tz) + ':00', tz).toISOString();
+      }
+      if (Object.keys(patch).length) updateEntry(uid, existing.id, patch);
+      onDone();
+      return;
+    }
+    const occurredAt = date === today ? new Date().toISOString() : instantAt(date, '12:00:00', tz).toISOString();
+    const id = addEntry(uid, { metricId: metric.id, value: 1, source: 'manual', localDate: date, occurredAt, text: t, reference: ref });
+    toast(`Added to ${metric.name}`, { label: 'Undo', run: () => softDeleteEntry(uid, id) });
+    onDone();
+  };
+
+  return (
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+      className="mt-2 flex flex-col gap-4"
+    >
+      <div>
+        <Label htmlFor="phrase-text">Phrase</Label>
+        <textarea
+          id="phrase-text"
+          dir="auto"
+          rows={5}
+          maxLength={2000}
+          autoFocus
+          className={`${inputClass} min-h-32 py-2.5 leading-relaxed`}
+          value={text}
+          placeholder="Write or paste it here"
+          onChange={(e) => { setText(e.target.value); setError(null); }}
+        />
+        <FieldError>{error}</FieldError>
+      </div>
+
+      <div>
+        <Label htmlFor="phrase-ref">Source</Label>
+        <input id="phrase-ref" dir="auto" className={inputClass} value={reference} maxLength={160} placeholder="Optional: a book, a narrator, an author" onChange={(e) => setReference(e.target.value)} />
+      </div>
+
+      <div>
+        <Label htmlFor="entry-date">Date</Label>
+        <input id="entry-date" type="date" className={inputClass} value={date} max={today} onChange={(e) => setDate(e.target.value)} />
+        {existing && <p className="mt-1.5 text-[13px] text-ink-3">Added at {formatTimeIn(existing.occurredAt, tz)}</p>}
+      </div>
+
+      {duplicate && (
+        <p role="alert" className="rounded-lg bg-s2 px-3 py-2.5 text-[14px] text-ink-2">
+          This one is already in your collection (added {formatLocalDate(duplicate.localDate, 'd MMM yyyy')}).{confirmDup ? ' Tap again to add it anyway.' : ''}
+        </p>
+      )}
+
+      <div className="flex flex-col gap-2">
+        <Button type="submit" variant="primary">{existing ? 'Save changes' : confirmDup ? 'Add it again' : 'Add phrase'}</Button>
+        {existing && (
+          <Button
+            variant="danger"
+            onClick={() => {
+              softDeleteEntry(uid, existing.id);
+              toast('Phrase deleted', { label: 'Undo', run: () => restoreEntry(uid, existing.id) });
+              onDone();
+            }}
+          >
+            Delete phrase
           </Button>
         )}
       </div>

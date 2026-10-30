@@ -1,6 +1,6 @@
 import { addDays, weekdayOf } from './dates';
 import { targetOn } from './targets';
-import type { DayStats, Metric, Schedule, TargetSpec } from './types';
+import type { DayStat, DayStats, Metric, Schedule, TargetSpec } from './types';
 
 type TargetFields = Pick<Metric, 'target' | 'targetDirection' | 'schedule'> & Partial<Pick<Metric, 'restDaysPerWeek' | 'restDates' | 'targetMin' | 'targetHistory' | 'targetFrom'>>;
 type WeekStart = 0 | 1;
@@ -27,9 +27,17 @@ export function isHitOn(metric: TargetFields, date: string, total: number, count
   return isHit(targetOn(metric, date), total, count);
 }
 
+/**
+ * isHitOn for a day's stat: a phrase day that still owes its review (`open`)
+ * is never a hit, however many phrases it has.
+ */
+export function isHitDay(metric: TargetFields, date: string, s: DayStat | undefined): boolean | null {
+  if (s?.open) return metric.target == null ? null : false;
+  return isHitOn(metric, date, s?.total ?? 0, s?.count ?? 0);
+}
+
 function hitOn(metric: TargetFields, stats: DayStats, date: string): boolean {
-  const s = stats.get(date);
-  return isHitOn(metric, date, s?.total ?? 0, s?.count ?? 0) === true;
+  return isHitDay(metric, date, stats.get(date)) === true;
 }
 
 function earliest(stats: DayStats): string | null {
