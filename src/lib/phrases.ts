@@ -234,6 +234,33 @@ export function pickPhrase(pool: Entry[], history: Map<string, PhraseHistory>, d
   return options[options.length - 1];
 }
 
+/**
+ * The carousel's shuffle: a random phrase not yet shown this round (`seen`, in
+ * the order shown). Once all are shown the round restarts, and its first pick
+ * never repeats the last one shown. Phrases added mid-round join it; deleted
+ * ones are ignored. Null when there is nothing to show.
+ */
+export function drawPhrase(ids: string[], seen: ReadonlySet<string>, rand: () => number): { id: string; seen: Set<string> } | null {
+  if (ids.length === 0) return null;
+  let round = new Set(seen);
+  let left = ids.filter((id) => !round.has(id));
+  if (left.length === 0) {
+    const last = [...seen].pop();
+    round = new Set();
+    left = ids.length > 1 ? ids.filter((id) => id !== last) : ids;
+  }
+  const id = left[Math.floor(rand() * left.length)];
+  return { id, seen: round.add(id) };
+}
+
+/** Base seconds on screen per pace; the carousel adds time for the length of the phrase. */
+export const CAROUSEL_BASE_S = { fast: 6, normal: 10, slow: 16 } as const;
+
+/** How long the carousel keeps a phrase up: the pace's base plus 40ms a character so a long one can be read. */
+export function dwellMs(text: string, pace: keyof typeof CAROUSEL_BASE_S): number {
+  return CAROUSEL_BASE_S[pace] * 1000 + text.length * 40;
+}
+
 /** What a recall score says: "Word perfect", "Remembered", "Needs another look". */
 export function verdictOf(score: number): string {
   return score >= 1 ? 'Word perfect' : score >= REMEMBERED ? 'Remembered' : 'Needs another look';

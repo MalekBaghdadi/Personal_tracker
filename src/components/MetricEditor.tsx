@@ -15,7 +15,7 @@ import { PALETTE, hueFor } from '../lib/palette';
 import { formatNumber, formatTarget } from '../lib/format';
 import { Button, DayPicker, FieldError, Label, Segmented, Sheet, Switch, cx, inputClass, useToast } from './ui';
 import { CountInput, DurationInput, parseCount, parseDuration, splitDuration } from './inputs';
-import type { Metric, MetricType, Schedule, TargetDirection, ThemeId } from '../lib/types';
+import type { CarouselPace, CarouselStyle, Metric, MetricType, Schedule, TargetDirection, ThemeId } from '../lib/types';
 
 export function MetricEditor({ target, onClose, onGoal }: { target: Metric | 'new' | null; onClose: () => void; onGoal?: (metricId: string) => void }) {
   const title = target === 'new' ? 'New metric' : target ? `Edit ${target.name}` : '';
@@ -68,6 +68,10 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   // Unset, the theme follows the icon (themeOf); picking one stores it.
   const [achTheme, setAchTheme] = useState<ThemeId | undefined>(initial?.theme);
   const shownTheme = achTheme ?? (type === 'phrase' ? 'wisdom' : themeFromIcon(icon));
+  // Phrase metrics: cycle the collection on Today. Style and pace are remembered while it's switched off.
+  const [carouselOn, setCarouselOn] = useState(!!initial?.carousel);
+  const [carouselStyle, setCarouselStyle] = useState<CarouselStyle>(initial?.carousel?.style ?? 'fade');
+  const [carouselPace, setCarouselPace] = useState<CarouselPace>(initial?.carousel?.pace ?? 'normal');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -165,6 +169,7 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       icon,
       // A phrase metric is linked to the Phrases binder up front, so changing its icon later never drops it.
       ...(achTheme ? { theme: achTheme } : phrase ? { theme: 'wisdom' as const } : {}),
+      ...(phrase && carouselOn ? { carousel: { style: carouselStyle, pace: carouselPace } } : {}),
       order: initial?.order ?? metrics.reduce((max, m) => Math.max(max, m.order + 1), 0),
       archivedAt: initial?.archivedAt ?? null,
       createdAt: initial?.createdAt ?? now,
@@ -332,6 +337,31 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {type === 'phrase' && (
+        <div>
+          <Switch checked={carouselOn} onChange={setCarouselOn} label="Cycle your phrases on Today" />
+          {carouselOn && (
+            <div className="mt-2 flex flex-col gap-3">
+              <Segmented
+                label="Carousel style"
+                value={carouselStyle}
+                onChange={setCarouselStyle}
+                options={[{ value: 'fade', label: 'Fade' }, { value: 'slide', label: 'Slide' }, { value: 'stack', label: 'Stack' }, { value: 'ticker', label: 'Ticker' }]}
+              />
+              <Segmented
+                label="Carousel pace"
+                value={carouselPace}
+                onChange={setCarouselPace}
+                options={[{ value: 'fast', label: 'Fast' }, { value: 'normal', label: 'Normal' }, { value: 'slow', label: 'Slow' }]}
+              />
+            </div>
+          )}
+          <p className="mt-1.5 text-[13px] text-ink-3">
+            Shows one phrase at a time in a shuffled order, every phrase once before any repeat. Longer phrases stay up longer. Hold or hover to pause; swipe or use the arrows to move on.
+          </p>
         </div>
       )}
 

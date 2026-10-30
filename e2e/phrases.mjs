@@ -292,6 +292,91 @@ try {
   await page.keyboard.press('Escape');
   await wait(300);
 
+  // ── Phrase carousel: off by default, set in the editor, cycles in a shuffle ──
+  const PHRASES = [Y1[0], Y2[0], T1[0], 'Let him speak good or keep silent'];
+  const carouselText = () => page.$eval('[data-testid=phrase-carousel]', (el) => el.querySelector('.line-clamp-6')?.textContent ?? el.querySelector('.car-ticker')?.textContent ?? '');
+  const openEditor = async () => {
+    await page.goto('http://localhost:5173/#/metrics');
+    await wait(500);
+    await page.evaluate((n) => [...document.querySelectorAll('li button')].find((b) => b.innerText.includes(n))?.click(), NAME);
+    await wait(500);
+  };
+  const pick = async (group, label) => click(`dialog[open] [aria-label="${group}"] [role=radio]::-p-text(${label})`);
+  await page.goto('http://localhost:5173/#/today');
+  await wait(600);
+  log('Carousel is off by default:', !(await page.$('[data-testid=phrase-carousel]')));
+  await openEditor();
+  log('Editor offers the switch, off, with no style yet:', (await dialogText()).includes('Cycle your phrases on Today') && !(await page.$('[aria-label="Carousel style"]')));
+  await page.evaluate(() => [...document.querySelectorAll('dialog[open] [role=switch]')].find((s) => s.innerText.includes('Cycle your phrases')).click());
+  await wait(300);
+  log('Switching it on offers four styles and three paces:', (await page.$$('[aria-label="Carousel style"] [role=radio]')).length === 4 && (await page.$$('[aria-label="Carousel pace"] [role=radio]')).length === 3);
+  await pick('Carousel style', 'Stack');
+  await pick('Carousel pace', 'Fast');
+  await shot('ph-17-carousel-editor', true);
+  await click('dialog[open] button[type=submit]');
+  await wait(500);
+  await page.goto('http://localhost:5173/#/today');
+  await wait(700);
+  const style1 = await page.$eval('[data-testid=phrase-carousel]', (el) => el.dataset.style).catch(() => null);
+  log('Today shows the carousel in the chosen style:', style1 === 'stack');
+  await shot('ph-18-carousel');
+  // Reduced motion (set for this suite): it never moves by itself, and there is nothing to pause.
+  const still = await carouselText();
+  await wait(9000);
+  log('Reduced motion: no pause button, it stays put:', !(await page.$('[aria-label="Pause the carousel"]')) && (await carouselText()) === still);
+  log('Previous is disabled on the first phrase:', await page.$eval('[aria-label="Previous phrase"]', (b) => b.disabled));
+  const seen = [still];
+  for (let i = 0; i < 3; i++) {
+    await click('[aria-label="Next phrase"]');
+    seen.push(await carouselText());
+  }
+  log('Four steps show all four phrases once each (a shuffle):', new Set(seen).size === 4 && seen.every((t) => PHRASES.includes(t)));
+  await click('[aria-label="Previous phrase"]');
+  log('Previous steps back:', (await carouselText()) === seen[2]);
+  await click('[aria-label="Next phrase"]');
+  log('Next then returns to the same one:', (await carouselText()) === seen[3]);
+  await click('[aria-label="Next phrase"]');
+  log('The next round never starts with the phrase just shown:', (await carouselText()) !== seen[3]);
+
+  // With motion allowed it moves on by itself, and the pause button holds it.
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  await page.reload({ waitUntil: 'networkidle0' });
+  await wait(1200);
+  await page.mouse.move(1, 1);
+  const before = await carouselText();
+  await wait(9500);
+  log('Fast pace: moves on by itself:', (await carouselText()) !== before);
+  await click('[aria-label="Pause the carousel"]');
+  await page.mouse.move(1, 1);
+  const held = await carouselText();
+  await wait(9500);
+  log('Paused: stays on the same phrase, button offers Resume:', (await carouselText()) === held && !!(await page.$('[aria-label="Resume the carousel"]')));
+  await click('[aria-label="Resume the carousel"]');
+
+  // The ticker scrolls one line and hands over when it has gone by.
+  await openEditor();
+  await pick('Carousel style', 'Ticker');
+  await click('dialog[open] button[type=submit]');
+  await wait(500);
+  await page.goto('http://localhost:5173/#/today');
+  await wait(700);
+  await page.mouse.move(1, 1);
+  log('Ticker: a single scrolling line:', !!(await page.$('[data-testid=phrase-carousel] .car-ticker')));
+  const tick = await carouselText();
+  await wait(10500);
+  log('Ticker hands over to the next phrase:', (await carouselText()) !== tick);
+  await shot('ph-19-ticker');
+
+  // Switching it off removes it again.
+  await openEditor();
+  await page.evaluate(() => [...document.querySelectorAll('dialog[open] [role=switch]')].find((s) => s.innerText.includes('Cycle your phrases')).click());
+  await click('dialog[open] button[type=submit]');
+  await wait(500);
+  await page.goto('http://localhost:5173/#/today');
+  await wait(700);
+  log('Off again: no carousel on Today:', !(await page.$('[data-testid=phrase-carousel]')));
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+
   // ── A reload keeps everything ──
   await page.goto('http://localhost:5173/#/today');
   await page.reload({ waitUntil: 'networkidle0' });

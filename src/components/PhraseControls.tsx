@@ -3,6 +3,7 @@ import { CircleCheck, Circle, Library, Plus, RefreshCw } from 'lucide-react';
 import { useHue } from '../state/theme';
 import { usePhraseDay } from '../state/phrases';
 import { EntrySheet, type EntrySheetState } from './EntrySheet';
+import { PhraseCarousel } from './PhraseCarousel';
 import { ReviewSheet } from './ReviewSheet';
 import { Button, cx } from './ui';
 import { useData } from '../state/DataContext';
@@ -35,8 +36,8 @@ function Step({ done, dim, text }: { done: boolean; dim?: boolean; text: string 
   );
 }
 
-/** Add a phrase, review one, open the collection: the buttons of a phrase metric's row. */
-export function PhraseControls({ metric, day, tour }: { metric: Metric; day: string; tour?: boolean }) {
+/** Add a phrase, review one, open the collection: the buttons of a phrase metric's row (with its carousel, if `carousel` and the metric has one). */
+export function PhraseControls({ metric, day, tour, carousel }: { metric: Metric; day: string; tour?: boolean; carousel?: boolean }) {
   const hue = useHue(metric.color);
   const ph = usePhraseDay(metric, day);
   const [add, setAdd] = useState<EntrySheetState | null>(null);
@@ -45,41 +46,44 @@ export function PhraseControls({ metric, day, tour }: { metric: Metric; day: str
   const urgent = ph.owed && !ph.reviewDone;
 
   return (
-    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-      <button
-        type="button"
-        onClick={() => setAdd({ mode: 'add', metric, date: day })}
-        data-tour={tour ? 'today-phrase-add' : undefined}
-        aria-label={`Add a phrase to ${metric.name}`}
-        className="press inline-flex min-h-11 items-center gap-2 rounded-lg bg-s2 px-3.5 text-[14px] font-medium text-ink hover:bg-s3"
-      >
-        <Plus size={18} strokeWidth={2.4} aria-hidden /> Add phrase
-      </button>
-      <button
-        type="button"
-        onClick={() => setReview(true)}
-        disabled={!ph.owed}
-        data-tour={tour ? 'today-phrase-review' : undefined}
-        aria-label={`Review a phrase from ${metric.name}`}
-        className={cx(
-          'press inline-flex min-h-11 items-center gap-2 rounded-lg px-3.5 text-[14px] font-medium disabled:cursor-not-allowed disabled:opacity-40',
-          !urgent && 'bg-s2 text-ink hover:bg-s3',
-        )}
-        style={urgent ? { background: hue, color: '#0e1420' } : undefined}
-      >
-        <RefreshCw size={16} aria-hidden /> {ph.reviewDone ? 'Review another' : 'Review'}
-      </button>
-      <a
-        href={`#/phrases/${metric.id}`}
-        aria-label={`Open the ${metric.name} collection`}
-        className="press ml-auto inline-flex min-h-11 items-center gap-2 rounded-lg bg-s2 px-3 text-[14px] font-medium text-ink hover:bg-s3"
-      >
-        <Library size={17} aria-hidden /> <span className="hidden sm:inline">Collection</span>
-        <span className="text-[13px] text-ink-3">{ph.all.length}</span>
-      </a>
-      <EntrySheet state={add} onClose={() => setAdd(null)} />
-      <ReviewSheet metric={metric} day={day} open={review} onClose={() => setReview(false)} />
-    </div>
+    <>
+      {carousel && metric.carousel && ph.all.length > 0 && <PhraseCarousel phrases={ph.all} style={metric.carousel.style} pace={metric.carousel.pace} tour={tour} />}
+      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setAdd({ mode: 'add', metric, date: day })}
+          data-tour={tour ? 'today-phrase-add' : undefined}
+          aria-label={`Add a phrase to ${metric.name}`}
+          className="press inline-flex min-h-11 items-center gap-2 rounded-lg bg-s2 px-3.5 text-[14px] font-medium text-ink hover:bg-s3"
+        >
+          <Plus size={18} strokeWidth={2.4} aria-hidden /> Add phrase
+        </button>
+        <button
+          type="button"
+          onClick={() => setReview(true)}
+          disabled={!ph.owed}
+          data-tour={tour ? 'today-phrase-review' : undefined}
+          aria-label={`Review a phrase from ${metric.name}`}
+          className={cx(
+            'press inline-flex min-h-11 items-center gap-2 rounded-lg px-3.5 text-[14px] font-medium disabled:cursor-not-allowed disabled:opacity-40',
+            !urgent && 'bg-s2 text-ink hover:bg-s3',
+          )}
+          style={urgent ? { background: hue, color: '#0e1420' } : undefined}
+        >
+          <RefreshCw size={16} aria-hidden /> {ph.reviewDone ? 'Review another' : 'Review'}
+        </button>
+        <a
+          href={`#/phrases/${metric.id}`}
+          aria-label={`Open the ${metric.name} collection`}
+          className="press ml-auto inline-flex min-h-11 items-center gap-2 rounded-lg bg-s2 px-3 text-[14px] font-medium text-ink hover:bg-s3"
+        >
+          <Library size={17} aria-hidden /> <span className="hidden sm:inline">Collection</span>
+          <span className="text-[13px] text-ink-3">{ph.all.length}</span>
+        </a>
+        <EntrySheet state={add} onClose={() => setAdd(null)} />
+        <ReviewSheet metric={metric} day={day} open={review} onClose={() => setReview(false)} />
+      </div>
+    </>
   );
 }
 

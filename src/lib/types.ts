@@ -26,6 +26,9 @@ export interface TargetVersion extends TargetSpec {
   from: string | null;
 }
 
+export type CarouselStyle = 'fade' | 'slide' | 'stack' | 'ticker';
+export type CarouselPace = 'fast' | 'normal' | 'slow';
+
 export interface Metric {
   id: string;
   name: string;
@@ -50,6 +53,8 @@ export interface Metric {
   restDaysPerWeek?: number;
   /** Days marked "Rest day" ahead (localDate). Only count within the weekly allowance. */
   restDates?: string[];
+  /** Phrase metrics only: cycle the collection on Today. Absent: off. */
+  carousel?: { style: CarouselStyle; pace: CarouselPace };
   /** Base-unit values for one-tap buttons. */
   quickAdd: number[];
   color: string;

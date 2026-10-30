@@ -43,6 +43,7 @@ export const TOURS: Tour[] = [
       { target: 'today-check', title: 'Check off', body: 'Some things are just done or not. Tap once when it’s done; tap again if you tapped by mistake.' },
       { target: 'today-phrase-add', title: 'Phrases', body: 'A phrase metric collects a quote, saying or hadith a day. Add the day’s phrases here with their source. Each one goes into your collection.' },
       { target: 'today-phrase-review', title: 'Review one', body: 'Every day you also review a phrase from an earlier day, picked at random. Read it and tap reviewed, or test yourself from memory with blanks and hints. The day only counts once you’ve added your phrases and done the review.' },
+      { target: 'today-phrase-carousel', title: 'Phrase carousel', body: 'Switched on in the metric’s settings, this cycles your collected phrases in a shuffled order. Hold it to pause, swipe or use the arrows to move on.' },
       { target: 'today-rest', title: 'Rest day', body: 'Taking a day off? Tap Rest day and the streak stays. Forget to, and your weekly rest day is used for you.' },
       { target: 'today-timer', title: 'Timer', body: 'Start a timer and it logs the time when you stop. Forgot to start it? Press and hold to start earlier.' },
     ],

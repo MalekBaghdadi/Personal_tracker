@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  chooseBlanks, describeReview, gradeBlanks, historyByPhrase, matchesSearch, pickPhrase, phrasesOf, recall, reviewOwed, reviewPool,
+  chooseBlanks, describeReview, drawPhrase, dwellMs, gradeBlanks, historyByPhrase, matchesSearch, pickPhrase, phrasesOf, recall, reviewOwed, reviewPool,
   revealed, sameWord, seedOf, wordCount, wordKey, wordsOf, weightOf,
 } from './phrases';
 import { buildDayStats } from './admin';
@@ -316,5 +316,45 @@ describe('importing reviews', () => {
     if (!res.ok) throw new Error(res.error);
     expect(res.plan.reviews).toHaveLength(0);
     expect(res.plan.invalid).toBe(1);
+  });
+});
+
+describe('carousel shuffle', () => {
+  const run = (ids: string[], n: number, rand = Math.random) => {
+    let seen: ReadonlySet<string> = new Set();
+    const out: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const d = drawPhrase(ids, seen, rand);
+      if (!d) break;
+      out.push(d.id);
+      seen = d.seen;
+    }
+    return out;
+  };
+  it('shows every phrase once before any repeats', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+    for (let round = 0; round < 3; round++) expect(run(ids, 15).slice(round * 5, round * 5 + 5).sort()).toEqual(ids);
+  });
+  it('never repeats the phrase it just showed, even across the restart', () => {
+    const ids = ['a', 'b', 'c'];
+    for (let t = 0; t < 50; t++) {
+      const seq = run(ids, 30);
+      seq.slice(1).forEach((id, i) => expect(id).not.toBe(seq[i]));
+    }
+  });
+  it('shows a lone phrase again, and nothing for nothing', () => {
+    expect(run(['a'], 3)).toEqual(['a', 'a', 'a']);
+    expect(drawPhrase([], new Set(), Math.random)).toBeNull();
+  });
+  it('lets a phrase added mid-round join it, and ignores deleted ones', () => {
+    const first = drawPhrase(['a', 'b'], new Set(), () => 0)!;
+    expect(first.id).toBe('a');
+    const next = drawPhrase(['b', 'c'], first.seen, () => 0.99)!;
+    expect(next.id).toBe('c');
+    expect(drawPhrase(['b', 'c'], next.seen, () => 0)!.id).toBe('b');
+  });
+  it('gives long phrases longer on screen', () => {
+    expect(dwellMs('x'.repeat(100), 'normal')).toBeGreaterThan(dwellMs('x', 'normal'));
+    expect(dwellMs('x', 'slow')).toBeGreaterThan(dwellMs('x', 'fast'));
   });
 });

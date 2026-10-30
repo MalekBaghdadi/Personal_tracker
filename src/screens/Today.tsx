@@ -309,7 +309,7 @@ function MetricRow({ metric, offDay, goal, plans, onManual }: {
           <CheckButton metric={metric} date={today} tour="today-check" onDone={(text, undo) => toast(text, { label: 'Undo', run: undo })} />
         </div>
       ) : phrase ? (
-        <PhraseControls metric={metric} day={today} tour />
+        <PhraseControls metric={metric} day={today} tour carousel />
       ) : (
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button

@@ -125,6 +125,29 @@ button {
   animation: bump 500ms var(--ease-spring);
 }
 
+/* The phrase carousel: each slide arrives its own way; the ticker scrolls across and hands over as it leaves. */
+@keyframes car-fade {
+  from { opacity: 0; }
+}
+@keyframes car-slide {
+  from { opacity: 0; transform: translateX(calc(var(--dir, 1) * 36px)); }
+}
+@keyframes car-stack {
+  from { opacity: 0; transform: translateY(16px) scale(0.94) rotate(calc(var(--dir, 1) * 2deg)); }
+}
+@keyframes car-ticker {
+  to { transform: translateX(-100%); }
+}
+.car-fade { animation: car-fade 600ms var(--ease-out) both; }
+.car-slide { animation: car-slide 450ms var(--ease-out) both; }
+.car-stack { animation: car-stack 450ms var(--ease-spring) both; }
+.car-ticker {
+  display: inline-block;
+  padding-left: 100%;
+  white-space: nowrap;
+  animation: car-ticker linear both;
+}
+
 /* Toasts rise in. */
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(24px) scale(0.9); }
@@ -688,6 +711,9 @@ dialog.sheet-closing::backdrop {
   .screen-in,
   .bump,
   .toast-in,
+  .car-fade,
+  .car-slide,
+  .car-stack,
   .sheet-panel,
   .sheet-closing .sheet-panel,
   dialog.sheet::backdrop,
