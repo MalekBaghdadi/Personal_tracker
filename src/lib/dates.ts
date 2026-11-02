@@ -59,6 +59,22 @@ export function formatTimeIn(iso: string, tz: string): string {
   return formatInTimeZone(new Date(iso), tz, 'HH:mm');
 }
 
+/** "HH:mm" as 12-hour text. The two 12s get a word, since 12 AM vs 12 PM is what people mix up. */
+export function clock12(time: string): string {
+  const [h, m] = time.split(':').map(Number);
+  const text = `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+  return time === '12:00' ? `${text} (noon)` : time === '00:00' ? `${text} (midnight)` : text;
+}
+
+/**
+ * A moment as plain words: "Wed 4 Nov, 12:00 PM (noon)", or with `label` ("Tomorrow") for the date part.
+ * Midnight names both days it sits between, because "Tue 12:00 AM" doesn't say which night.
+ */
+export function whenText(localDate: string, time: string, label?: string): string {
+  if (time === '00:00') return `midnight, ${formatLocalDate(addDays(localDate, -1), 'EEE d')} → ${formatLocalDate(localDate, 'EEE d MMM')}`;
+  return label ? `${label} ${clock12(time)}` : `${formatLocalDate(localDate, 'EEE d MMM')}, ${clock12(time)}`;
+}
+
 /** Inclusive list of dates from start to end. */
 export function dateRange(start: string, end: string): string[] {
   const out: string[] = [];

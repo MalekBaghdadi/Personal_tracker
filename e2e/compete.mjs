@@ -374,7 +374,7 @@ try {
   await pressText('Send challenge', 'dialog[open]');
   await hook('acceptMyChallenges');
   const timedCard = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="challenge-card"]')]
-    .find((e) => /\d\d:\d\d – /.test(e.querySelector('[data-testid="challenge-when"]')?.innerText ?? ''))?.innerText ?? '');
+    .find((e) => /(AM|PM|midnight).* – /.test(e.querySelector('[data-testid="challenge-when"]')?.innerText ?? ''))?.innerText ?? '');
   // Mine: 2h + 30m, both logged in the last few minutes. Theirs: a 2h timer from 4h ago (1h inside) and a 1h quick add.
   log('Timed card counts only inside the window (2h 30m vs 2h):', await until(async () => {
     const c = await timedCard();
@@ -386,9 +386,47 @@ try {
   await page.evaluate(() => [...document.querySelectorAll('[data-testid="challenge-card"]')].at(-1).scrollIntoView({ block: 'center' }));
   await shot('cp-05d-timed-card');
 
+  // ── Changing the end of a running challenge, with the new end spelled out ──
+  const timedWhen = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="challenge-card"]')]
+    .find((e) => /(AM|PM|midnight).* – /.test(e.querySelector('[data-testid="challenge-when"]')?.innerText ?? ''))
+    ?.querySelector('[data-testid="challenge-when"]').innerText ?? '');
+  const endNoteText = () => page.$eval('[data-testid="challenge-end-edit"] [data-testid="end-note"]', (e) => e.innerText);
+  const whenBefore = await timedWhen();
+  await page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => /(AM|PM|midnight).* – /.test(e.querySelector('[data-testid="challenge-when"]')?.innerText ?? ''));
+    c.querySelector('[data-testid="challenge-change-end"]').click();
+  });
+  await wait(300);
+  const editTime = '[data-testid="challenge-end-edit"] input[type="time"]';
+  const editDate = '[data-testid="challenge-end-edit"] input[type="date"]';
+  log('Change end opens with the current end spelled out:', /^Ends .*(AM|PM)/.test(await endNoteText()));
+  await setField(editTime, '12:00');
+  log('12:00 says noon, and what 12 PM / 12 AM mean:', (await endNoteText()).includes('12:00 PM (noon)') && (await endNoteText()).includes('12 PM is noon and 12 AM is midnight'));
+  await setField(editTime, '00:00');
+  log('00:00 says midnight and names both days:', /midnight, \w{3} \d+ → \w{3} \d+ \w{3}/.test(await endNoteText()));
+  await setField(editTime, '18:45');
+  log('Other times have no extra hint:', (await endNoteText()).includes('6:45 PM') && !(await endNoteText()).includes('is noon'));
+  await shot('cp-05f-change-end');
+  // An end before the start, and one that already passed, are both refused.
+  await setField(editDate, ymd(new Date(Date.now() - 2 * 86400000)));
+  await pressText('Save', '[data-testid="challenge-end-edit"]');
+  log('End before the start refused:', (await text()).includes('The end has to be after the start.'));
+  await setField(editDate, ymd(new Date(Date.now() - 3600000)));
+  await setField(editTime, hm(new Date(Date.now() - 3600000)));
+  await pressText('Save', '[data-testid="challenge-end-edit"]');
+  log('An end in the past points to End it now:', (await text()).includes('To stop it now, use “End it now”.'));
+  // A real change: an hour later than before.
+  const later = new Date(winEnd.getTime() + 3600000);
+  await setField(editDate, ymd(later));
+  await setField(editTime, hm(later));
+  await pressText('Save', '[data-testid="challenge-end-edit"]');
+  log('New end saved and shown on the card:', await until(async () => (await timedWhen()) !== whenBefore && !(await page.$('[data-testid="challenge-end-edit"]'))));
+  log('Card says who moved it and what it was:', await until(async () => /End moved by you, was /.test(await card('challenge-end-changed'))));
+  log('Totals untouched by moving the end:', /You lead by (30|29)m/.test(await timedCard()));
+
   // ── Ending a challenge early: asks first, then the leader at that moment wins ──
   const endTimed = () => page.evaluate(() => {
-    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => /\d\d:\d\d – /.test(e.querySelector('[data-testid="challenge-when"]')?.innerText ?? ''));
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => /(AM|PM|midnight).* – /.test(e.querySelector('[data-testid="challenge-when"]')?.innerText ?? ''));
     c.querySelector('[data-testid="challenge-end"]').click();
   });
   await endTimed();
@@ -411,6 +449,21 @@ try {
   log('Ended early: the leader at that moment wins:', await until(async () => (await card('result-banner')).includes('You won “Most Studying”')));
   await pressText('Gloat');
   log('Ended one moves to History:', await until(async () => !(await text()).includes('Ended early by you')));
+
+  // Whole-day challenges: end date only, with the day rollover spelled out.
+  const firstToCard = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes('First to'))?.innerText ?? '');
+  await page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes('First to'));
+    c.querySelector('[data-testid="challenge-change-end"]').click();
+  });
+  await wait(300);
+  log('Whole-day change: date only, with the rollover spelled out:', !(await page.$(editTime)) && /until 5:00 AM the next morning/.test(await endNoteText()));
+  await setField(editDate, ymd(new Date(Date.now() - 3 * 86400000)));
+  await pressText('Save', '[data-testid="challenge-end-edit"]');
+  log('Whole-day end before today refused:', (await text()).includes('The end has to be today or later.') || (await text()).includes('The end can’t be before the start.'));
+  await setField(editDate, ymd(new Date(Date.now() + 2 * 86400000)));
+  await pressText('Save', '[data-testid="challenge-end-edit"]');
+  log('Whole-day end moved and noted:', await until(async () => /End moved by you, was /.test(await firstToCard()) && !(await page.$('[data-testid="challenge-end-edit"]'))));
 
   // Calling one off.
   await page.evaluate(() => {

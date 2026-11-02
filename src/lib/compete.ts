@@ -100,6 +100,9 @@ export interface Challenge {
   endedEarlyAt?: string | null;
   endedEarlyOn?: string | null;
   endedEarlyBy?: string | null;
+  /** "Change end": either side moved the end of a running challenge; the previous end (an instant, or a date for whole days). */
+  endChangedBy?: string | null;
+  endChangedFrom?: string | null;
   createdBy: string;
   createdAt: string;
   acceptedAt: string | null;

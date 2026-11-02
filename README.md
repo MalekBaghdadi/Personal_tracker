@@ -70,6 +70,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - Several metrics on one side of a race (e.g. Network+ and Study against their Study), summed, added or removed freely from "Add metric".
 - Compete is laid out as a scoreboard (weeks and challenges won) over three tabs: Races, Challenges, History.
 - "End it now" on a running challenge (with an "Are you sure?" step): whoever's ahead at that moment wins.
+- "Change end" on a running or not-yet-started challenge: either side can move the end (date and time; date only for whole-day ones); the card says who moved it and what it was. Challenge times read in 12-hour words ("12:00 PM (noon)", "midnight, Tue 3 → Wed 4 Nov"), and the form and edit panel spell the picked end out as you choose.
 - **Check-off metrics** (e.g. Gym): done or not done, one tap on Today. An existing time or count metric can switch to check off and keeps its history.
 - **Range targets** (e.g. Calories 1,800–2,200 kcal): a day counts when its total ends up between the two.
 - **Plans:** deadline goals counted in tasks, imported from a pasted Markdown checklist (with a copyable prompt that gets any AI chat to write one in the right format) or built in the app. Today shows the next undone task (a queue); dates only shape the pace line.
@@ -347,7 +348,7 @@ profiles/{uid}                     Profile        (uid, email, joinedAt, lastSee
 invites/{code}                     Invite         (Compete: anyone signed in can get one code, never list; inviter creates/deletes)
 pairs/{code}                       Pair           (members [2 uids], names, weekStartsOn, endedAt; members read; joiner creates from a live invite)
 pairs/{code}/links/{id}            Link           (uid → metricId, type, proposedBy, acceptedAt, startDate, endedAt, extra: uid → [{ metricId, addedOn, addedAt, removedOn, removedAt }])
-pairs/{code}/challenges/{id}       Challenge      (linkId, kind, amount, startDate, endDate, createdBy, acceptedAt/declinedAt/cancelledAt, optional startAt/endAt, stake, endedEarlyAt/On/By)
+pairs/{code}/challenges/{id}       Challenge      (linkId, kind, amount, startDate, endDate, createdBy, acceptedAt/declinedAt/cancelledAt, optional startAt/endAt, stake, endedEarlyAt/On/By, endChangedBy/From)
 pairs/{code}/scores/{uid}          Score          (asOf, updatedAt, per-metric per-day totals; each member writes only their own)
 pairs/{code}/profiles/{uid}        SharedProfile  (name, level, xp, rank, title, pinned, tiers, collected, total, recent; only while sharing is on; each member writes or deletes only their own)
 ```
@@ -616,6 +617,7 @@ Newest last. `git log` has the details.
 33. **Target history:** a metric remembers its earlier targets, so changing it (with an "applies from" date, back-datable) no longer rewrites old days, streaks, hit rates or Compete target days.
 34. **Phrase metrics:** a fourth metric kind, Phrases, for a quote, saying or hadith a day (Malek's ahadeeth). Phrases are entries with `text` and a `reference`; each day with an older phrase owes a review of a random one (tap "reviewed", fill the blanks, or type it from memory with hints), and the day only counts when both are done. A collection screen (search, filters, edit), History and Stats support, a Phrases binder (four ladders, three secrets) and a Today/collection tour. Not raceable in Compete.
 35. **Phrase carousel:** an optional carousel on a phrase metric's Today row that cycles the collection in a shuffle (every phrase once before any repeat), in one of four styles (Fade, Slide, Stack, Ticker) and three paces, saved on the metric. It reads only what the app already holds, so it costs no Firestore reads or writes while it cycles.
+36. **Clear challenge times and "Change end":** challenge cards show times as "Tomorrow 12:00 PM (noon)" / "midnight, Tue 3 → Wed 4 Nov" instead of a bare "12:00", the form and the edit panel spell out the picked end (12 PM is noon, 12 AM is midnight), and "Change end" moves the end of a running or upcoming challenge (`changeChallengeEnd`, writes `endAt`+`endDate`, records `endChangedBy`/`endChangedFrom`, no rules change). Either side can do it, like "End it now"; the card shows who and what it was. `clock12` / `whenText` in `lib/dates.ts`.
 
 ---
 

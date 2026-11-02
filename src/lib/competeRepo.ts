@@ -184,6 +184,16 @@ export function endChallengeNow(pairId: string, id: string, uid: string, today: 
   fire(updateDoc(competePaths.challenge(pairId, id), { endedEarlyAt: nowIso(), endedEarlyOn: today, endedEarlyBy: uid }));
 }
 
+/** "Change end": move a challenge's end. `endAt` is null for whole-day challenges; `was` is the end it had. */
+export function changeChallengeEnd(pairId: string, id: string, uid: string, end: { endAt: string | null; endDate: string }, was: string): void {
+  fire(updateDoc(competePaths.challenge(pairId, id), {
+    endDate: end.endDate,
+    ...(end.endAt ? { endAt: end.endAt } : {}),
+    endChangedBy: uid,
+    endChangedFrom: was,
+  }));
+}
+
 // ── Publishing ─────────────────────────────────────────────────────────────
 
 /** Replaces this member's summary; only linked metrics are in it. */

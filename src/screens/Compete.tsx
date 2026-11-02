@@ -7,7 +7,7 @@ import { useAchievements } from '../state/AchievementsContext';
 import { useTierInk } from '../components/AchievementCard';
 import { SharedProfileView } from '../components/ProfileView';
 import { useHue } from '../state/theme';
-import { addDays, formatLocalDate, formatTimeIn, instantAt, localDateOf } from '../lib/dates';
+import { addDays, clock12, formatLocalDate, formatTimeIn, instantAt, localDateOf, whenText } from '../lib/dates';
 import { weekOf } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
@@ -16,7 +16,7 @@ import {
   type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side,
 } from '../lib/compete';
 import {
-  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, createInvite, endChallengeNow, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
+  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, changeChallengeEnd, createInvite, endChallengeNow, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
   removeFromSide, renameInPair, restoreSide,
   type JoinError,
 } from '../lib/competeRepo';
@@ -1124,12 +1124,74 @@ function challengeTitleFor(
   return challengeTitle(c, sideForChallenge(sides(link).mine, c) ?? first);
 }
 
-/** A calendar day and time: "Today 18:00", "Sat 18 Oct 09:30". */
+/** A calendar day and time in plain words: "Today 6:00 PM", "Tomorrow 12:00 PM (noon)", "midnight, Tue 3 → Wed 4 Nov". */
 function fmtAt(iso: string, tz: string, now: string): string {
   const d = localDateOf(iso, tz);
   const calToday = localDateOf(now, tz);
   const day = d === calToday ? 'Today' : d === addDays(calToday, 1) ? 'Tomorrow' : formatLocalDate(d, d.slice(0, 4) === calToday.slice(0, 4) ? 'EEE d MMM' : 'd MMM yyyy');
-  return `${day} ${formatTimeIn(iso, tz)}`;
+  return whenText(d, formatTimeIn(iso, tz), day);
+}
+
+/** A picked end in plain words, so "12" can't be misread. `time` null = a whole-day challenge, which runs to the day rollover. */
+function endNote(date: string, time: string | null, dayStart: number): string {
+  if (!date || time === '') return '';
+  if (time === null) return `Runs through the end of ${formatLocalDate(date, 'EEE d MMM')}, until ${clock12(`${String(dayStart).padStart(2, '0')}:00`)} the next morning.`;
+  return `Ends ${whenText(date, time)}.${Number(time.slice(0, 2)) % 12 === 0 ? ' 12 PM is noon and 12 AM is midnight.' : ''}`;
+}
+
+/** Inline panel on a running or upcoming challenge: move its end, with the new end spelled out as you pick. */
+function ChangeEnd({ ch, onDone }: { ch: Challenge; onDone: () => void }) {
+  const { uid, today, tz, dayOf, dayStart } = useData();
+  const { pair, now, partnerName } = useCompete();
+  const toast = useToast();
+  const timedCh = isTimed(ch) ? ch : null;
+  const [date, setDate] = useState(timedCh ? localDateOf(timedCh.endAt, tz) : ch.endDate);
+  const [time, setTime] = useState(timedCh ? formatTimeIn(timedCh.endAt, tz) : '');
+  const [error, setError] = useState('');
+  if (!pair) return null;
+
+  const save = () => {
+    if (!date || (timedCh && !time)) return setError(timedCh ? 'Choose an end date and time.' : 'Choose an end date.');
+    if (timedCh) {
+      const endAt = instantAt(date, time, tz).toISOString();
+      if (endAt === timedCh.endAt) return onDone();
+      if (Date.parse(endAt) <= Date.parse(timedCh.startAt)) return setError('The end has to be after the start.');
+      if (Date.parse(endAt) <= Date.parse(now)) return setError('The end has to be in the future. To stop it now, use “End it now”.');
+      changeChallengeEnd(pair.id, ch.id, uid, { endAt, endDate: dayOf(endAt) }, timedCh.endAt);
+    } else {
+      if (date === ch.endDate) return onDone();
+      if (date < ch.startDate) return setError('The end can’t be before the start.');
+      if (date < today) return setError('The end has to be today or later. To stop it now, use “End it now”.');
+      changeChallengeEnd(pair.id, ch.id, uid, { endAt: null, endDate: date }, ch.endDate);
+    }
+    toast('End time changed');
+    onDone();
+  };
+
+  return (
+    <div className="mt-3 rounded-lg bg-s2 p-3 text-[14px] text-ink-2" data-testid="challenge-end-edit">
+      <span className="font-medium text-ink">Change when it ends</span>
+      <div className={cx('mt-2 grid gap-3', timedCh ? 'grid-cols-2' : 'grid-cols-1')}>
+        <div>
+          <Label htmlFor={`ce-date-${ch.id}`}>End date</Label>
+          <input id={`ce-date-${ch.id}`} type="date" className={inputClass} value={date} min={timedCh ? undefined : ch.startDate > today ? ch.startDate : today} onChange={(e) => setDate(e.target.value)} />
+        </div>
+        {timedCh && (
+          <div>
+            <Label htmlFor={`ce-time-${ch.id}`}>End time</Label>
+            <input id={`ce-time-${ch.id}`} type="time" className={inputClass} value={time} onChange={(e) => setTime(e.target.value)} />
+          </div>
+        )}
+      </div>
+      <FieldError>{error}</FieldError>
+      <p className="mt-2 text-[13px] text-ink-3" data-testid="end-note">{endNote(date, timedCh ? time : null, dayStart)}</p>
+      <p className="mt-1 text-[13px] text-ink-3">{partnerName} sees the new end on their side.</p>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <Button variant="primary" onClick={save}>Save</Button>
+        <Button onClick={onDone}>Cancel</Button>
+      </div>
+    </div>
+  );
 }
 
 function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string) => void }) {
@@ -1139,6 +1201,7 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
   const result = useChallengeResult();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [editEnd, setEditEnd] = useState(false);
   const link = links.find((l) => l.id === ch.linkId);
   const metric = link ? metricById.get(link.metrics[uid]) : undefined;
   const theirFirst = link && partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
@@ -1174,7 +1237,7 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
   else if (r.status === 'upcoming') verdict = 'Not started yet';
   else if (r.status === 'awaiting') verdict = `Waiting for ${partnerName}’s numbers to settle it`;
   else if (r.status === 'finished') verdict = r.winner === 'me' ? 'You won' : r.winner === 'them' ? `${partnerName} won` : 'A draw';
-  else if (challengeWindow(ch) && r.reached.me) verdict = `You got there at ${formatTimeIn(r.reached.me, tz)}. Settled once ${partnerName}’s app catches up`;
+  else if (challengeWindow(ch) && r.reached.me) verdict = `You got there at ${clock12(formatTimeIn(r.reached.me, tz))}. Settled once ${partnerName}’s app catches up`;
   else if (ch.kind === 'first_to' && (r.reached.me || r.reached.them)) {
     verdict = r.reached.me && r.reached.them ? 'You both got there today' : r.reached.me ? 'You got there. Settled once the day is over' : `${partnerName} got there. You have until the day is over`;
   } else verdict = r.me === r.them ? 'Level' : r.me > r.them ? `You lead by ${fmt(r.me - r.them)}` : `${partnerName} leads by ${fmt(r.them - r.me, theirs)}`;
@@ -1195,6 +1258,7 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
 
   // "End it now" on a running challenge; on most days it can only bring the end forward to today.
   const canEnd = r.status === 'active' && !ch.endedEarlyAt && !(ch.kind === 'most_days' && run.endDate <= today);
+  const canEdit = (r.status === 'active' || r.status === 'upcoming') && !ch.endedEarlyAt;
   const gap = leader === 'me' && r.me > r.them ? ` by ${fmt(r.me - r.them)}` : leader === 'them' && r.them > r.me ? ` by ${fmt(r.them - r.me, theirs)}` : '';
   const ifEndedNow = leader === 'me' ? `Right now you’re ahead${gap}, so you’d win.`
     : leader === 'them' ? `Right now ${partnerName}’s ahead${gap}, so they’d win.`
@@ -1207,6 +1271,11 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
         {(r.status === 'active' || r.status === 'upcoming') && <AddMetricButton onClick={() => onTeam(link.id)} />}
       </header>
       <p className="mt-0.5 text-[13px] text-ink-3" data-testid="challenge-when">{when}{ch.kind === 'first_to' && ' · if nobody gets there, the higher total wins'}</p>
+      {ch.endChangedBy && ch.endChangedFrom && r.status !== 'finished' && (
+        <p className="mt-0.5 text-[13px] text-ink-3" data-testid="challenge-end-changed">
+          End moved by {ch.endChangedBy === uid ? 'you' : partnerName}, was {isTimed(ch) ? fmtAt(ch.endChangedFrom, tz, now) : fmtDay(ch.endChangedFrom, today)}.
+        </p>
+      )}
       {ch.stake && (
         <p className="mt-2 flex items-start gap-1.5 text-[14px]" data-testid="challenge-stake">
           <Gift size={16} aria-hidden className="mt-0.5 shrink-0 text-[#e0a03a]" />
@@ -1274,8 +1343,15 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
             <Button onClick={() => setConfirmCancel(false)}>Keep</Button>
           </div>
         </div>
+      ) : editEnd ? (
+        <ChangeEnd ch={ch} onDone={() => setEditEnd(false)} />
       ) : (
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          {canEdit && (
+            <button type="button" className="text-[13px] text-ink-2 underline underline-offset-2" data-testid="challenge-change-end" onClick={() => setEditEnd(true)}>
+              Change end
+            </button>
+          )}
           {canEnd && (
             <button type="button" className="text-[13px] text-ink-2 underline underline-offset-2" data-testid="challenge-end" onClick={() => setConfirmEnd(true)}>
               {ch.kind === 'most_days' ? 'End it today' : 'End it now'}
@@ -1418,7 +1494,7 @@ function nextHour(now: string, tz: string): string {
 const STAKE_MAX = 60;
 
 function ChallengeForm({ onDone }: { onDone: () => void }) {
-  const { uid, today, metricById, tz, dayOf } = useData();
+  const { uid, today, metricById, tz, dayOf, dayStart } = useData();
   const { pair, links, sides, partnerName, now } = useCompete();
   const toast = useToast();
   const accepted = links.filter((l) => l.acceptedAt && l.startDate && metricById.has(l.metrics[uid]));
@@ -1526,6 +1602,7 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
             <FieldError>{errors.end}</FieldError>
           </div>
         </div>
+        <p className="mt-1.5 text-[13px] text-ink-3" data-testid="end-note">{endNote(endDate, timed ? endTime : null, dayStart)}</p>
         <p className="mt-1.5 text-[13px] text-ink-3">
           {timed ? 'Only what’s logged between those times counts; a timer counts for the part inside.' : 'Both days count.'}{' '}
           {partnerName} has to accept before it’s on. Once it is, you both see each other’s logs for those days, notes included.
