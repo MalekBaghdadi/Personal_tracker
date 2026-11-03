@@ -21,7 +21,7 @@ if (!process.env.CHROME_PATH && process.platform === 'darwin') {
 }
 
 const DEV_SUITES = ['core', 'history-all', 'subtract-toggle', 'subtract-clamp', 'calendar', 'goals', 'session-note', 'extras', 'yesterday', 'day-start', 'first-run', 'admin', 'merge-entries', 'tours', 'rest-days', 'check-range', 'target-history', 'plans', 'compete', 'achievements', 'phrases'];
-const PREVIEW_SUITES = ['offline']; // needs the production build + service worker
+const PREVIEW_SUITES = ['offline', 'auto-update']; // needs the production build + service worker
 const only = process.argv.slice(2);
 const pick = (list) => (only.length ? list.filter((s) => only.includes(s)) : list);
 

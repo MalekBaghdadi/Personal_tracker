@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BarChart3, CalendarDays, CircleUserRound, ListChecks, Settings as SettingsIcon, Square, SunMedium, Trophy } from 'lucide-react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useData, type SyncState } from '../state/DataContext';
@@ -173,18 +173,66 @@ export function SideNav({ route }: { route: Route }) {
 
 // ── Update prompt: never auto-reload, and never while a timer runs. ───────
 
+const QUIET_MS = 10_000;
+// Last tap or key press; 0 until there is one, so a fresh launch counts as quiet.
+let lastTouch = 0;
+if (typeof window !== 'undefined') {
+  for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => { lastTouch = Date.now(); }, { capture: true, passive: true });
+}
+
+/** A reload would cost nothing: no sheet, review or tour open, nothing being typed, no tap for a few seconds. */
+function quietForUpdate(): boolean {
+  const el = document.activeElement;
+  const typing = !!el && el.matches('input, textarea, select, [contenteditable]');
+  return !typing && !document.querySelector('dialog[open], [aria-modal="true"]') && Date.now() - lastTouch > QUIET_MS;
+}
+
+/**
+ * A new version installs itself: it is looked for hourly and every time the app comes back to the
+ * front, and applied (the page reloads) at the first quiet moment, never with a timer running or
+ * first-run setup half done. The "Update available" banner only shows if that hasn't happened for
+ * a minute, so it is a fallback, not the way updates arrive.
+ */
 export function UpdatePrompt() {
-  const { timer } = useData();
+  const { timer, settings } = useData();
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegisteredSW(_url, reg) {
-      // Check for a new shell hourly while the app stays open.
-      if (reg) setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
+      if (!reg) return;
+      const look = () => reg.update().catch(() => {});
+      setInterval(look, 60 * 60 * 1000);
+      // An installed phone app stays alive in the background: look again whenever it comes back.
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) look(); });
     },
   });
-  if (!needRefresh || timer) return null;
+  const [stuck, setStuck] = useState(false);
+  const applied = useRef(false);
+  const busy = !!timer || settings?.onboardedAt === null;
+
+  useEffect(() => {
+    if (!needRefresh) {
+      setStuck(false);
+      return;
+    }
+    const apply = () => {
+      if (applied.current || busy || !quietForUpdate()) return;
+      applied.current = true;
+      updateServiceWorker(true);
+    };
+    apply();
+    const tick = window.setInterval(apply, 3000);
+    const late = window.setTimeout(() => setStuck(true), 60_000);
+    document.addEventListener('visibilitychange', apply);
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(late);
+      document.removeEventListener('visibilitychange', apply);
+    };
+  }, [needRefresh, busy, updateServiceWorker]);
+
+  if (!needRefresh || !stuck || timer) return null;
   return (
     <div className="fixed inset-x-0 top-[calc(env(safe-area-inset-top,0px)+8px)] z-40 flex justify-center px-4">
       <div className="flex items-center gap-2 rounded-xl border border-line bg-s3 py-1.5 pr-1.5 pl-4 text-[14px] shadow-lg">

@@ -8,7 +8,8 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      // Never auto-update: a silent reload mid-session is worse than a stale shell.
+      // 'prompt', not 'autoUpdate': the new worker waits, and UpdatePrompt applies it (reloads)
+      // only at a quiet moment, so an update never lands mid-timer or mid-form.
       registerType: 'prompt',
       injectRegister: false,
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],

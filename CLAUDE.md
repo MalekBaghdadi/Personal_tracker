@@ -12,6 +12,7 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - **Push to GitHub only when Malek asks.** `git fetch` first; he sometimes edits on GitHub, so rebase onto
   `origin/main` if it moved. Never commit `.env.local`.
 - Firebase is owned by malekbaghdadi07@gmail.com (not malek.baghdade@gmail.com). `firebase login` is
+- Updates install themselves (`UpdatePrompt` in `components/Chrome.tsx`): the new service worker waits and the page reloads only at a quiet moment: no timer running, first-run setup finished, no `dialog[open]` or `aria-modal` overlay, nothing focused for typing, no tap for 10 s. A new overlay must therefore be a `<dialog>` (or `aria-modal`), or an update can reload under it. `e2e/auto-update.mjs` covers it.
   code-based here: send him the URL, he pastes back the code.
 - Don't break the invariants in README §7, especially: entries are append-only and a day's total is the
   sum of its entries (never a stored total); entry values are always > 0 (subtracting trims entries,

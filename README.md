@@ -76,7 +76,9 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - **Plans:** deadline goals counted in tasks, imported from a pasted Markdown checklist (with a copyable prompt that gets any AI chat to write one in the right format) or built in the app. Today shows the next undone task (a queue); dates only shape the pace line.
 - **Achievements and a Profile tab:** 265 trading cards, 246 in ladders from Bronze to Mythic (longest session, hours, days on target, phrases collected, reviews and recalls, streaks, clean sweeps, big days, goals, Compete wins, odd hours, notes) plus 19 secrets, each drawn as a stained-glass enamel pin. They're kept in binders, a deck you swipe through: targeted binders (Study, Code & work, Reading, Fitness, Mind, Creative, Health, Sleep, Phrases, Other) count the metrics linked to them, linked automatically from each metric's icon and changeable by hand, and give their cards their names (10h straight on Study is Academic Menace); general binders (Streaks, The grind, Goals & plans, Compete, Odd hours & notes, Secrets) count everything. Binders that can't earn anything yet are greyed out at the end. Unlocks drop a banner; cards are flipped to collect them; XP gives levels and ranks; a collected card can be worn as a title or pinned. The profile can be shown to the Compete partner (a switch). Profile replaced Settings in the phone tab bar; Settings is behind its gear.
 
-**Verified:** type check, 275 unit tests, 21 browser test suites, and 78 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
+- **Silent updates:** a new version installs itself at a quiet moment (no timer, no sheet, review or tour open, nothing being typed, no tap for 10 seconds); the "Update available" banner is only a fallback.
+
+**Verified:** type check, 285 unit tests, 23 browser test suites, and 78 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
 **Verified on real devices (6 October 2026):** Malek ran the full [device checklist](#device-checklist) on his iPhone and laptop and everything passed: install and offline launch, offline sync, timer across devices, locked phone, iOS date fields, hold ▶, badge, export and import.
 
@@ -95,7 +97,7 @@ update on their own schedule. The loop for every change is:
 1. **Make the change.** Match the surrounding code; read the files you touch first.
 2. **Check it:** `npx tsc -p .` → `npm test` → `npm run e2e` (or the relevant suites, e.g. `npm run e2e -- goals`).
    For UI changes, look at the screenshots in `e2e/shots/` at phone width (390px). Several past bugs were only visible there.
-3. **Deploy** with `npm run deploy` so Malek can see it live. His installed app shows "Update available — Reload".
+3. **Deploy** with `npm run deploy` so Malek can see it live. His installed app updates itself at the next quiet moment (see Architecture → PWA); the "Update available — Reload" banner only shows if that has not happened for a minute.
    After deploying, confirm the live `index.html` references the new bundle; the CDN can serve the old one for a few seconds.
 4. **Push to GitHub only when he says so.** He approves each push ("push to github"). He sometimes edits files directly on GitHub, so always `git fetch` first and rebase onto `origin/main` if it has moved.
 5. Commit messages end with a `Co-Authored-By:` line. **Never commit `.env.local`**, `dist/`, `node_modules/` or `.firebase/` (all git-ignored).
@@ -318,7 +320,7 @@ First built for Malek and his cousin, but nothing names either account: any two 
 - `src/lib/repo.ts` holds **all writes** (Compete's are in `competeRepo.ts`, the profile's in `admin.ts`), and none are awaited (the `fire()` helper). They commit to the local cache at once and flush when online.
 - "Today" is recomputed every 30 seconds and when the tab becomes visible, so midnight rollover and goal deadlines update while the app stays open.
 
-**PWA:** `vite.config.ts` uses `registerType: 'prompt'`, so it never auto-reloads. The update prompt is hidden while a timer runs, and only the app shell is precached; Firestore has its own offline cache. iOS meta tags, safe-area insets and `navigator.storage.persist()` are in place.
+**PWA:** `vite.config.ts` uses `registerType: 'prompt'`: a new service worker installs and waits, and `UpdatePrompt` (`components/Chrome.tsx`) applies it by itself at a quiet moment (3 November 2026). The app looks for one every hour and each time it comes back to the front (an installed phone app stays alive in the background), and checks every 3 seconds, and on every return to the front, whether it is quiet: no timer running, first-run setup finished, no `dialog[open]` or `aria-modal` overlay (sheets, the review, the achievement reveal, the tour), nothing focused for typing, and no tap or key press for 10 seconds. Then it calls `updateServiceWorker(true)` and the page reloads (all data is already in IndexedDB, and a timer is only a `startedAt`, so a reload loses nothing). The "Update available — Reload" banner is a fallback that only appears after a minute of being blocked, and stays hidden while a timer runs. The first version with this still needs one manual Reload on each installed app. Only the app shell is precached; Firestore has its own offline cache. iOS meta tags, safe-area insets and `navigator.storage.persist()` are in place.
 
 **Motion** (`src/index.css`, the "Motion" block): quick and quiet. Buttons squeeze and spring back (`.press`), sheets slide up and back down on phones and scale in on wider screens (`Sheet` keeps its last content on screen while it closes, `CLOSE_MS` = 200). Malek asked for "a bit more and a bit bigger, nothing too crazy" on 11 October, so the press squeeze, pops, hops, toasts, tab fade and sheet entrance are a notch stronger than the first pass, and sheets settle with a small overshoot (`--ease-settle`), toasts rise in, each tab fades in when opened, the tab you pick hops, segmented controls slide their highlight, progress bars fill (`.bar-fill`), and a Today total pops when it changes (`useBump` in `ui.tsx`: only on a change, never on first render). **Everything is off under `prefers-reduced-motion`**, and `Sheet` then closes at once. Note that headless Chrome reports reduced motion, so the browser tests run without animation except `compete`, which turns motion on.
 
@@ -430,7 +432,7 @@ npm run test:rules    # security rules against the Firestore emulator (69 checks
 ```
 
 **Browser tests (`e2e/`):**
-- `run-all.mjs` starts the **Auth emulator** and a dev server in emulator mode, runs each suite with `puppeteer-core` driving your installed Chrome, then builds the production bundle and serves it for `offline.mjs`. It shuts everything down afterwards and rebuilds `dist/` normally.
+- `run-all.mjs` starts the **Auth emulator** and a dev server in emulator mode, runs each suite with `puppeteer-core` driving your installed Chrome, then builds the production bundle and serves it for `offline.mjs` and `auto-update.mjs`. It shuts everything down afterwards and rebuilds `dist/` normally.
 - Set `CHROME_PATH` if Chrome isn't at `C:\Program Files\Google\Chrome\Application\chrome.exe` (Windows) or `/Applications/Google Chrome.app` (macOS; `run-all.mjs` sets that default).
 - Every suite but `compete` asks for reduced motion (`emulateMediaFeatures`). Headless Chrome reports reduced motion on Windows but not on macOS, and with animations on, clicks time out mid-animation.
 - Screenshots go to `e2e/shots/` (git-ignored).
@@ -440,6 +442,7 @@ npm run test:rules    # security rules against the Firestore emulator (69 checks
 |---|---|
 | `core` | sign-up, metric create, quick-add, double-tap guard, timer across tabs, validation, reload persistence |
 | `offline` | production build: service worker active, offline reload keeps data, logging works offline |
+| `auto-update` | (production build) the served `dist/sw.js` gets a few new bytes and the page is nudged as if the app had come back to the front. With a timer running the new worker is found and waits, and the page is not reloaded; stopping the timer reloads it within seconds. Same with a sheet open (Escape closes it, then it reloads). With nothing going on it reloads at once with no banner and leaves nothing waiting. The page is reloaded once at the start so the worker is in charge of it (see Gotchas) |
 | `history-all` | All view, day sheet across metrics, adding from History |
 | `subtract-toggle` | +/− toggle, chips, Undo, row fits one line, disabled at 0 |
 | `subtract-clamp` | over-subtracting takes the day to 0, sheet layout |
@@ -620,6 +623,7 @@ Newest last. `git log` has the details.
 36. **Clear challenge times and "Change end":** challenge cards show times as "Tomorrow 12:00 PM (noon)" / "midnight, Tue 3 → Wed 4 Nov" instead of a bare "12:00", the form and the edit panel spell out the picked end (12 PM is noon, 12 AM is midnight), and "Change end" moves the end of a running or upcoming challenge (`changeChallengeEnd`, writes `endAt`+`endDate`, records `endChangedBy`/`endChangedFrom`, no rules change). Either side can do it, like "End it now"; the card shows who and what it was. `clock12` / `whenText` in `lib/dates.ts`.
 37. **Phrase carousel actually advances:** Malek found phrases only changed when he pressed Next. Cause: the auto-advance was switched off under `prefers-reduced-motion` (which this Windows PC reports as on) and paused for as long as a mouse rested on the card. Now the pace timer runs regardless (reduced motion only drops the animations and the ticker's scrolling), it pauses only while pressed or with the always-visible pause button, and the metric editor says what each pace means in seconds.
 38. **Space jumps to the next blank:** in a phrase review's "Fill the blanks", pressing Space after a word moves the cursor to the next blank (the space itself is never kept), so a whole phrase can be typed without tapping each blank.
+39. **Silent updates:** the app applies a new version by itself at a quiet moment instead of waiting for "Update available — Reload" to be pressed: it looks for one hourly and whenever it comes back to the front, and reloads only when no timer runs, first-run setup is done, no sheet/review/tour is open, nothing is being typed and nothing was tapped for 10 seconds. The banner stays as a fallback after a minute. New e2e suite `auto-update`.
 
 ---
 
@@ -637,6 +641,7 @@ Newest last. `git log` has the details.
 - **Deleting a metric** deletes its goals in the same batch. A goal whose metric is missing (e.g. edited offline elsewhere after the delete) is ignored by `DataContext`.
 - **`innerText` follows CSS `text-transform`:** the reveal's labels are uppercase on screen, so tests match them case-insensitively.
 - **Settings has no phone tab:** tests reach it with the Profile tab, then `main a[href="#/settings"]` (the sidebar's link is hidden at phone width).
+- **A new service worker only waits if the page is under the old one.** A page that has not been reloaded since the worker was first registered isn't controlled, so a new worker takes over at once with nothing to wait for; `auto-update.mjs` reloads once first for that reason. Real users are always under it after their first launch.
 - **An old app saving a metric drops `theme`** (it writes the whole doc), so the metric falls back to its icon until it's picked again on an updated app.
 
 ---
