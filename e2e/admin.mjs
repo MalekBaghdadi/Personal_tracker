@@ -81,6 +81,9 @@ try {
   await go('#/today', 800);
   await press('+15m');
   await wait(500);
+  // A running timer for the admin screens to find (this account is both admin and user).
+  await page.click('::-p-aria(Start Studying timer)');
+  await wait(600);
 
   await page.evaluate((k) => localStorage.setItem(k, '1'), FLAG);
   await page.reload({ waitUntil: 'networkidle0' });
@@ -96,6 +99,11 @@ try {
   log('List shows own account:', t.includes(EMAIL) && t.includes('you'));
   log('List says joined and last seen:', /Joined .* · last seen/.test(t));
   log('Offline note shown:', t.includes('Offline: showing what this device has cached'));
+  // The metric name comes with a second read, so give it a moment.
+  for (let i = 0; i < 20 && !(await text()).includes('Timer running · Studying'); i++) await wait(250);
+  t = await text();
+  const dot = await page.$('[data-testid=admin-users] [role=img][aria-label="Timer running"]');
+  log('List: green dot and the metric name on a user with a running timer:', t.includes('Timer running · Studying') && dot !== null);
   await shot('ad-02-users');
 
   await page.evaluate(() => document.querySelector('[data-testid=admin-users] a').click());
@@ -110,15 +118,31 @@ try {
   log('Detail: back to Users:', t.includes('Users'));
   await shot('ad-03-user');
 
+  // The timer as they see it: name, start time, a clock that moves. No Stop.
+  const strip = () => page.evaluate(() => document.querySelector('[data-testid=admin-timer]')?.innerText ?? null);
+  for (let i = 0; i < 20 && !(await strip())?.includes('Studying'); i++) await wait(250);
+  const first = await strip();
+  await wait(1500);
+  const later = await strip();
+  log('Detail: timer bar with name, start time and a moving clock:', !!first && first.includes('Studying') && /since \d\d:\d\d/.test(first) && first !== later);
+  log('Detail: the timer bar has no buttons:', (await page.$$('[data-testid=admin-timer] button')).length === 0);
+  await shot('ad-03b-user-timer');
+
   // Nothing on the detail screen can change data.
   const controls = await page.evaluate(() =>
     [...document.querySelectorAll('main button, main input, main select, main textarea')].length,
   );
   log('Detail: no inputs or buttons:', controls === 0);
 
+  // They stop it (the test account's own bar): the admin's bar and dot go with it.
+  await press('Stop');
+  await wait(800);
+  log('Detail: bar goes when they stop:', (await strip()) === null);
+
   await press('Users');
   await settle();
   log('Back returns to list:', (await text()).includes('1 user'));
+  log('List: dot gone once the timer stops:', (await page.$('[data-testid=admin-users] [role=img]')) === null && !(await text()).includes('Timer running'));
 
   log('No page errors:', errors.length === 0);
   if (errors.length) console.log(errors);

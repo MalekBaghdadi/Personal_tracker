@@ -1,8 +1,8 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, where, type DocumentReference } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, setDoc, where, type DocumentReference, type Unsubscribe } from 'firebase/firestore';
 import { db } from './firebase';
 import { paths } from './repo';
 import { reviewOwed } from './phrases';
-import type { CollectedAchievement, DayStats, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Review, Settings } from './types';
+import type { ActiveTimer, CollectedAchievement, DayStats, Entry, Goal, Metric, Plan, PlanSection, PlanTask, Review, Settings } from './types';
 
 /**
  * Malek's account (malekbaghdadi07@gmail.com). It may read every user's data;
@@ -83,6 +83,23 @@ async function docOrNull<T>(ref: DocumentReference): Promise<{ value: T | null; 
     if ((err as { code?: string }).code === 'unavailable') return { value: null, fromCache: true };
     throw err;
   }
+}
+
+/** Live: a user's running timer (null when none). A read the admin's rules already allow; nothing is written to their account. */
+export function watchTimer(uid: string, cb: (timer: ActiveTimer | null) => void): Unsubscribe {
+  return onSnapshot(
+    paths.timer(uid),
+    (snap) => cb(snap.exists() ? (snap.data() as ActiveTimer) : null),
+    (err) => {
+      console.warn('[admin] timer listener failed', err);
+      cb(null);
+    },
+  );
+}
+
+/** One metric, for the name and colour of a running timer. Null if it's gone or can't be reached. */
+export async function fetchMetric(uid: string, id: string): Promise<Metric | null> {
+  return (await docOrNull<Metric>(paths.metric(uid, id)).catch(() => ({ value: null }))).value;
 }
 
 export async function fetchUserData(uid: string): Promise<Loaded<UserData>> {

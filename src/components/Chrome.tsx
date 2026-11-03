@@ -4,11 +4,10 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 import { useData, type SyncState } from '../state/DataContext';
 import { useAchievements } from '../state/AchievementsContext';
 import { useElapsed, useTimerActions } from '../state/TimerContext';
-import { useHue } from '../state/theme';
-import { formatClock } from '../lib/format';
 import { formatTimeIn } from '../lib/dates';
 import { isIos, isStandalone, local } from '../lib/device';
 import { Button, IconButton, cx } from './ui';
+import { TimerStrip } from './TimerStrip';
 import type { Route } from '../App';
 
 // ── Sync indicator: a dot, never a banner. Offline is a normal state. ─────
@@ -44,29 +43,23 @@ export function TimerBar() {
   const { stop } = useTimerActions();
   const elapsed = useElapsed(timer?.startedAt);
   const metric = timer ? metricById.get(timer.metricId) : undefined;
-  const hue = useHue(metric?.color ?? '#8590a3');
   if (!timer) return null;
 
   return (
     <div className="sticky top-0 z-30 safe-top bg-bg/95 backdrop-blur supports-[backdrop-filter]:bg-bg/80">
-      <div className="relative mx-auto flex max-w-2xl items-center gap-3 overflow-hidden border-b border-line px-4 py-2">
-        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-px overflow-hidden">
-          <span className="timer-sweep absolute inset-y-0 w-1/2" style={{ background: `linear-gradient(90deg, transparent, ${hue}, transparent)` }} />
-        </span>
-        <span aria-hidden className="timer-dot size-2.5 shrink-0 rounded-full" style={{ background: hue }} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-medium">{metric?.name ?? 'Timer'}</div>
-          <div className="text-[12px] text-ink-3">since {formatTimeIn(timer.startedAt, tz)}</div>
-        </div>
-        <span className="text-[26px] font-medium leading-none tracking-tight" aria-live="off">
-          {formatClock(Math.max(0, elapsed))}
-        </span>
-        {elapsed < 0 && <span className="sr-only">Clock difference detected</span>}
-        <Button variant="primary" className="px-3" onClick={() => stop()} aria-label={`Stop ${metric?.name ?? 'timer'} and log it`}>
-          <Square size={14} fill="currentColor" />
-          Stop
-        </Button>
-      </div>
+      <TimerStrip
+        className="mx-auto max-w-2xl border-b border-line px-4 py-2"
+        name={metric?.name ?? 'Timer'}
+        color={metric?.color ?? '#8590a3'}
+        since={formatTimeIn(timer.startedAt, tz)}
+        elapsed={elapsed}
+        action={
+          <Button variant="primary" className="px-3" onClick={() => stop()} aria-label={`Stop ${metric?.name ?? 'timer'} and log it`}>
+            <Square size={14} fill="currentColor" />
+            Stop
+          </Button>
+        }
+      />
       {elapsed < 0 && (
         <p className="mx-auto max-w-2xl px-4 py-1 text-[12px] text-ink-3">
           This device’s clock is behind the one that started the timer.

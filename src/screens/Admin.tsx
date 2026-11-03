@@ -3,8 +3,10 @@ import { ChevronLeft, ChevronRight, WifiOff } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { useData } from '../state/DataContext';
 import { useHue } from '../state/theme';
-import { buildDayStats, fetchProfiles, fetchUserData, isAdmin, type UserData } from '../lib/admin';
-import { DEFAULT_DAY_START_HOUR, addDays, dayOf, deviceTimezone, formatLocalDate, todayIn, weekdayOf } from '../lib/dates';
+import { buildDayStats, fetchMetric, fetchProfiles, fetchUserData, isAdmin, watchTimer, type Profile, type UserData } from '../lib/admin';
+import { useElapsed } from '../state/TimerContext';
+import { TimerStrip } from '../components/TimerStrip';
+import { DEFAULT_DAY_START_HOUR, addDays, dayOf, deviceTimezone, formatLocalDate, formatTimeIn, todayIn, weekdayOf } from '../lib/dates';
 import { computePlan, planStatusLabel } from '../lib/plans';
 import { PlanBar } from '../components/Plans';
 import { computeStreaks, isHitDay, isScheduled } from '../lib/streaks';
@@ -17,7 +19,7 @@ import { evaluate } from '../lib/achievements';
 import { summarize } from '../lib/profile';
 import { Avatar, MiniCard, useTierInk } from '../components/AchievementCard';
 import { TierCounts } from '../components/ProfileView';
-import type { DayStats, Goal, Metric, Plan } from '../lib/types';
+import type { ActiveTimer, DayStats, Goal, Metric, Plan } from '../lib/types';
 
 /**
  * See-only admin view: every user's metrics, recent totals, streaks and goals.
@@ -75,6 +77,27 @@ function CacheNote() {
 const ago = (iso: string) => formatDistanceToNowStrict(new Date(iso), { addSuffix: true });
 const shortDate = (iso: string) => formatLocalDate(iso.slice(0, 10), 'd MMM yyyy');
 
+/**
+ * A user's running timer, live, with its metric (one extra read, only while one runs).
+ * Read-only: the user's own app never learns that anyone looked.
+ */
+function useRunningTimer(uid: string): { timer: ActiveTimer; metric: Metric | null } | null {
+  const [timer, setTimer] = useState<ActiveTimer | null>(null);
+  const [metric, setMetric] = useState<Metric | null>(null);
+  useEffect(() => watchTimer(uid, setTimer), [uid]);
+  const metricId = timer?.metricId;
+  useEffect(() => {
+    setMetric(null);
+    if (!metricId) return;
+    let live = true;
+    fetchMetric(uid, metricId).then((m) => live && setMetric(m));
+    return () => {
+      live = false;
+    };
+  }, [uid, metricId]);
+  return timer ? { timer, metric } : null;
+}
+
 // ── List ───────────────────────────────────────────────────────────────────
 
 function UserList() {
@@ -99,25 +122,36 @@ function UserList() {
           <p className="mb-2 text-[13px] text-ink-3">{users.length === 1 ? '1 user' : `${users.length} users`}</p>
           <ul className="divide-y divide-line border-y border-line" data-testid="admin-users">
             {users.map((p) => (
-              <li key={p.uid}>
-                <a href={`#/admin/${p.uid}`} className="flex min-h-14 items-center gap-3 py-3 hover:bg-s1">
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[15px] font-medium">
-                      {p.email || 'No email'}
-                      {p.uid === uid && <span className="ml-2 text-[13px] font-normal text-ink-3">you</span>}
-                    </span>
-                    <span className="block truncate text-[13px] text-ink-3">
-                      Joined {shortDate(p.joinedAt)} · last seen {ago(p.lastSeenAt)}
-                    </span>
-                  </span>
-                  <ChevronRight size={18} aria-hidden className="shrink-0 text-ink-3" />
-                </a>
-              </li>
+              <UserRow key={p.uid} p={p} you={p.uid === uid} />
             ))}
           </ul>
         </>
       )}
     </>
+  );
+}
+
+function UserRow({ p, you }: { p: Profile; you: boolean }) {
+  const running = useRunningTimer(p.uid);
+  return (
+    <li>
+      <a href={`#/admin/${p.uid}`} className="flex min-h-14 items-center gap-3 py-3 hover:bg-s1">
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-medium">
+            {p.email || 'No email'}
+            {you && <span className="ml-2 text-[13px] font-normal text-ink-3">you</span>}
+          </span>
+          {running && (
+            <span className="block truncate text-[13px] text-ok">Timer running{running.metric && ` · ${running.metric.name}`}</span>
+          )}
+          <span className="block truncate text-[13px] text-ink-3">
+            Joined {shortDate(p.joinedAt)} · last seen {ago(p.lastSeenAt)}
+          </span>
+        </span>
+        {running && <span role="img" aria-label="Timer running" className="timer-dot size-2.5 shrink-0 rounded-full bg-ok" />}
+        <ChevronRight size={18} aria-hidden className="shrink-0 text-ink-3" />
+      </a>
+    </li>
   );
 }
 
@@ -130,12 +164,30 @@ function UserView({ id }: { id: string }) {
   return (
     <>
       {load.fromCache && <CacheNote />}
-      <UserDetail data={load.data} />
+      <UserDetail uid={id} data={load.data} />
     </>
   );
 }
 
-function UserDetail({ data }: { data: UserData }) {
+/** Their pinned timer bar, as they see it (their timezone), without Stop. Appears and goes as they start and stop. */
+function RunningTimer({ uid, tz }: { uid: string; tz: string }) {
+  const running = useRunningTimer(uid);
+  const elapsed = useElapsed(running?.timer.startedAt);
+  if (!running) return null;
+  return (
+    <div data-testid="admin-timer" className="mt-4">
+      <TimerStrip
+        className="rounded-xl border border-line px-3 py-2"
+        name={running.metric?.name ?? 'Timer'}
+        color={running.metric?.color ?? '#8590a3'}
+        since={formatTimeIn(running.timer.startedAt, tz)}
+        elapsed={elapsed}
+      />
+    </div>
+  );
+}
+
+function UserDetail({ uid, data }: { uid: string; data: UserData }) {
   const { profile, settings, metrics, entries, goals } = data;
   const tz = settings?.timezone ?? deviceTimezone();
   const today = todayIn(tz, settings?.dayStartHour ?? DEFAULT_DAY_START_HOUR);
@@ -159,6 +211,8 @@ function UserDetail({ data }: { data: UserData }) {
           {lastEntry ? ` · last logged ${ago(lastEntry)}` : ' · nothing logged yet'}
         </p>
       </header>
+
+      <RunningTimer uid={uid} tz={tz} />
 
       <h2 className="mt-6 mb-2 text-[15px] font-medium">Metrics</h2>
       {active.length === 0 ? (

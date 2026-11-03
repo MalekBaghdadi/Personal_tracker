@@ -21,7 +21,7 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - The day rolls over at `settings.dayStartHour` (default 5am), not midnight. Turn instants into days with
   `dayOf` / `useData().dayOf`, never `localDateOf` directly.
 - Multi-user: each account has its own `users/{uid}`. The admin (Malek's uid) is hardcoded in both
-  `src/lib/admin.ts` and `firestore.rules`; admin access is read-only and the rules enforce it.
+  `src/lib/admin.ts` and `firestore.rules`; admin access is read-only and the rules enforce it. The Users list and a user's page also show a running timer live (`watchTimer` in `lib/admin.ts`, `components/TimerStrip.tsx`).
 - Compete (pairs of accounts): neither side can read the other's `users/{uid}`; each app publishes only a
   per-day summary of linked metrics to `pairs/{id}/scores/{uid}`, plus individual logs (with notes) on challenge days
   only. Results are derived from those, never stored. A side can hold several metrics (`Link.extra`, summed; each member
