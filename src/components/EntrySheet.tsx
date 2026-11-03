@@ -4,7 +4,7 @@ import { CountInput, DurationInput, parseCount, parseDuration, splitDuration } f
 import { useData } from '../state/DataContext';
 import { useCompete } from '../state/CompeteContext';
 import { addEntry, restoreEntry, softDeleteEntry, subtractFromDay, undoSubtraction, updateEntry } from '../lib/repo';
-import { formatLocalDate, formatTimeIn, instantAt } from '../lib/dates';
+import { addMinutes, formatLocalDate, formatTimeIn, instantAt, instantOnDay, minutesBetween } from '../lib/dates';
 import { wordsOf } from '../lib/phrases';
 import { formatDuration, formatValue } from '../lib/format';
 import type { Entry, Metric } from '../lib/types';
@@ -48,7 +48,7 @@ export function EntrySheet({ state, onClose }: { state: EntrySheetState | null; 
 }
 
 function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 'total' }>; onDone: () => void }) {
-  const { uid, tz, today, entries } = useData();
+  const { uid, tz, today, entries, dayStart } = useData();
   const { sharedWith } = useCompete();
   const toast = useToast();
   const metric = state.metric;
@@ -60,6 +60,32 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
   const initial = existing ? splitDuration(existing.value) : { hours: '', minutes: '' };
   const [hours, setHours] = useState(initial.hours);
   const [minutes, setMinutes] = useState(initial.minutes);
+  // Editing a time entry: start, end and length are one fact seen three ways. An entry stores its
+  // start (occurredAt) and length (value); the end is start + length.
+  const timed = isDuration && !!existing;
+  const startInit = existing ? formatTimeIn(existing.occurredAt, tz) : '';
+  const endInit = existing ? formatTimeIn(new Date(Date.parse(existing.occurredAt) + existing.value * 1000).toISOString(), tz) : '';
+  const [start, setStart] = useState(startInit);
+  const [end, setEnd] = useState(endInit);
+  // Length edited: the start stays, the end follows.
+  const setLength = (h: string, m: string) => {
+    setHours(h);
+    setMinutes(m);
+    setError(null);
+    const secs = parseDuration(h, m);
+    if (timed && start && Number.isFinite(secs)) setEnd(addMinutes(start, Math.round(secs / 60)));
+  };
+  // Start or end edited: the length follows.
+  const setRange = (s: string, e: string) => {
+    setStart(s);
+    setEnd(e);
+    setError(null);
+    if (s && e) {
+      const d = splitDuration(minutesBetween(s, e) * 60);
+      setHours(d.hours);
+      setMinutes(d.minutes);
+    }
+  };
   const [count, setCount] = useState(existing && !isDuration ? String(existing.value) : '');
   const [date, setDate] = useState(existing?.localDate ?? (state.mode === 'add' ? state.date : undefined) ?? today);
   const [note, setNote] = useState(existing?.note ?? '');
@@ -84,6 +110,10 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
     }
     if (!date) {
       setError('Choose a date.');
+      return;
+    }
+    if (timed && (!start || !end)) {
+      setError('Pick a start and an end time.');
       return;
     }
 
@@ -111,10 +141,10 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
     if (existing) {
       const patch: Parameters<typeof updateEntry>[2] = {};
       if (value !== existing.value) patch.value = value;
-      if (date !== existing.localDate) {
-        patch.localDate = date;
-        // Keep the time of day, move the calendar day.
-        patch.occurredAt = instantAt(date, formatTimeIn(existing.occurredAt, tz) + ':00', tz).toISOString();
+      if (date !== existing.localDate) patch.localDate = date;
+      if (date !== existing.localDate || (timed && start !== startInit)) {
+        // Keep the time of day (or use the edited start) on the chosen tracking day.
+        patch.occurredAt = instantOnDay(date, timed ? start : formatTimeIn(existing.occurredAt, tz), tz, dayStart).toISOString();
       }
       const n = note.trim() || null;
       if (n !== existing.note) patch.note = n;
@@ -144,7 +174,7 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
           {subtracting ? (isDuration ? 'Time to remove' : 'Amount to remove') : isDuration ? 'Duration' : 'Amount'}
         </Label>
         {isDuration ? (
-          <DurationInput idPrefix="entry" hours={hours} minutes={minutes} onHours={(v) => { setHours(v); setError(null); }} onMinutes={(v) => { setMinutes(v); setError(null); }} autoFocus />
+          <DurationInput idPrefix="entry" hours={hours} minutes={minutes} onHours={(v) => setLength(v, minutes)} onMinutes={(v) => setLength(hours, v)} autoFocus />
         ) : (
           <CountInput id="entry-count" value={count} onChange={(v) => { setCount(v); setError(null); }} unit={metric.unit} autoFocus />
         )}
@@ -170,12 +200,26 @@ function EntryForm({ state, onDone }: { state: Exclude<EntrySheetState, { mode: 
           onChange={(e) => setDate(e.target.value)}
         />
         {isCheck && <FieldError>{error}</FieldError>}
-        {existing && (
+        {existing && !timed && (
           <p className="mt-1.5 text-[13px] text-ink-3">
             Logged at {formatTimeIn(existing.occurredAt, tz)} · {sourceLabel(existing.source)}
           </p>
         )}
       </div>
+
+      {timed && (
+        <div>
+          <Label htmlFor="entry-start">Start</Label>
+          <input id="entry-start" type="time" className={inputClass} value={start} onChange={(e) => setRange(e.target.value, end)} />
+          <div className="mt-3">
+            <Label htmlFor="entry-end">End</Label>
+            <input id="entry-end" type="time" className={inputClass} value={end} onChange={(e) => setRange(start, e.target.value)} />
+          </div>
+          <p className="mt-1.5 text-[13px] text-ink-3">
+            {sourceLabel(existing.source)} · change the start or end and the duration follows; change the duration and the end follows.
+          </p>
+        </div>
+      )}
 
       {subtracting ? (
         <p className="text-[13px] text-ink-3">Takes the time off that day’s most recent entries. An entry trimmed to nothing is removed.</p>

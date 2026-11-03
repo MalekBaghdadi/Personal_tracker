@@ -55,6 +55,28 @@ export function instantAt(localDate: string, time: string, tz: string): Date {
   return fromZonedTime(`${localDate}T${time}`, tz);
 }
 
+/** A wall-clock time on a tracking day: with a 5am rollover, 01:30 on the 6th is already the 7th on the calendar. */
+export function instantOnDay(date: string, time: string, tz: string, dayStartHour: number): Date {
+  const t = instantAt(date, time, tz);
+  return dayOf(t, tz, dayStartHour) === date ? t : instantAt(addDays(date, 1), time, tz);
+}
+
+const clockMinutes = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
+
+/** Minutes forward from clock time `a` to `b`, wrapping past midnight (23:30 → 00:10 is 40). Equal times are 0. */
+export function minutesBetween(a: string, b: string): number {
+  return (clockMinutes(b) - clockMinutes(a) + 1440) % 1440;
+}
+
+/** The clock time `minutes` after `time`, wrapping past midnight. */
+export function addMinutes(time: string, minutes: number): string {
+  const t = (((clockMinutes(time) + minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+}
+
 export function formatTimeIn(iso: string, tz: string): string {
   return formatInTimeZone(new Date(iso), tz, 'HH:mm');
 }

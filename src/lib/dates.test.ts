@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clock12, dayOf, todayIn, whenText } from './dates';
+import { addMinutes, clock12, dayOf, instantOnDay, minutesBetween, todayIn, whenText } from './dates';
 
 // Beirut is UTC+3 in October.
 const TZ = 'Asia/Beirut';
@@ -51,5 +51,23 @@ describe('whenText', () => {
     expect(whenText('2026-11-04', '00:00')).toBe('midnight, Tue 3 → Wed 4 Nov');
     expect(whenText('2026-11-04', '00:00', 'Tomorrow')).toBe('midnight, Tue 3 → Wed 4 Nov');
     expect(whenText('2026-11-01', '00:00')).toBe('midnight, Sat 31 → Sun 1 Nov');
+  });
+});
+
+describe('start and end times of a log', () => {
+  it('a time before the rollover belongs to the next calendar day', () => {
+    expect(instantOnDay('2026-10-06', '01:30', TZ, 5).toISOString()).toBe(at('2026-10-07T01:30:00').toISOString());
+    expect(instantOnDay('2026-10-06', '05:00', TZ, 5).toISOString()).toBe(at('2026-10-06T05:00:00').toISOString());
+    expect(instantOnDay('2026-10-06', '01:30', TZ, 0).toISOString()).toBe(at('2026-10-06T01:30:00').toISOString());
+  });
+  it('minutesBetween goes forward past midnight', () => {
+    expect(minutesBetween('09:00', '10:30')).toBe(90);
+    expect(minutesBetween('23:30', '00:10')).toBe(40);
+    expect(minutesBetween('09:00', '09:00')).toBe(0);
+  });
+  it('addMinutes wraps past midnight', () => {
+    expect(addMinutes('23:30', 45)).toBe('00:15');
+    expect(addMinutes('09:00', 0)).toBe('09:00');
+    expect(addMinutes('00:10', -20)).toBe('23:50');
   });
 });
