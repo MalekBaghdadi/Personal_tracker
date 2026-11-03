@@ -19,9 +19,11 @@ const arrow = 'press inline-flex size-11 items-center justify-center rounded-lg 
 /**
  * A phrase metric's collection on Today, one phrase at a time in a shuffled
  * order (every phrase once before any repeats). It only reads the phrases the
- * app already holds: cycling never touches Firestore. Pauses while held, hovered,
- * paused with the button or off-screen; under reduced motion it doesn't move on
- * its own, you step with the arrows.
+ * app already holds: cycling never touches Firestore. Moves on after the pace's
+ * time, even under reduced motion (a plain swap isn't motion; the CSS animations
+ * and the ticker's scrolling are what that setting turns off). Pauses only while
+ * pressed, with the pause button, or off-screen: a resting mouse pointer must not
+ * stall it.
  */
 export function PhraseCarousel({ phrases, style, pace, tour }: { phrases: Entry[]; style: CarouselStyle; pace: CarouselPace; tour?: boolean }) {
   const idsRef = useRef<string[]>([]);
@@ -37,7 +39,8 @@ export function PhraseCarousel({ phrases, style, pace, tour }: { phrases: Entry[
   const reduced = prefersReducedMotion();
   const many = phrases.length > 1;
   const playing = !paused && !held && !hidden;
-  const running = many && !reduced && playing;
+  const running = many && playing;
+  const scrolling = style === 'ticker' && !reduced;
   const cur = phrases.find((p) => p.id === deck.trail[deck.at]);
 
   const go = (dir: 1 | -1) => setDeck((s) => {
@@ -59,14 +62,14 @@ export function PhraseCarousel({ phrases, style, pace, tour }: { phrases: Entry[
   }, [cur, deck.at, deck.trail.length]);
 
   useEffect(() => {
-    if (!running || !cur || style === 'ticker') return;
+    // The scrolling ticker hands over on animationend instead.
+    if (!running || !cur || scrolling) return;
     const t = window.setTimeout(() => go(1), dwellMs(cur.text ?? '', pace));
     return () => window.clearTimeout(t);
-  }, [running, cur?.id, deck.at, style, pace]);
+  }, [running, cur?.id, deck.at, scrolling, pace]);
 
   if (!cur) return null;
   const text = cur.text ?? '';
-  const scrolling = style === 'ticker' && !reduced;
 
   return (
     <div
@@ -77,10 +80,11 @@ export function PhraseCarousel({ phrases, style, pace, tour }: { phrases: Entry[
       data-style={style}
       data-tour={tour ? 'today-phrase-carousel' : undefined}
       className={cx('relative mt-2.5 touch-pan-y', style === 'stack' && 'mb-4')}
-      onPointerEnter={() => setHeld(true)}
+      onPointerDown={(e) => { swipeFrom.current = e.clientX; setHeld(true); }}
       onPointerLeave={() => setHeld(false)}
-      onPointerDown={(e) => { swipeFrom.current = e.clientX; }}
+      onPointerCancel={() => { swipeFrom.current = null; setHeld(false); }}
       onPointerUp={(e) => {
+        setHeld(false);
         const from = swipeFrom.current;
         swipeFrom.current = null;
         if (from != null && many && Math.abs(e.clientX - from) > SWIPE_PX) go(e.clientX < from ? 1 : -1);
@@ -125,11 +129,9 @@ export function PhraseCarousel({ phrases, style, pace, tour }: { phrases: Entry[
             <button type="button" aria-label="Previous phrase" disabled={deck.at === 0} onClick={() => go(-1)} className={arrow}>
               <ChevronLeft size={20} aria-hidden />
             </button>
-            {!reduced && (
-              <button type="button" aria-label={paused ? 'Resume the carousel' : 'Pause the carousel'} onClick={() => setPaused((p) => !p)} className={arrow}>
-                {paused ? <Play size={17} aria-hidden /> : <Pause size={17} aria-hidden />}
-              </button>
-            )}
+            <button type="button" aria-label={paused ? 'Resume the carousel' : 'Pause the carousel'} onClick={() => setPaused((p) => !p)} className={arrow}>
+              {paused ? <Play size={17} aria-hidden /> : <Pause size={17} aria-hidden />}
+            </button>
             <button type="button" aria-label="Next phrase" onClick={() => go(1)} className={arrow}>
               <ChevronRight size={20} aria-hidden />
             </button>

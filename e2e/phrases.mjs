@@ -312,6 +312,7 @@ try {
   log('Switching it on offers four styles and three paces:', (await page.$$('[aria-label="Carousel style"] [role=radio]')).length === 4 && (await page.$$('[aria-label="Carousel pace"] [role=radio]')).length === 3);
   await pick('Carousel style', 'Stack');
   await pick('Carousel pace', 'Fast');
+  log('The pace says what it does, in seconds:', (await dialogText()).includes('Each phrase stays 6 seconds, plus 1 second more for every 25 characters'));
   await shot('ph-17-carousel-editor', true);
   await click('dialog[open] button[type=submit]');
   await wait(500);
@@ -320,10 +321,18 @@ try {
   const style1 = await page.$eval('[data-testid=phrase-carousel]', (el) => el.dataset.style).catch(() => null);
   log('Today shows the carousel in the chosen style:', style1 === 'stack');
   await shot('ph-18-carousel');
-  // Reduced motion (set for this suite): it never moves by itself, and there is nothing to pause.
+  // Reduced motion (set for this suite) must not stop it: it moves on after the pace's time,
+  // even with the mouse resting on it, and the pause button is there.
+  const beforeAuto = await carouselText();
+  await page.hover('[data-testid=phrase-carousel]');
+  await wait(10000);
+  log('Reduced motion: moves on by itself (mouse resting on it), with a pause button:', !!(await page.$('[aria-label="Pause the carousel"]')) && (await carouselText()) !== beforeAuto);
+  // A fixed starting point for the stepping checks below: reload, then pause at once.
+  await page.reload({ waitUntil: 'networkidle0' });
+  await wait(1000);
+  await click('[aria-label="Pause the carousel"]');
+  await page.mouse.move(1, 1);
   const still = await carouselText();
-  await wait(9000);
-  log('Reduced motion: no pause button, it stays put:', !(await page.$('[aria-label="Pause the carousel"]')) && (await carouselText()) === still);
   log('Previous is disabled on the first phrase:', await page.$eval('[aria-label="Previous phrase"]', (b) => b.disabled));
   const seen = [still];
   for (let i = 0; i < 3; i++) {

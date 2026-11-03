@@ -256,9 +256,12 @@ export function drawPhrase(ids: string[], seen: ReadonlySet<string>, rand: () =>
 /** Base seconds on screen per pace; the carousel adds time for the length of the phrase. */
 export const CAROUSEL_BASE_S = { fast: 6, normal: 10, slow: 16 } as const;
 
-/** How long the carousel keeps a phrase up: the pace's base plus 40ms a character so a long one can be read. */
+/** Extra time per character, so a long phrase can be read (1 second per 25 characters). */
+export const CAROUSEL_MS_PER_CHAR = 40;
+
+/** How long the carousel keeps a phrase up: the pace's base plus time for its length. */
 export function dwellMs(text: string, pace: keyof typeof CAROUSEL_BASE_S): number {
-  return CAROUSEL_BASE_S[pace] * 1000 + text.length * 40;
+  return CAROUSEL_BASE_S[pace] * 1000 + text.length * CAROUSEL_MS_PER_CHAR;
 }
 
 /** What a recall score says: "Word perfect", "Remembered", "Needs another look". */

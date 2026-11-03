@@ -8,6 +8,7 @@ import { deleteMetric, saveMetric, setArchived } from '../lib/repo';
 import { uuid } from '../lib/device';
 import { formatLocalDate, nowIso } from '../lib/dates';
 import { changeTarget, targetPeriods } from '../lib/targets';
+import { CAROUSEL_BASE_S, CAROUSEL_MS_PER_CHAR } from '../lib/phrases';
 import { ICONS } from '../lib/icons';
 import { THEMES, themeFromIcon } from '../lib/themes';
 import { BINDER_ICON } from '../lib/binderIcons';
@@ -357,10 +358,13 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
                 onChange={setCarouselPace}
                 options={[{ value: 'fast', label: 'Fast' }, { value: 'normal', label: 'Normal' }, { value: 'slow', label: 'Slow' }]}
               />
+              <p className="text-[13px] text-ink-2" data-testid="carousel-pace-note">
+                Each phrase stays {CAROUSEL_BASE_S[carouselPace]} seconds, plus 1 second more for every {Math.round(1000 / CAROUSEL_MS_PER_CHAR)} characters, then the next one comes up.
+              </p>
             </div>
           )}
           <p className="mt-1.5 text-[13px] text-ink-3">
-            Shows one phrase at a time in a shuffled order, every phrase once before any repeat. Longer phrases stay up longer. Hold or hover to pause; swipe or use the arrows to move on.
+            Shows one phrase at a time in a shuffled order, every phrase once before any repeat. Press and hold to pause, or use the pause button; swipe or use the arrows to move on.
           </p>
         </div>
       )}

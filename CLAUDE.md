@@ -35,6 +35,7 @@ invariants, decisions, testing and known gaps. This file is just the short versi
   (`users/{uid}/reviews/{id}`). A day owes a review once an older phrase exists, and is only a hit with it (`DayStat.open`, `isHitDay`):
   never judge a phrase day with `isHitOn` and a bare total. Not raceable in Compete; linked to the `wisdom` (Phrases) binder. The optional carousel (`Metric.carousel`, `components/PhraseCarousel.tsx`, Today row only)
   must stay a pure view over `usePhraseDay(...).all`: no Firestore reads or writes while it cycles, and nothing stored per phrase shown.
+  It advances on the pace timer (`dwellMs`) whatever `prefers-reduced-motion` says (that only drops animation and the ticker's scrolling), and a resting mouse pointer never pauses it; gating the timer on reduced motion once left it stuck on Malek's PC.
 - A deadline goal or plan linked to a metric is drawn inside that metric's Today row (between bar and buttons), not as a
   card; the row also shows on days only the goal is scheduled, without changing either side's saved days or the streak.
 - Achievements (`lib/achievements.ts`, cards in `lib/achievementCatalog.ts`): unlocks are derived from the data; collecting a
