@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Check, Eye, Shuffle, Undo2 } from 'lucide-react';
 import { Button, Segmented, Sheet, cx, inputClass } from './ui';
 import { useData } from '../state/DataContext';
@@ -157,6 +157,12 @@ function Test({ metric, day, entry, onBack, onAnother, onClose }: {
   const [sourceShown, setSourceShown] = useState(false);
   const [revealCount, setRevealCount] = useState(0);
   const [graded, setGraded] = useState<Graded | null>(null);
+  const blanksRef = useRef<HTMLParagraphElement>(null);
+
+  const nextBlank = (from: HTMLInputElement) => {
+    const all = [...(blanksRef.current?.querySelectorAll('input') ?? [])];
+    all[all.indexOf(from) + 1]?.focus();
+  };
 
   const blanks = useMemo(() => chooseBlanks(words, level, seedOf(`${entry.id}:${level}`)), [words, level, entry.id]);
   const hints = (sourceShown ? 1 : 0) + (style === 'full' ? revealCount : 0);
@@ -225,7 +231,7 @@ function Test({ metric, day, entry, onBack, onAnother, onClose }: {
             onChange={(l) => { setLevel(l); setAnswers({}); }}
             options={[{ value: 'few', label: 'Few' }, { value: 'half', label: 'Half' }, { value: 'most', label: 'Most' }]}
           />
-          <p dir="auto" className="mt-3 text-[17px] leading-[2.6]" data-testid="review-blanks">
+          <p ref={blanksRef} dir="auto" className="mt-3 text-[17px] leading-[2.6]" data-testid="review-blanks">
             {words.map((w, i) => (
               <span key={i}>
                 {blanks.has(i) ? (
@@ -236,7 +242,12 @@ function Test({ metric, day, entry, onBack, onAnother, onClose }: {
                     autoCorrect="off"
                     spellCheck={false}
                     value={answers[i] ?? ''}
-                    onChange={(e) => setAnswers((a) => ({ ...a, [i]: e.target.value }))}
+                    onChange={(e) => {
+                      // A space ends the word: drop it and move on to the next blank (this also catches phone keyboards that add one).
+                      const v = e.target.value;
+                      if (/\s/.test(v)) nextBlank(e.target);
+                      setAnswers((a) => ({ ...a, [i]: v.replace(/\s+/g, '') }));
+                    }}
                     style={{ width: `${Math.max(4, w.key.length * 0.85 + 2)}em` }}
                     className="mx-0.5 inline-block h-9 rounded-md border border-line bg-bg px-2 text-center align-middle text-[16px] text-ink focus:border-focus focus:outline-none"
                   />

@@ -166,6 +166,14 @@ try {
   dlg = await dialogText();
   log('Blanks are the default way to test:', dlg.includes('Fill the blanks') && (await page.$$('[data-testid=review-blanks] input')).length >= 1);
   await click('[role=radio]::-p-text(Most)');
+  // Space ends a word and moves to the next blank: nobody has to tap each one.
+  await page.click('[data-testid=review-blanks] input');
+  await page.keyboard.type('ab cd ');
+  const typed = await page.evaluate(() => {
+    const ins = [...document.querySelectorAll('[data-testid=review-blanks] input')];
+    return { n: ins.length, values: ins.slice(0, 3).map((i) => i.value), at: ins.indexOf(document.activeElement) };
+  });
+  log('Space moves to the next blank (no space kept in the answer):', typed.n >= 2 && typed.values[0] === 'ab' && typed.values[1] === 'cd' && typed.at === Math.min(2, typed.n - 1));
   const blanksFilled = await page.evaluate((full) => {
     const words = full.trim().split(/\s+/);
     const p = document.querySelector('[data-testid=review-blanks]');
