@@ -70,6 +70,13 @@ export interface LinkMember {
   addedAt: string;
   removedOn: string | null;
   removedAt: string | null;
+  /**
+   * A check-off: what each checked day counts as on this side, in the race's
+   * base unit (seconds for a time race). Set by the member when adding it;
+   * changing it ends this entry and starts a new one, so the new value
+   * applies from that day on (`worthOn`). Absent for any other metric.
+   */
+  worth?: number | null;
 }
 
 export type ChallengeKind = 'first_to' | 'most_total' | 'most_days';
@@ -130,6 +137,8 @@ export interface SharedLog {
   note?: string;
   /** Which metric, on a side with several (set when combining, never published). */
   m?: string;
+  /** A check-off's tick, counted as `v` (what a check is worth that day). */
+  c?: true;
 }
 
 /** One linked metric as its owner publishes it. Days not listed: nothing logged, not due. */
@@ -143,6 +152,8 @@ export interface SharedMetric {
   days: Record<string, SharedDay>;
   /** Each challenge day's logs, oldest first; a challenge day with nothing logged is an empty list. Absent with no challenge. */
   logs?: Record<string, SharedLog[]>;
+  /** A check-off on the side: what one check counts as now (its days already carry the value). Absent otherwise. */
+  per?: number;
 }
 
 export interface Score {
@@ -157,15 +168,57 @@ export interface Score {
  * A metric can be raced on when more is better, or when it's a time range
  * (study 1 to 4 hours): the total still counts, and a target day is a day
  * inside the range. A ceiling, or a range of counts (calories), has no
- * sensible winner. Check-offs aren't raced (yet): their days are 0 or 1, and
- * an older partner app wouldn't know the type.
+ * sensible winner. A check-off can't start a race (its days are 0 or 1), but
+ * it can join a side with a value per check (`canJoin`, `checkAsRace`).
  */
 export const canLink = (m: Metric): boolean =>
   !m.archivedAt && (m.targetDirection === 'at_least' ? m.type !== 'check' && m.type !== 'phrase' : m.targetDirection === 'between' && m.type === 'duration');
 
-/** A metric can be added to a side when it can be summed with it: time with time, or counts of the same unit. */
+/**
+ * A metric can be added to a side when it can be summed with it: time with time, or counts of the same
+ * unit. A check-off joins any race: its member gives each checked day a value in the race's unit
+ * (`LinkMember.worth`, Gym = 45 minutes), and it's published as that (`checkAsRace`).
+ */
 export const canJoin = (m: Metric, link: Pick<Link, 'type'>, unit: string): boolean =>
-  canLink(m) && m.type === link.type && (m.type === 'duration' || m.unit.trim().toLowerCase() === unit.trim().toLowerCase());
+  isCheckJoin(m) || (canLink(m) && m.type === link.type && (m.type === 'duration' || m.unit.trim().toLowerCase() === unit.trim().toLowerCase()));
+
+/** A check-off that can be added to a race with a value per check. */
+export const isCheckJoin = (m: Metric): boolean => m.type === 'check' && !m.archivedAt;
+
+/**
+ * What one check of `metricId` counts as on `day` on this side: the value of its entry added most
+ * recently on or before that day, so a change applies from that day on; before its first entry, the
+ * first one's (adding counts from the start of the running week). Null: not a check-off here.
+ */
+export function worthOn(members: LinkMember[], metricId: string, day: string): number | null {
+  const list = members
+    .filter((x) => x.metricId === metricId && x.worth != null && x.worth > 0)
+    .sort((a, b) => a.addedAt.localeCompare(b.addedAt));
+  if (list.length === 0) return null;
+  let worth = list[0].worth!;
+  for (const x of list) if (x.addedOn <= day) worth = x.worth!;
+  return worth;
+}
+
+/**
+ * A check-off on a side, as published: in the race's own kind and unit, each checked day worth that
+ * day's value (`worthOn`), so totals, challenges and an older partner app treat it like any other
+ * metric on the side. Its statuses are its own (Malek's call): a checked day is a target day, a due
+ * day left unchecked is a miss, rest days and unscheduled days as for its streak. Its target reads as
+ * the current value. Logs: one per checked day, its first tick, counted as that day's value.
+ */
+export function checkAsRace(m: SharedMetric, members: LinkMember[], metricId: string, race: Pick<SharedMetric, 'type' | 'unit'>): SharedMetric {
+  const per = worthOn(members, metricId, '9999-12-31') ?? 0;
+  const worth = (d: string) => worthOn(members, metricId, d) ?? 0;
+  const days: Record<string, SharedDay> = {};
+  for (const [d, day] of Object.entries(m.days)) days[d] = { t: day.t > 0 ? worth(d) : 0, s: day.s };
+  let logs: Record<string, SharedLog[]> | undefined;
+  if (m.logs) {
+    logs = {};
+    for (const [d, list] of Object.entries(m.logs)) logs[d] = list.length ? [{ ...list[0], v: worth(d), c: true }] : [];
+  }
+  return { ...m, type: race.type, unit: race.unit, target: per, per, days, ...(logs ? { logs } : {}) };
+}
 
 /**
  * What the owner publishes for one metric, from `from` through today. Rest

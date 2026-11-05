@@ -121,10 +121,25 @@ export function acceptLink(pairId: string, linkId: string, uid: string, metricId
   fire(updateDoc(competePaths.link(pairId, linkId), { [`metrics.${uid}`]: metricId, acceptedAt: nowIso(), startDate }));
 }
 
-/** Add one of my metrics to my side of a link. Re-adding a removed one starts a new entry. */
-export function addToSide(pairId: string, link: Link, uid: string, metricId: string, today: string): void {
+/**
+ * Add one of my metrics to my side of a link. Re-adding a removed one starts a new entry. A check-off
+ * comes with `worth`: what each checked day counts as, in the race's base unit.
+ */
+export function addToSide(pairId: string, link: Link, uid: string, metricId: string, today: string, worth?: number): void {
   const member: LinkMember = { metricId, addedOn: today, addedAt: nowIso(), removedOn: null, removedAt: null };
+  if (worth != null) member.worth = worth;
   fire(updateDoc(competePaths.link(pairId, link.id), { [`extra.${uid}`]: [...(link.extra?.[uid] ?? []), member] }));
+}
+
+/**
+ * A new value for a check-off on my side, from today on (`worthOn`): its entry ends today and a new one
+ * starts with the new value, so earlier days keep what they were worth.
+ */
+export function changeWorth(pairId: string, link: Link, uid: string, metricId: string, worth: number, today: string): void {
+  const now = nowIso();
+  const ended = (link.extra?.[uid] ?? []).map((x) => (x.metricId === metricId && !x.removedOn ? { ...x, removedOn: today, removedAt: now } : x));
+  const next: LinkMember = { metricId, addedOn: today, addedAt: now, removedOn: null, removedAt: null, worth };
+  fire(updateDoc(competePaths.link(pairId, link.id), { [`extra.${uid}`]: [...ended, next] }));
 }
 
 /** Put my side's added metrics back as they were (Undo). */

@@ -16,7 +16,7 @@ import {
   type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side,
 } from '../lib/compete';
 import {
-  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, changeChallengeEnd, createInvite, endChallengeNow, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
+  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, changeChallengeEnd, changeWorth, createInvite, endChallengeNow, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
   removeFromSide, renameInPair, restoreSide,
   type JoinError,
 } from '../lib/competeRepo';
@@ -25,6 +25,7 @@ import { Confetti } from '../components/Confetti';
 import { taunt, type TauntFacts, type TauntKind } from '../lib/taunts';
 import { local } from '../lib/device';
 import { fmtDay } from '../components/Goals';
+import { CountInput, DurationInput, parseCount, parseDuration, splitDuration } from '../components/inputs';
 import type { Metric } from '../lib/types';
 
 /** Two linked accounts race on linked metrics, week by week, plus challenges either can start. */
@@ -486,7 +487,9 @@ function OutcomeTag({ outcome, label }: { outcome: Outcome | null; label: string
 
 /**
  * The metrics on each side of a race. Mine can be added and removed freely;
- * they're summed. Theirs are listed; they change them on their own phone.
+ * they're summed. A check-off comes with what each check counts as, in the
+ * race's unit, which I can change from today on. Theirs are listed; they
+ * change them on their own phone.
  */
 function TeamForm({ link }: { link: Link }) {
   const { uid, today, metrics, metricById } = useData();
@@ -497,10 +500,18 @@ function TeamForm({ link }: { link: Link }) {
   const options = first ? metrics.filter((m) => !used.has(m.id) && canJoin(m, link, first.unit)) : [];
   const [pick, setPick] = useState(options[0]?.id ?? '');
   const [removing, setRemoving] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [worth, setWorth] = useState<WorthDraft>(EMPTY_WORTH);
+  const [worthError, setWorthError] = useState<string | null>(null);
   if (!pair || !first) return null;
   const picked = options.find((m) => m.id === pick) ?? options[0];
   const added = (link.extra?.[uid] ?? []).filter((x) => !x.removedOn);
   const theirIds = partnerUid ? sideMetricIds(link, partnerUid) : [];
+  const theirAdded = partnerUid ? (link.extra?.[partnerUid] ?? []).filter((x) => !x.removedOn) : [];
+  const race = { type: link.type, unit: first.unit };
+  // A check-off's value runs from the first time it was added (changes start new entries).
+  const since = (metricId: string) =>
+    (link.extra?.[uid] ?? []).filter((x) => x.metricId === metricId).map((x) => x.addedOn).sort()[0] ?? today;
 
   return (
     <div className="mt-2 flex flex-col gap-5" data-testid="team-sheet">
@@ -510,8 +521,12 @@ function TeamForm({ link }: { link: Link }) {
           <TeamRow name={first.name} color={first.color} note="From the start" />
           {added.map((x) => {
             const m = metricById.get(x.metricId);
+            const isCheck = x.worth != null;
+            const note = isCheck
+              ? `✓ = ${formatValue(race, x.worth!)} a day · added ${fmtDay(since(x.metricId), today).toLowerCase()}`
+              : `Added ${fmtDay(x.addedOn, today).toLowerCase()}`;
             return (
-              <TeamRow key={x.metricId} name={m?.name ?? 'Deleted metric'} color={m?.color} note={`Added ${fmtDay(x.addedOn, today).toLowerCase()}`}>
+              <TeamRow key={x.metricId} name={m?.name ?? 'Deleted metric'} color={m?.color} note={note}>
                 {removing === x.metricId ? (
                   <span className="flex gap-1">
                     <Button variant="danger" className="min-h-9 px-3 text-[14px]" onClick={() => {
@@ -522,7 +537,16 @@ function TeamForm({ link }: { link: Link }) {
                     <Button variant="ghost" className="min-h-9 px-3 text-[14px]" onClick={() => setRemoving(null)}>Keep</Button>
                   </span>
                 ) : (
-                  <Button variant="ghost" className="min-h-9 px-3 text-[14px]" onClick={() => setRemoving(x.metricId)}>Remove</Button>
+                  <span className="flex gap-1">
+                    {isCheck && editing !== x.metricId && (
+                      <Button variant="ghost" className="min-h-9 px-3 text-[14px]" onClick={() => {
+                        setEditing(x.metricId);
+                        setWorth(worthDraft(race, x.worth!));
+                        setWorthError(null);
+                      }}>Change</Button>
+                    )}
+                    <Button variant="ghost" className="min-h-9 px-3 text-[14px]" onClick={() => setRemoving(x.metricId)}>Remove</Button>
+                  </span>
                 )}
               </TeamRow>
             );
@@ -531,32 +555,82 @@ function TeamForm({ link }: { link: Link }) {
         {removing && (
           <p className="mt-1.5 text-[13px] text-ink-3">It stops counting toward this week and every challenge still running. Finished ones keep it.</p>
         )}
+        {editing && (() => {
+          const m = metricById.get(editing);
+          const current = added.find((x) => x.metricId === editing)?.worth ?? 0;
+          return (
+            <form className="mt-3" noValidate onSubmit={(e) => {
+              e.preventDefault();
+              const value = parseWorth(race, worth);
+              if (!(value > 0)) return setWorthError(`Enter how much one check counts as.`);
+              if (value !== current) {
+                changeWorth(pair.id, link, uid, editing, value, today);
+                toast(`${m?.name ?? 'It'} now counts as ${formatValue(race, value)} a day, from today`);
+              }
+              setEditing(null);
+            }}>
+              <Label htmlFor="worth-edit-h">Each {m?.name ?? 'check'} check counts as</Label>
+              <WorthInput race={race} draft={worth} onChange={(d) => { setWorth(d); setWorthError(null); }} id="worth-edit" />
+              <FieldError>{worthError}</FieldError>
+              <p className="mt-1.5 text-[13px] text-ink-3">From today on. Days already checked keep the value they had.</p>
+              <div className="mt-3 flex gap-2">
+                <Button type="submit" variant="primary">Save</Button>
+                <Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
+              </div>
+            </form>
+          );
+        })()}
       </section>
 
       {options.length > 0 && picked ? (
         <form noValidate onSubmit={(e) => {
           e.preventDefault();
+          let value: number | undefined;
+          if (picked.type === 'check') {
+            value = parseWorth(race, worth);
+            if (!(value > 0)) return setWorthError(`Enter how much one ${picked.name} check counts as.`);
+          }
           const before = link.extra?.[uid] ?? [];
-          addToSide(pair.id, link, uid, picked.id, today);
-          toast(`${picked.name} added to your side`, { label: 'Undo', run: () => restoreSide(pair.id, link.id, uid, before) });
+          addToSide(pair.id, link, uid, picked.id, today, value);
+          setWorth(EMPTY_WORTH);
+          setWorthError(null);
+          toast(
+            value != null ? `${picked.name} added: each check counts as ${formatValue(race, value)}` : `${picked.name} added to your side`,
+            { label: 'Undo', run: () => restoreSide(pair.id, link.id, uid, before) },
+          );
         }}>
           <Label htmlFor="t-add">Add one of yours</Label>
           <div className="flex gap-2">
-            <select id="t-add" className={inputClass} value={picked.id} onChange={(e) => setPick(e.target.value)}>
-              {options.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            <select id="t-add" className={inputClass} value={picked.id} onChange={(e) => {
+              setPick(e.target.value);
+              setWorthError(null);
+            }}>
+              {options.map((m) => <option key={m.id} value={m.id}>{m.type === 'check' ? `${m.name} (check off)` : m.name}</option>)}
             </select>
-            <Button type="submit" variant="primary" className="shrink-0"><Plus size={17} aria-hidden /> Add</Button>
+            {picked.type !== 'check' && <Button type="submit" variant="primary" className="shrink-0"><Plus size={17} aria-hidden /> Add</Button>}
           </div>
+          {picked.type === 'check' && (
+            <div className="mt-3" data-testid="worth-field">
+              <Label htmlFor="worth-add-h">Each {picked.name} check counts as</Label>
+              <WorthInput race={race} draft={worth} onChange={(d) => { setWorth(d); setWorthError(null); }} id="worth-add" />
+              <FieldError>{worthError}</FieldError>
+              <p className="mt-1.5 text-[13px] text-ink-3">
+                Every day you check {picked.name} adds this to your side, and counts as a target day. {partnerName} sees the value.
+              </p>
+              <Button type="submit" variant="primary" className="mt-3"><Plus size={17} aria-hidden /> Add</Button>
+            </div>
+          )}
         </form>
       ) : (
         <p className="text-[14px] text-ink-2">
-          No other {first.type === 'duration' ? 'time' : first.unit} metrics to add. Races take “at least” metrics (or time ranges) of the same kind, each on one race at a time.
+          No other {first.type === 'duration' ? 'time' : first.unit} metrics or check-offs to add. Races take “at least” metrics (or time ranges) of the same kind,
+          and check-offs, each on one race at a time.
         </p>
       )}
       <p className="-mt-2 text-[13px] text-ink-3">
         Everything on your side is added together. A new one counts toward this week and every challenge still running on this race, from their
-        start; finished weeks and challenges stay as they were. A day is a target day if you hit any of their targets. {partnerName} sees their daily
-        totals, and their logs and notes during challenges.
+        start; finished weeks and challenges stay as they were. A day is a target day if you hit any of their targets or checked a check-off.{' '}
+        {partnerName} sees their daily totals, and their logs and notes during challenges.
       </p>
 
       <section>
@@ -564,12 +638,41 @@ function TeamForm({ link }: { link: Link }) {
         <ul className="mt-1 divide-y divide-line border-y border-line">
           {theirIds.map((id) => {
             const m = theirScore?.metrics[id];
-            return <TeamRow key={id} name={m?.name ?? 'Not shared yet'} color={m?.color} />;
+            const each = theirAdded.find((x) => x.metricId === id)?.worth;
+            return (
+              <TeamRow key={id} name={m?.name ?? 'Not shared yet'} color={m?.color} note={each != null ? `✓ = ${formatValue(race, each)} a day` : undefined} />
+            );
           })}
         </ul>
         <p className="mt-1.5 text-[13px] text-ink-3">{partnerName} adds theirs from their own phone.</p>
       </section>
     </div>
+  );
+}
+
+/** What one check counts as, as typed: hours and minutes in a time race, a number in a count race. */
+type WorthDraft = { hours: string; minutes: string; count: string };
+const EMPTY_WORTH: WorthDraft = { hours: '', minutes: '', count: '' };
+
+function worthDraft(race: Pick<Metric, 'type'>, value: number): WorthDraft {
+  return race.type === 'duration' ? { ...EMPTY_WORTH, ...splitDuration(value) } : { ...EMPTY_WORTH, count: String(value) };
+}
+
+function parseWorth(race: Pick<Metric, 'type'>, d: WorthDraft): number {
+  return race.type === 'duration' ? parseDuration(d.hours, d.minutes) : parseCount(d.count);
+}
+
+function WorthInput({ race, draft, onChange, id }: { race: Pick<Metric, 'type' | 'unit'>; draft: WorthDraft; onChange: (d: WorthDraft) => void; id: string }) {
+  return race.type === 'duration' ? (
+    <DurationInput
+      idPrefix={id}
+      hours={draft.hours}
+      minutes={draft.minutes}
+      onHours={(hours) => onChange({ ...draft, hours })}
+      onMinutes={(minutes) => onChange({ ...draft, minutes })}
+    />
+  ) : (
+    <CountInput id={`${id}-h`} unit={race.unit} value={draft.count} onChange={(count) => onChange({ ...draft, count })} />
   );
 }
 
@@ -1454,7 +1557,7 @@ function LogList({ who, logs, counted, metric, hue, empty }: {
                 <span className="flex min-w-0 items-center gap-1.5 text-ink-2 tabular-nums">
                   {l.src === 't' && <Timer size={13} aria-hidden className="shrink-0 self-center" />}
                   {l.src === 't' ? `${formatTimeIn(l.at, tz)}–${formatTimeIn(new Date(Date.parse(l.at) + l.v * 1000).toISOString(), tz)}` : formatTimeIn(l.at, tz)}
-                  <span className="text-[12px] text-ink-3">{SRC_LABEL[l.src]}{l.m && ` · ${l.m}`}</span>
+                  <span className="text-[12px] text-ink-3">{l.c ? 'checked' : SRC_LABEL[l.src]}{l.m && ` · ${l.m}`}</span>
                 </span>
                 <span className="shrink-0 font-medium">
                   +{formatValue(metric, counted(l))}

@@ -25,7 +25,8 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - Compete (pairs of accounts): neither side can read the other's `users/{uid}`; each app publishes only a
   per-day summary of linked metrics to `pairs/{id}/scores/{uid}`, plus individual logs (with notes) on challenge days
   only. Results are derived from those, never stored. A side can hold several metrics (`Link.extra`, summed; each member
-  edits only their own side).
+  edits only their own side), check-offs included: each checked day counts as the `worth` its owner gave it (in force
+  that day, `worthOn`) and is a target day; the owner's app publishes it already converted (`checkAsRace`).
 - Challenge times are shown in plain 12-hour words (`clock12`/`whenText` in `lib/dates.ts`: noon and midnight are named, midnight names both days);
   never print a bare "12:00" for a challenge. "Change end" (`changeChallengeEnd`) lets either side move a running challenge's end; it must write
   `endAt` and `endDate` together and records `endChangedBy`/`endChangedFrom` so the other side sees it.

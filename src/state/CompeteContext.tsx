@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { getDocFromCache, getDocsFromCache, onSnapshot, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { useData } from './DataContext';
-import { nowIso } from '../lib/dates';
+import { deviceTimezone, nowIso, todayIn } from '../lib/dates';
 import { competePaths, publishScore } from '../lib/competeRepo';
 import {
-  challengeDays, challengeWindow, everSideMetricIds, sharesLogs, shareLogs, shareMetric, teamOf,
-  type Challenge, type Invite, type Link, type Pair, type Score, type SharedMetric, type Team,
+  challengeDays, challengeWindow, checkAsRace, everSideMetricIds, sharesLogs, shareLogs, shareMetric, teamOf,
+  type Challenge, type Invite, type Link, type LinkMember, type Pair, type Score, type SharedMetric, type Team,
 } from '../lib/compete';
 
 interface Compete {
@@ -126,9 +126,13 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
         // Like Stats: a metric counts from its creation, or its first entry if backfilled.
         let since = dayOf(metric.createdAt);
         for (const d of stats.keys()) if (d < since) since = d;
-        out[metric.id] = shareMetric(metric, stats, l.startDate, today, weekStartsOn, since);
+        let shared = shareMetric(metric, stats, l.startDate, today, weekStartsOn, since);
         const days = logDays.get(metric.id);
-        if (days) out[metric.id].logs = shareLogs(entries.filter((e) => e.metricId === metric.id), days);
+        if (days) shared.logs = shareLogs(entries.filter((e) => e.metricId === metric.id), days);
+        // A check-off goes out in the race's own units: each checked day as what a check is worth.
+        const first = metricById.get(l.metrics[uid]);
+        if (metric.type === 'check' && first && first.id !== metric.id) shared = checkAsRace(shared, l.extra?.[uid] ?? [], metric.id, { type: l.type, unit: first.unit });
+        out[metric.id] = shared;
       }
     }
     return out;
@@ -202,6 +206,18 @@ function useE2eHooks(uid: string, pairId: string | null) {
         if (!pairId) return;
         const l: Link = { id, metrics: { [PARTNER]: metricId }, type, proposedBy: PARTNER, createdAt: nowIso(), acceptedAt: null, startDate: null, endedAt: null };
         void setDoc(competePaths.link(pairId, id), l);
+      },
+      /** Add one of the partner's metrics to their side of every accepted link (a check-off with `worth`). */
+      theirExtra: async (metricId: string, worth?: number) => {
+        if (!pairId) return;
+        const snap = await getDocsFromCache(competePaths.links(pairId));
+        for (const d of snap.docs) {
+          const l = d.data() as Link;
+          if (!l.acceptedAt) continue;
+          const member: LinkMember = { metricId, addedOn: todayIn(deviceTimezone()), addedAt: nowIso(), removedOn: null, removedAt: null };
+          if (worth != null) member.worth = worth;
+          void updateDoc(d.ref, { [`extra.${PARTNER}`]: [...(l.extra?.[PARTNER] ?? []), member] });
+        }
       },
       /** Accept every link this account proposed, racing it against `metricId`. */
       acceptMine: async (metricId: string, startDate: string) => {

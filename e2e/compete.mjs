@@ -221,6 +221,75 @@ try {
   await wait(400);
   log('Back to Studying alone, 1h behind:', await until(async () => (await card('race-verdict')).includes('Cousin is 1h ahead') && !(await card('race-card')).includes('Network+')));
 
+  // ── A check-off on my side: each Gym check counts as 45m, then 1h from today ──
+  await page.goto('http://localhost:5173/#/metrics');
+  await wait(600);
+  await click('::-p-text(New metric)');
+  await click('[aria-label="Measured as"] [role=radio]::-p-text(Check off)');
+  await page.type('#m-name', 'Gym');
+  await click('::-p-text(Create metric)');
+  await wait(500);
+  await page.goto('http://localhost:5173/#/today');
+  await wait(700);
+  await click('[data-tour=today-check]');
+  await page.goto('http://localhost:5173/#/compete');
+  await wait(800);
+  await pressText('Add metric', '[data-testid="race-card"]');
+  await until(async () => (await card('team-sheet')).includes('Your side'));
+  log('Gym offered as a check-off:', (await page.$eval('#t-add', (e) => e.innerText)).includes('Gym (check off)'));
+  await page.select('#t-add', await page.$eval('#t-add', (e) => [...e.options].find((o) => o.text.startsWith('Gym')).value));
+  await wait(300);
+  log('Picking it asks what a check counts as:', (await card('team-sheet')).includes('Each Gym check counts as'));
+  await pressText('Add', '[data-testid="worth-field"]');
+  log('A value is required:', (await card('team-sheet')).includes('Enter how much one Gym check counts as'));
+  await page.type('#worth-add-m', '45');
+  await shot('cp-04e-check-worth');
+  await pressText('Add', '[data-testid="worth-field"]');
+  log('Gym on my side at 45m a check:', await until(async () => (await card('team-sheet')).includes('✓ = 45m a day')));
+  log('Toast says what a check counts as:', (await page.evaluate(() => document.querySelector('[aria-live=polite]')?.innerText ?? '')).includes('each check counts as 45m'));
+  await page.keyboard.press('Escape');
+  await wait(400);
+  log('Card names Gym on my side:', await until(async () => (await card('race-card')).includes('Studying & Gym vs Study')));
+  log('Today’s check adds 45m: 15m behind:', await until(async () => (await card('race-verdict')).includes('Cousin is 15m ahead')));
+  const gymOut = async () => Object.values((await hook('myScore'))?.metrics ?? {}).find((m) => m.name === 'Gym');
+  log('Published as time, 45m on today, a target day:', await until(async () => {
+    const g = await gymOut();
+    return g?.type === 'duration' && g.per === 45 * 60 && g.days[TODAY]?.t === 45 * 60 && g.days[TODAY]?.s === 'h';
+  }, 6000));
+
+  await pressText('Add metric', '[data-testid="race-card"]');
+  await pressText('Change', '[data-testid="team-sheet"]');
+  log('Change shows the current value:', (await page.$eval('#worth-edit-m', (e) => e.value)) === '45');
+  await page.$eval('#worth-edit-m', (e) => { e.select(); });
+  await page.keyboard.press('Backspace');
+  await page.type('#worth-edit-h', '1');
+  log('Explains it applies from today:', (await card('team-sheet')).includes('From today on. Days already checked keep the value they had.'));
+  await pressText('Save', '[data-testid="team-sheet"]');
+  log('Now 1h a check:', await until(async () => (await card('team-sheet')).includes('✓ = 1h a day')));
+  await page.keyboard.press('Escape');
+  await wait(400);
+  log('Today’s check now 1h: level at 3h:', await until(async () => (await card('race-verdict')).includes('Level')));
+  log('Published at 1h for today:', await until(async () => {
+    const g = await gymOut();
+    return g?.days[TODAY]?.t === H && g.per === H;
+  }, 6000));
+
+  // Their check-off shows its value on their side.
+  await hook('theirExtra', 'their-duo', 30 * 60);
+  await hook('score', TODAY, { ...theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } }), 'their-duo': { name: 'Duolingo', type: 'duration', unit: 'h', target: 30 * 60, per: 30 * 60, color: '#28a592', icon: 'languages', days: { [TODAY]: { t: 30 * 60, s: 'h' } } } });
+  await wait(500);
+  await pressText('Add metric', '[data-testid="race-card"]');
+  log('Their check-off shows its value:', await until(async () => /Duolingo\s*✓ = 30m a day/.test(await card('team-sheet'))));
+  await shot('cp-04f-check-sides');
+  // Off again, so the rest of the suite runs on Studying alone.
+  await pressText('Remove', '[data-testid="team-sheet"]');
+  await pressText('Remove', '[data-testid="team-sheet"]');
+  await page.keyboard.press('Escape');
+  await wait(400);
+  log('Gym off my side, Cousin 1h 30m ahead with Duolingo:', await until(async () => (await card('race-verdict')).includes('Cousin is 1h 30m ahead') && !(await card('race-card')).includes('Gym')));
+  await hook('score', TODAY, theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } }));
+  log('Duolingo unpublished: back to 1h behind:', await until(async () => (await card('race-verdict')).includes('Cousin is 1h ahead')));
+
   // Their request on a count metric I don't have.
   await hook('proposeLink', 'L-count', 'their-pushups', 'count');
   log('Link request shown:', await until(async () => (await card('link-request')).includes('Cousin wants to race a count metric')));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canJoin, challengeDays, challengeResult, challengeSpan, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
+import { canJoin, checkAsRace, worthOn, challengeDays, challengeResult, challengeSpan, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
 import type { DayStats, Entry, Metric } from './types';
 
 // 2026-10-05 is a Monday.
@@ -409,3 +409,77 @@ describe('sides with several metrics', () => {
     expect(canJoin(metric({ id: 'c', type: 'count', unit: 'kcal', targetDirection: 'between', targetMin: 1800, target: 2200 }), { type: 'count' }, 'kcal')).toBe(false);
   });
 });
+
+describe('check-offs on a side', () => {
+  const M = 60;
+  const gym = metric({ id: 'gym', name: 'Gym', type: 'check', unit: 'days', target: 1, schedule: { kind: 'days_of_week', days: [1, 3, 5] }, timerEnabled: false });
+  const member = (over: Partial<LinkMember>): LinkMember => ({ metricId: 'gym', addedOn: '2026-10-05', addedAt: '2026-10-05T08:00:00Z', removedOn: null, removedAt: null, worth: 45 * M, ...over });
+
+  it('a check-off joins any race; an archived one doesn’t', () => {
+    expect(canJoin(gym, { type: 'duration' }, 'h')).toBe(true);
+    expect(canJoin(gym, { type: 'count' }, 'pages')).toBe(true);
+    expect(canJoin(metric({ ...gym, archivedAt: '2026-10-01T00:00:00Z' }), { type: 'duration' }, 'h')).toBe(false);
+  });
+
+  it('a value applies from the day it’s set; earlier days keep theirs, and days before the first entry use the first', () => {
+    const changed = [
+      member({ removedOn: '2026-10-08', removedAt: '2026-10-08T09:00:00Z' }),
+      member({ addedOn: '2026-10-08', addedAt: '2026-10-08T09:00:00Z', worth: H }),
+    ];
+    expect(worthOn([member({})], 'gym', '2026-10-01')).toBe(45 * M);
+    expect(worthOn(changed, 'gym', '2026-10-03')).toBe(45 * M);
+    expect(worthOn(changed, 'gym', '2026-10-07')).toBe(45 * M);
+    expect(worthOn(changed, 'gym', '2026-10-08')).toBe(H);
+    expect(worthOn(changed, 'gym', '2026-10-20')).toBe(H);
+    expect(worthOn(changed, 'study', '2026-10-08')).toBe(null);
+    expect(worthOn([member({ worth: null })], 'gym', '2026-10-08')).toBe(null);
+    // Changed twice in one day: the last one holds.
+    const twice = [...changed.slice(0, 1), member({ addedOn: '2026-10-08', addedAt: '2026-10-08T09:00:00Z', worth: H, removedOn: '2026-10-08', removedAt: '2026-10-08T09:05:00Z' }), member({ addedOn: '2026-10-08', addedAt: '2026-10-08T09:05:00Z', worth: 30 * M })];
+    expect(worthOn(twice, 'gym', '2026-10-08')).toBe(30 * M);
+  });
+
+  it('is published in the race’s kind: checked days worth that day’s value and target days, unchecked due days missed', () => {
+    // Mon 5 and Wed 7 checked, Fri 9 due and missed; Thu 8 isn't a gym day. The value goes up on Wed.
+    const shared = shareMetric(gym, stats({ '2026-10-05': 1, '2026-10-07': 1 }), '2026-10-05', '2026-10-11', 1);
+    const members = [member({ removedOn: '2026-10-07', removedAt: '2026-10-07T07:00:00Z' }), member({ addedOn: '2026-10-07', addedAt: '2026-10-07T07:00:00Z', worth: H })];
+    const raced = checkAsRace(shared, members, 'gym', { type: 'duration', unit: 'h' });
+    expect(raced.type).toBe('duration');
+    expect(raced.unit).toBe('h');
+    expect(raced.per).toBe(H);
+    expect(raced.target).toBe(H);
+    expect(raced.days['2026-10-05']).toEqual({ t: 45 * M, s: 'h' });
+    expect(raced.days['2026-10-07']).toEqual({ t: H, s: 'h' });
+    expect(raced.days['2026-10-09']).toEqual({ t: 0, s: 'd' });
+    expect(raced.days['2026-10-08']).toBeUndefined();
+  });
+
+  it('counts toward the side’s total and makes a checked day a target day', () => {
+    const study = shareMetric(metric({ id: 'study' }), stats({ '2026-10-05': 30 * M, '2026-10-06': 2 * H }), '2026-10-05', '2026-10-11', 1);
+    const gymShared = checkAsRace(shareMetric(gym, stats({ '2026-10-05': 1 }), '2026-10-05', '2026-10-11', 1), [member({})], 'gym', { type: 'duration', unit: 'h' });
+    const side = combine([study, gymShared])!;
+    // Mon: 30m studied (under the 1h target) + gym 45m = 1h 15m, and a target day thanks to gym.
+    expect(side.days['2026-10-05']).toEqual({ t: 75 * M, s: 'h' });
+    expect(side.days['2026-10-06']).toEqual({ t: 2 * H, s: 'h' });
+    const week = sideFor(side, '2026-10-05', '2026-10-11', '2026-10-12');
+    expect(week.total).toBe(75 * M + 2 * H);
+    expect(week.hits).toBe(2);
+  });
+
+  it('shares one log per checked day, the first tick, worth that day’s value', () => {
+    const entry = (over: Partial<Entry>): Entry => ({
+      id: 'e', metricId: 'gym', localDate: '2026-10-05', value: 1, source: 'manual', note: null,
+      occurredAt: '2026-10-05T18:00:00Z', createdAt: '', updatedAt: '', deletedAt: null, ...over,
+    });
+    const logs = shareLogs([
+      entry({ id: 'a', metricId: 'gym', localDate: '2026-10-05', value: 1, source: 'manual', occurredAt: '2026-10-05T18:00:00Z', note: 'legs' }),
+      entry({ id: 'b', metricId: 'gym', localDate: '2026-10-05', value: 1, source: 'manual', occurredAt: '2026-10-05T19:00:00Z' }),
+    ], new Set(['2026-10-05', '2026-10-06']));
+    const shared = { ...shareMetric(gym, stats({ '2026-10-05': 1 }), '2026-10-05', '2026-10-06', 1), logs };
+    const raced = checkAsRace(shared, [member({})], 'gym', { type: 'duration', unit: 'h' });
+    expect(raced.logs).toEqual({
+      '2026-10-05': [{ v: 45 * M, at: '2026-10-05T18:00:00Z', src: 'm', note: 'legs', c: true }],
+      '2026-10-06': [],
+    });
+  });
+});
+
