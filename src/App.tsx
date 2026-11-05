@@ -1,6 +1,7 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { onAuthStateChanged, type User } from 'firebase/auth';
-import { auth, firebaseConfigured } from './lib/firebase';
+import { onAuthStateChanged, onIdTokenChanged, type User } from 'firebase/auth';
+import { app, auth, firebaseConfigured } from './lib/firebase';
+import { LockTimer, isNative, quietly } from './lib/native';
 import { DataProvider, useData } from './state/DataContext';
 import { TimerProvider } from './state/TimerContext';
 import { CompeteProvider } from './state/CompeteContext';
@@ -61,6 +62,16 @@ export function App() {
   // undefined = still reading the persisted session (local, no network).
   const [user, setUser] = useState<User | null | undefined>(undefined);
   useEffect(() => onAuthStateChanged(auth, setUser), []);
+  // Android app: the lock-screen Stop saves to Firestore while this app isn't running, so it gets
+  // the session (the same refresh token this SDK keeps on the device). Signing out takes it back.
+  useEffect(() => {
+    if (!isNative) return;
+    return onIdTokenChanged(auth, (u) => {
+      if (u)
+        void quietly(LockTimer.setSession({ uid: u.uid, refreshToken: u.refreshToken, apiKey: app.options.apiKey ?? '', projectId: app.options.projectId ?? '' }));
+      else void quietly(LockTimer.clearSession());
+    });
+  }, []);
 
   if (!firebaseConfigured) return <SetupNeeded />;
 

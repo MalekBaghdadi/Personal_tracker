@@ -2,7 +2,8 @@
 
 Personal project to track daily habits across Android, desktop/laptop, and iOS devices.
 
-The app is called **Logbook**: a private, offline-first daily tracker, installed as a PWA. Malek built it and runs it
+The app is called **Logbook**: a private, offline-first daily tracker, installed as a PWA, and also as an Android app
+(an APK of the same web app, whose one extra is Stop on the lock screen; see [Android app](#android-app)). Malek built it and runs it
 (his account is the admin); friends and family use it too, each with their own account and their own private data.
 It runs on the free Firebase Spark plan with no recurring cost.
 
@@ -18,7 +19,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 2. [How we work](#how-we-work)
 3. [Accounts and environment](#accounts-and-environment)
 4. [Features](#features)
-5. [Architecture](#architecture)
+5. [Architecture](#architecture) (and the [Android app](#android-app))
 6. [Data model](#data-model)
 7. [Invariants (don't break these)](#invariants-dont-break-these)
 8. [Decisions and departures from the specs](#decisions-and-departures-from-the-specs)
@@ -78,6 +79,8 @@ It runs on the free Firebase Spark plan with no recurring cost.
 
 - **Silent updates:** a new version installs itself at a quiet moment (no timer, no sheet, review or tour open, nothing being typed, no tap for 10 seconds); the "Update available" banner is only a fallback.
 - **Edit a log's start and end:** in History, a time entry's edit sheet now has Start and End fields beside the duration; the three stay consistent (see the Day sheet notes under Features).
+
+**Built, not yet released:** the **Android app** (5 November 2026): the same app as an APK, published on GitHub Releases, with a running timer on the lock screen whose Stop works without unlocking. A note, or a timer over 12 hours, waits until the app is opened. See [Android app](#android-app). It needs three repository secrets and one run of the release workflow before the first download link exists, and hasn't been tried on a real phone yet.
 
 **Verified:** type check, 288 unit tests, 24 browser test suites, and 78 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
@@ -328,7 +331,35 @@ First built for Malek and his cousin, but nothing names either account: any two 
 
 **Theme:** CSS variables in `src/index.css`, switched by `data-theme` on `<html>`. The theme is cached in localStorage and applied before first paint (inline script in `index.html`). Each metric's colour comes from a palette checked for contrast and colour-blind separation in both themes (`src/lib/palette.ts`); the light theme maps each stored dark hex to its pair.
 
+**Android app:** see [Android app](#android-app) below.
+
 **Routes:** `#/today`, `#/history[/YYYY-MM-DD]`, `#/stats`, `#/compete`, `#/metrics`, `#/profile[/collect]`, `#/settings`, `#/goals/<id>`, `#/plans/<id>`, `#/admin[/<uid>]`. The goals and plans routes highlight the Metrics tab; on phones Settings and admin highlight Profile.
+
+### Android app
+
+Same web app, same Firebase project, same accounts: an APK made with **Capacitor 8** (`android/`, `capacitor.config.json`), so Android users can **stop a running timer from the lock screen without unlocking**. Everything else waits for the app: the "What did you accomplish?" note, and the question a timer over 12 hours asks. Nothing new is needed on the Firebase side (no Android app registration, no `google-services.json`, still the Spark plan): the native code talks to Firestore's REST API with the web API key and the signed-in user's own token, so the security rules apply exactly as they do to the web app.
+
+**What the user sees:**
+- Starting a timer shows a notification with the metric, a clock Android counts by itself, and **Stop**. On Android 16 it can show as a Live Update (status-bar chip). The first timer start asks for notification permission once; Settings → **Lock-screen timer** shows the state and an "Allow notifications" button.
+- Stop on the lock screen logs the time at that moment and the notice turns into "Logged 1h 23m to Study", plus "Open Logbook to add what you accomplished." over 10 minutes. Over 12 hours it stops the timer but logs nothing: "Open Logbook to log the time you actually spent, or discard it."
+- Opening the app afterwards shows the usual toast ("Logged 1h 23m to Study from the lock screen", Undo, the note prompt and a linked plan's Mark done), or the over-12-hours sheet ("…ran 13h 5m before you stopped it from the lock screen"), the same one an abandoned timer gets.
+- In a browser on Android, Settings → **Android app** links to the download.
+
+**How a lock-screen Stop is saved** (`android/app/src/main/java/com/malekbaghdadi/logbook/`):
+- The web app hands the APK the session (uid and Firebase refresh token, `setSession` in `App.tsx` on every token change; signing out clears it) and the running timer (`show`/`clear`, from `TimerContext`, with `localDate` already worked out by `dayOf`, so the native side never needs the time zone or day-start setting).
+- **Stop** (`StopReceiver`) records the stop in app-private storage first (`TimerStore`: a new entry id, the seconds up to that moment, kind `log`, `held` over 12 hours, or `none` under a second), queues a retry (`StopWorker`, WorkManager, waits for a network), then tries straight away (`StopSync`).
+- `LogbookRest` (plain Java, no Android classes) swaps the refresh token for an ID token, reads `state/timer`, and if it's still that timer commits **one atomic write**: the entry (exactly `buildEntry`'s fields and types), the `state/timer` delete (with an `updateTime` precondition, so a timer stopped or replaced elsewhere in between is never logged twice) and the `state/timerClosed` marker. That's what `stopTimer` writes.
+- When the APK can't save it (offline, signed out), the web app does on its next run (`finishLockStop` in `repo.ts`, decided by `lib/lockStops.ts`), writing the **same entry id**, so if both get there it is still one entry. Whoever saves it first claims the stop (`markStop`), so the two never both act.
+- After a restart or an app update, `BootReceiver` puts the running timer's notification back.
+- Signing out forgets the session and the running timer but keeps unsaved stops; each carries its uid and is finished when that account signs in again.
+
+**Updates without a new APK:** the APK carries the web build, so it opens offline. `npm run build` also writes `dist/app-bundle.json` (`scripts/bundle-manifest.mjs`: every file with its SHA-256), which `npm run deploy` publishes. The app checks the live site for a newer one (by `builtAt`, so an APK built from newer code never switches back to an older deploy) hourly and on every return to the front (`NativeUpdatePrompt` in `Chrome.tsx`), `BundleUpdater` downloads only the changed files and checks every hash, and the app switches to it at the same quiet moment as the PWA. So **web changes reach Android users with a normal deploy**. Only changes under `android/` need a new APK. A new APK always starts again from the web build inside it. There is no service worker in the APK.
+
+**`NATIVE_API`** (`src/lib/native.ts`, `LockTimerPlugin.NATIVE_API`): bump both when the web app starts calling something new on the native side. An older APK then keeps its current web version and shows "New Android app available" with a link, instead of loading web code it can't run.
+
+**Releasing an APK** (`.github/workflows/android.yml`, run by hand from the Actions tab: Android APK → Run workflow): builds the web app with the `FIREBASE_ENV` secret as `.env.local`, signs the APK with the key in `ANDROID_KEYSTORE_BASE64` / `ANDROID_KEYSTORE_PASSWORD` (alias `logbook`), and publishes release `android-1.<run>` with `logbook.apk`. The stable download link is https://github.com/MalekBaghdadi/Personal_tracker/releases/latest/download/logbook.apk (the release page: …/releases/latest). Versions number themselves from the workflow run. **Every APK must be signed with the same key**, or phones refuse to install the update over the old app; losing it means everyone uninstalls once and installs again (their data is in Firestore, so nothing is lost but the sign-in). Keep a copy of the keystore and its password outside GitHub.
+
+**Building locally** (Android Studio, or the SDK and JDK 21): `npm run android` (build + `cap sync android`), then open `android/` in Android Studio, or `cd android && ./gradlew assembleDebug` (Windows: `gradlew.bat`). A local build is versioned `dev` and debug-signed: uninstall it before installing a release APK.
 
 ---
 
@@ -406,6 +437,7 @@ Types are in `src/lib/types.ts`. **Base units everywhere:** durations in **secon
 14. **Zero recurring cost:** nothing that needs the Blaze plan, no Cloud Storage, no native iOS app.
 15. **Achievements are derived; collecting is the only stored fact** (`users/{uid}/achievements/{id}`). Card ids are stored, so they never change. Themes never come from a metric's name: from its `theme`, else its icon. Nothing rewards more water, food or sleep than the target.
 16. **A phrase day's hit needs its review.** `buildDayStats` marks a phrase day `open` when an older phrase exists and no review was done that day; every hit check goes through `isHitDay(metric, date, stat)`, which says no for an open day. Don't call `isHitOn` with a bare total for a phrase metric.
+17. **The Android lock-screen Stop writes exactly what `stopTimer` writes,** in one atomic commit, and only if `state/timer` is still that timer (`LogbookRest.java`). It never decides anything the app would ask about: over 12 hours it logs nothing, and the note waits for the app. Change how a timer is stored or stopped and you must change `LogbookRest.java` (and `npm run test:native`) to match, then release a new APK.
 
 ---
 
@@ -431,6 +463,7 @@ npx tsc -p .          # type check (tsc runs as part of `npm run build` too)
 npm test              # unit tests: streaks (43), compete (41), targets (12), plans (34), achievements (32), goals (30), importer (11), binders (8), taunts (7), review (7), checkoff (6), entryRows (6), dates (5)
 npm run e2e           # browser tests; or: npm run e2e -- goals core
 npm run test:rules    # security rules against the Firestore emulator (69 checks)
+npm run test:native   # the Android app's lock-screen Stop (LogbookRest.java) against the Auth and Firestore emulators
 ```
 
 **Browser tests (`e2e/`):**
@@ -464,8 +497,11 @@ npm run test:rules    # security rules against the Firestore emulator (69 checks
 | `rest-days` | (clock pinned to Thursday) editor offers None–3 for a 5-day schedule; an unlogged Wednesday is the rest day and the streak holds; no button once used; History labels it "rest"; Rest day button marks today, Undo, survives reload and a metric edit |
 | `compete` | (emulator-only `window.__e2eCompete` hooks play the partner by writing into the cache) Compete tab after Stats; setup explains what's shared (notes during challenges); taunt is a 16px+ bubble from the leader; challenge logs: mine listed, theirs wait for their update, then show with times, timer span and note, day picker can't go before the start, mine published with notes only on challenge days, entry sheet says Cousin sees the note; invite code, expiry, cancel; bad code refused; joining offline needs a connection; pairing; link proposal and acceptance; race card, target days, tally, last week; what's published (only the summary, no notes); link request on a missing type, decline; challenge form validation; stake on the card; timed challenge: no time fields until switched on, end before start refused, only logs inside the window count, a part-inside timer shows "+1h of 2h"; first to, most days (their request, accepted), finished list; end it now (asks first and says who'd win, Keep going backs out, waits for their next publish, then the leader at that moment wins); call off; change my name (empty refused); unlink. Runs **with motion on**: taunts, crown on the leader, loss banner wobbles, win banner with confetti that cleans itself up |
 | `entry-times` | edit a timer entry's start/end/duration in History: start+end set the length, length moves the end, start keeps the end, past midnight, saved and reopened |
+| `android` | the web app's Android side with a fake of the APK's `LockTimer` plugin (`window.CapacitorCustomPlatform` makes Capacitor report a native platform; emulator builds read the fake from `window.__lockTimerFake`): the session is handed over; no install card; looks for web updates on the live site; starting a timer shows it in the notification (name, uid, start, tracking day, since) and asks for notifications once; a lock-screen Stop the APK couldn't save is finished by the app (claimed first, then removed), with "Logged 25m to Studying from the lock screen" and the note prompt; over 12 hours asks first and logs the time entered; stopping in the app clears the notification; a downloaded web update is applied at a quiet moment; Settings shows Lock-screen timer and the app version, no badge setting; signing out clears the session |
 | `session-note` | short timer: plain toast; 11-minute timer (fake clock): note prompt stays, pen, save, note in History, dismiss |
 | `achievements` | (`logbook:e2e-ach` flag for the banner; fake clock; motion on) tab bar ends with Profile; a new metric's theme follows its icon, Study picked in the editor; nothing waiting at first, nudge for a metric under Other; the binder deck: active binders first (Study, Other…), greyed ones after Secrets, Study in front (targeted, linked to MCAT prep), no emoji on the profile and the cards are pins, a tab tap and a finger swipe move the deck, a hard fling moves exactly one binder, a nudge springs back, a vertical drag scrolls inside the binder without changing it, the deck keeps one height, Streaks is general, Fitness, Compete and Goals greyed, Link a metric on Fitness ticks Water in (Fitness lights up) and out again (greyed); a 2h 5m timer drops the banner with what unlocked and a count on the tab; Collect opens the reveal face down, flip shows XP and what earned it, next, Collect all summary; binder states (1h and 2h collected, 3h locked), XP to next level, best so far; locked card progress; collected card detail, pin, wear as title; a locked secret only gives a hint; Link metrics moves Water to Health (nudge gone, Health lights up, Other greys out); a 10h session: Academic Menace first (Mythic, sunburst); reload opens the deck on the last binder and keeps title, pin and cards, no re-announce; gear opens Settings, Profile tab stays lit, back arrow; sharing: hint when unpaired, switch off by default, on publishes a summary without entries, partner's profile from the profile and the scoreboard (their title shown), off takes it down; light theme; laptop sidebar has Profile and Settings |
+
+**`npm run test:native`** (`e2e/native-rest.mjs`) compiles `LogbookRest.java` with `javac` (downloading `org.json`, which Android has built in, to the temp folder once), starts the Auth and Firestore emulators, and checks: a stop leaves an entry with `buildEntry`'s exact fields and types that the app's entries query sees, no `state/timer` and the `timerClosed` marker; a timer already stopped, replaced by a later one, or on another metric is left alone and nothing is logged; over 12 hours and under a second stop without an entry; a bad or someone else's token writes nothing; no network means retry. The APK itself (notification, lock screen, WorkManager, downloads) can only be tried on a phone or an Android emulator; see Known gaps.
 
 **Only the Auth emulator is used by the browser tests.** The Firestore emulator jar used to hang at 0 bytes on this network; it finally downloaded on 10 October 2026 and is used by `npm run test:rules` (`e2e/rules.mjs`, started by `e2e/run-rules.mjs`, which stops the emulator afterwards because `emulators:exec` leaves Java running on Windows). The browser tests still run with Firestore unreachable on purpose. With Firestore unreachable, the app behaves exactly as it does offline, which is the path that matters most. As a result:
 - **Seeding never runs on its own** in e2e. Emulator builds expose `window.__e2eFirstRun()` (in `DataContext`) to put the account into the first-run state; the other suites create metrics by hand.
@@ -510,6 +546,8 @@ src/
     export.ts             JSON and CSV export
     palette.ts, icons.ts  metric colours (validated) and curated icon set
     device.ts             device id, uuid, localStorage wrapper, iOS/standalone checks
+    native.ts             the Android app's plugin (LockTimer), isNative, NATIVE_API, where the APK is published
+    lockStops.ts (+test)  what the app does with a timer stopped from the Android lock screen
   state/
     DataContext.tsx       the seven listeners (metrics, entries, reviews, goals, items, timer, settings), derived maps, sync status, timer race resolution
     phrases.ts            usePhraseDay: a phrase metric's phrases, pool, reviews and what a day owes
@@ -537,9 +575,14 @@ src/
     PhraseControls.tsx    a phrase row's steps and buttons, a day's review status in History
     PhraseCarousel.tsx    the optional phrase carousel on Today (four styles, shuffle, pause, swipe)
     inputs.tsx            duration/count inputs and parsers
-e2e/                      browser tests + run-all.mjs runner
-scripts/make-icons.mjs    regenerates public/ icons (no dependencies)
-firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
+e2e/                      browser tests + run-all.mjs runner; native-rest.mjs (+ native/RestCli.java) for the APK's REST code
+scripts/make-icons.mjs    regenerates public/ icons and the Android launcher icons (no dependencies)
+scripts/bundle-manifest.mjs  dist/app-bundle.json: the file list the Android app updates from
+android/                  the Android app (Capacitor). Our code is in app/src/main/java/com/malekbaghdadi/logbook/:
+                          LockTimerPlugin (the web app's side), TimerStore, TimerNotifier, StopReceiver, StopSync,
+                          StopWorker, LogbookRest (Firestore REST), BundleUpdater, BootReceiver, MainActivity
+.github/workflows/android.yml  builds, signs and publishes the APK as a GitHub release (run by hand)
+capacitor.config.json, firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
 ```
 
 ---
@@ -547,6 +590,7 @@ firestore.rules, firebase.json, .firebaserc, .env.example, .env.emulators
 ## Known gaps and open questions
 
 **Not yet verified:**
+- **The Android app on a real phone:** install from the release link, sign in, start a timer, lock the phone, Stop from the lock screen (online, and in flight mode then back online), the note toast on opening, a timer over 12 hours, the notification after a restart, Settings → Lock-screen timer with notifications refused, and a web deploy reaching the app. Only the REST code and the web side were tested here (`npm run test:native`, suite `android`); no Android device or emulator was available.
 - **Two devices starting timers while both offline** (the race resolution in `DataContext`, `state/timerClosed`). The checklist covered a timer moving between online devices, not this.
 - **First-run seeding and onboarding** against the real backend (never runs in e2e).
 - **Admin access against the real rules:** Malek's account should list users and open their data; a second account must get nothing from `#/admin` (the page says it isn't available, and the rules refuse the reads).
@@ -630,6 +674,7 @@ Newest last. `git log` has the details.
 39. **Silent updates:** the app applies a new version by itself at a quiet moment instead of waiting for "Update available — Reload" to be pressed: it looks for one hourly and whenever it comes back to the front, and reloads only when no timer runs, first-run setup is done, no sheet/review/tour is open, nothing is being typed and nothing was tapped for 10 seconds. The banner stays as a fallback after a minute. New e2e suite `auto-update`.
 40. **Admin sees running timers:** the Users list marks anyone with a timer running (green dot and the metric) and a user's page shows their timer bar live, read-only. `TimerStrip` is shared with the pinned bar.
 41. **Edit a log's start and end:** the History edit sheet for a time entry has Start and End time fields next to Duration. Any one of the three can be changed and the others follow (start/end set the length; length moves the end; a new start keeps the end). Helpers `instantOnDay`, `minutesBetween`, `addMinutes` in `lib/dates.ts` (unit-tested); suite `entry-times`. Not on the Add form (new entries still get "now"/midday), and the History row still shows only the start time.
+42. **Android app:** the same app as an APK (Capacitor) so Android users can stop a running timer from the lock screen without unlocking. The native side saves the stop over Firestore's REST API with the user's own token (same writes as `stopTimer`, rules unchanged, still Spark); the note prompt and the over-12-hours question wait for the app. Web updates reach it from the live site (`app-bundle.json`); APKs are published by a GitHub Actions workflow to Releases. New tests: `npm run test:native`, suite `android`, `lockStops` unit tests.
 
 ---
 
@@ -648,6 +693,8 @@ Newest last. `git log` has the details.
 - **`innerText` follows CSS `text-transform`:** the reveal's labels are uppercase on screen, so tests match them case-insensitively.
 - **Settings has no phone tab:** tests reach it with the Profile tab, then `main a[href="#/settings"]` (the sidebar's link is hidden at phone width).
 - **A new service worker only waits if the page is under the old one.** A page that has not been reloaded since the worker was first registered isn't controlled, so a new worker takes over at once with nothing to wait for; `auto-update.mjs` reloads once first for that reason. Real users are always under it after their first launch.
+- **Android notification permission:** Android 13+ asks once per app; after two refusals it never shows the dialog again, so Settings → Lock-screen timer then points to Android Settings instead.
+- **The APK's signing key is the app's identity.** A release signed with any other key won't install over the existing app. Never regenerate it; keep `ANDROID_KEYSTORE_*` in GitHub secrets and a backup elsewhere.
 - **An old app saving a metric drops `theme`** (it writes the whole doc), so the metric falls back to its icon until it's picked again on an updated app.
 
 ---

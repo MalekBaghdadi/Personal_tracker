@@ -298,6 +298,32 @@ export function stopTimer(uid: string, timer: ActiveTimer, seconds: number, dayO
   return entryId;
 }
 
+/**
+ * Finish a timer stopped from the Android lock screen (src/lib/native.ts) that the APK couldn't
+ * save itself: the same batch as stopTimer, with the time and entry id the APK recorded when Stop
+ * was pressed. The APK writes that same entry id, so if both get there it's one entry. Only called
+ * while state/timer still holds this timer (lockStops.ts). Over 12 hours (`held`) or under a
+ * second logs nothing here: the app asks first, as for any timer.
+ */
+export function finishLockStop(
+  uid: string,
+  stop: { id: string; metricId: string; startedAt: string; localDate: string; seconds: number; kind: 'log' | 'held' | 'none' },
+): void {
+  const batch = writeBatch(db);
+  if (stop.kind === 'log' && stop.seconds > 0) {
+    const entry: Entry = {
+      ...buildEntry({ metricId: stop.metricId, value: stop.seconds, source: 'timer', localDate: stop.localDate, occurredAt: stop.startedAt }),
+      id: stop.id,
+    };
+    batch.set(paths.entry(uid, entry.id), entry);
+  }
+  batch.delete(paths.timer(uid));
+  markClosed(batch, uid, stop.startedAt);
+  const own = ownTimer();
+  if (own && own.startedAt === stop.startedAt) setOwnTimer(null);
+  fire(batch.commit());
+}
+
 export function discardTimer(uid: string, timer: ActiveTimer): void {
   const batch = writeBatch(db);
   batch.delete(paths.timer(uid));

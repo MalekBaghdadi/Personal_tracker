@@ -6,6 +6,7 @@ import { useAchievements } from '../state/AchievementsContext';
 import { useElapsed, useTimerActions } from '../state/TimerContext';
 import { formatTimeIn } from '../lib/dates';
 import { isIos, isStandalone, local } from '../lib/device';
+import { APK_PAGE, LIVE_SITE, LockTimer, isNative, onNativeResume, quietly } from '../lib/native';
 import { Button, IconButton, cx } from './ui';
 import { TimerStrip } from './TimerStrip';
 import type { Route } from '../App';
@@ -187,6 +188,11 @@ function quietForUpdate(): boolean {
  * a minute, so it is a fallback, not the way updates arrive.
  */
 export function UpdatePrompt() {
+  // The Android app has no service worker: its updates come through NativeUpdatePrompt.
+  return isNative ? <NativeUpdatePrompt /> : <WebUpdatePrompt />;
+}
+
+function WebUpdatePrompt() {
   const { timer, settings } = useData();
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -237,6 +243,73 @@ export function UpdatePrompt() {
   );
 }
 
+/**
+ * The Android app's web code ships inside the APK; newer versions come from the live site the same
+ * way and at the same quiet moments as the PWA's (BundleUpdater.java downloads and checks them, then
+ * the app reloads into the new one). Only when a web version needs a newer APK (NATIVE_API) does
+ * anything show: a link to the new APK.
+ */
+function NativeUpdatePrompt() {
+  const { timer, settings } = useData();
+  const [ready, setReady] = useState<string | null>(null);
+  const [needsApk, setNeedsApk] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const applied = useRef(false);
+  const busy = !!timer || settings?.onboardedAt === null;
+
+  useEffect(() => {
+    let looking = false;
+    const look = async () => {
+      if (looking) return;
+      looking = true;
+      try {
+        const current = await fetch('/app-bundle.json', { cache: 'no-store' })
+          .then((r) => (r.ok ? (r.json() as Promise<{ version?: string }>) : null))
+          .catch(() => null);
+        const res = await quietly(LockTimer.prepareUpdate({ base: LIVE_SITE, current: current?.version ?? '' }));
+        if (res?.status === 'ready' && res.version) setReady(res.version);
+        if (res?.status === 'needs-apk') setNeedsApk(true);
+      } finally {
+        looking = false;
+      }
+    };
+    void look();
+    const id = window.setInterval(look, 60 * 60 * 1000);
+    const off = onNativeResume(look);
+    return () => {
+      window.clearInterval(id);
+      off();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const apply = () => {
+      if (applied.current || busy || !quietForUpdate()) return;
+      applied.current = true;
+      void quietly(LockTimer.applyUpdate({ version: ready }));
+    };
+    apply();
+    const tick = window.setInterval(apply, 3000);
+    document.addEventListener('visibilitychange', apply);
+    return () => {
+      window.clearInterval(tick);
+      document.removeEventListener('visibilitychange', apply);
+    };
+  }, [ready, busy]);
+
+  if (!needsApk || dismissed || timer) return null;
+  return (
+    <div className="fixed inset-x-0 top-[calc(env(safe-area-inset-top,0px)+8px)] z-40 flex justify-center px-4">
+      <div className="flex items-center gap-2 rounded-xl border border-line bg-s3 py-1.5 pr-1.5 pl-4 text-[14px] shadow-lg">
+        <span>New Android app available</span>
+        <a href={APK_PAGE} className="press inline-flex min-h-9 items-center rounded-lg bg-ink px-3 text-[15px] font-medium text-bg">Get it</a>
+        <IconButton label="Later" className="size-9" onClick={() => setDismissed(true)}>×</IconButton>
+      </div>
+    </div>
+  );
+}
+
 // ── Install: one-time first-run explanation (storage durability, §11). ────
 
 interface BeforeInstallPromptEvent extends Event {
@@ -253,7 +326,8 @@ if (typeof window !== 'undefined') {
 }
 
 export function InstallCard() {
-  const [hidden, setHidden] = useState(() => isStandalone() || local.get('pt.installSeen') === '1');
+  // The Android app is installed by definition.
+  const [hidden, setHidden] = useState(() => isNative || isStandalone() || local.get('pt.installSeen') === '1');
   const [canPrompt, setCanPrompt] = useState(() => deferredPrompt !== null);
   useEffect(() => {
     const on = () => setCanPrompt(true);

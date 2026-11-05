@@ -1,0 +1,8 @@
+{
+  "appId": "com.malekbaghdadi.logbook",
+  "appName": "Logbook",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#0e1420"
+  }
+}

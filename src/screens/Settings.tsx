@@ -15,6 +15,7 @@ import { formatNumber } from '../lib/format';
 import { Button, Label, Segmented, Sheet, Switch, inputClass, useToast } from '../components/ui';
 import { badgeSupported, useBadgeSetting } from '../state/badge';
 import { isIos, isStandalone } from '../lib/device';
+import { APK_PAGE, LockTimer, isNative, onNativeResume, quietly, type NotificationState } from '../lib/native';
 import type { Settings as SettingsT } from '../lib/types';
 
 function allTimezones(current: string): string[] {
@@ -111,7 +112,10 @@ export function Settings() {
           />
         </section>
 
-        <BadgeSection />
+        {/* Android draws icon badges from notifications; the app has no badge to set. */}
+        {!isNative && <BadgeSection />}
+
+        <AndroidSection />
 
         <section className="border-t border-line pt-5" data-tour="settings-export">
           <h2 className="text-[15px] font-medium">Export your data</h2>
@@ -157,7 +161,7 @@ export function Settings() {
         <section className="border-t border-line pt-5">
           <h2 className="text-[15px] font-medium">Account</h2>
           <p className="mt-1 text-[13px] text-ink-3">Signed in as {user.email}</p>
-          {persisted === false && (
+          {persisted === false && !isNative && (
             <p className="mt-1 text-[13px] text-ink-3">This browser may clear offline data if storage runs low. Installing to the home screen helps.</p>
           )}
           {confirmSignOut ? (
@@ -320,6 +324,68 @@ function BadgeSection() {
         </p>
       )}
       {note && <p role="alert" className="mt-2 text-[13px] text-ink-2">{note}</p>}
+    </section>
+  );
+}
+
+const isAndroid = () => /Android/i.test(navigator.userAgent);
+
+/**
+ * In the Android app: whether the lock-screen timer can show (it needs notifications). In a
+ * browser on Android: where to get the app.
+ */
+function AndroidSection() {
+  const [state, setState] = useState<NotificationState | null>(null);
+  const [version, setVersion] = useState('');
+  useEffect(() => {
+    if (!isNative) return;
+    const read = () => void quietly(LockTimer.info()).then((i) => {
+      if (!i) return;
+      setState(i.notifications);
+      setVersion(i.versionName);
+    });
+    read();
+    return onNativeResume(read);
+  }, []);
+
+  if (!isNative) {
+    if (!isAndroid()) return null;
+    return (
+      <section className="border-t border-line pt-5">
+        <h2 className="text-[15px] font-medium">Android app</h2>
+        <p className="mt-1 text-[14px] text-ink-2">
+          The same Logbook as an app, with one extra: a running timer shows on the lock screen, and Stop works there without
+          unlocking. Sign in with this account and everything is there.
+        </p>
+        <a href={APK_PAGE} className="press mt-3 inline-flex min-h-11 items-center justify-center rounded-lg bg-s2 px-4 text-[15px] font-medium text-ink hover:bg-s3">
+          Download the Android app
+        </a>
+        <p className="mt-1.5 text-[13px] text-ink-3">Open logbook.apk once it’s downloaded. Android asks you to allow installing apps from your browser the first time.</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="border-t border-line pt-5">
+      <h2 className="text-[15px] font-medium">Lock-screen timer</h2>
+      {state === 'granted' ? (
+        <p className="mt-1 text-[14px] text-ink-2">
+          A running timer shows on the lock screen with Stop. Stopping it there logs the time; adding a note, or a timer that
+          ran over 12 hours, waits for you here.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-[14px] text-ink-2">Allow notifications and a running timer shows on the lock screen, with Stop.</p>
+          {state === 'prompt' ? (
+            <Button className="mt-3" onClick={() => void quietly(LockTimer.requestNotifications()).then((r) => r && setState(r.notifications))}>
+              Allow notifications
+            </Button>
+          ) : (
+            state === 'denied' && <p className="mt-1.5 text-[13px] text-ink-3">Notifications are off for Logbook. Turn them on in Android Settings → Apps → Logbook → Notifications.</p>
+          )}
+        </>
+      )}
+      {version && <p className="mt-1.5 text-[13px] text-ink-3">Android app version {version}.</p>}
     </section>
   );
 }

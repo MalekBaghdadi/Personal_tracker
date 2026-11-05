@@ -30,6 +30,10 @@ interface Data {
   dayStats: Map<string, DayStats>;
   settings: Settings | null;
   timer: ActiveTimer | null;
+  /** The timer doc has been read at least once (from cache or server). */
+  timerKnown: boolean;
+  /** The last timer read came from the server, so `timer` is what every device sees. */
+  timerFromServer: boolean;
   tz: string;
   /** First day of the week (settings, default Monday): rest-day allowances count per week. */
   weekStartsOn: 0 | 1;
@@ -70,6 +74,8 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
   const [rawGoals, setRawGoals] = useState<Goal[]>([]);
   const [settings, setSettings] = useState<Settings | null | undefined>(undefined);
   const [timer, setTimer] = useState<ActiveTimer | null>(null);
+  const [timerKnown, setTimerKnown] = useState(false);
+  const [timerFromServer, setTimerFromServer] = useState(false);
   const [meta, setMeta] = useState<Record<string, Meta>>({});
   const [entriesFromServer, setEntriesFromServer] = useState(false);
   const [entriesReady, setEntriesReady] = useState(false);
@@ -132,6 +138,8 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       onSnapshot(paths.timer(uid), opts, (snap) => {
         track('timer')(snap.metadata);
         setTimer(snap.exists() ? (snap.data() as ActiveTimer) : null);
+        setTimerKnown(true);
+        setTimerFromServer(!snap.metadata.fromCache && !snap.metadata.hasPendingWrites);
         if (!snap.metadata.fromCache && !snap.metadata.hasPendingWrites) {
           serverTimer.current = { value: snap.exists() ? (snap.data() as ActiveTimer) : null, seq: serverTimer.current.seq + 1 };
           setServerTimerSeq(serverTimer.current.seq);
@@ -265,6 +273,8 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       dayStats,
       settings: settings ?? null,
       timer,
+      timerKnown,
+      timerFromServer,
       tz,
       weekStartsOn: settings?.weekStartsOn ?? 1,
       dayStart,
@@ -274,7 +284,7 @@ export function DataProvider({ user, children }: { user: User; children: ReactNo
       ready: metrics !== null && settings !== undefined,
       entriesReady,
     }),
-    [uid, user, metrics, metricById, entries, reviews, goals, items, itemsByDate, dayStats, settings, timer, tz, dayStart, dayOfFn, today, sync, entriesReady],
+    [uid, user, metrics, metricById, entries, reviews, goals, items, itemsByDate, dayStats, settings, timer, timerKnown, timerFromServer, tz, dayStart, dayOfFn, today, sync, entriesReady],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -7,15 +7,19 @@
     "dev": "vite",
     "dev:emu": "vite --mode emulators",
     "emulators": "firebase emulators:start --project demo-logbook",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/bundle-manifest.mjs",
+    "android": "npm run build && cap sync android",
     "preview": "vite preview",
     "test": "vitest run",
     "icons": "node scripts/make-icons.mjs",
     "deploy": "npm run build && firebase deploy --only hosting,firestore:rules",
     "e2e": "node e2e/run-all.mjs",
-    "test:rules": "node e2e/run-rules.mjs"
+    "test:rules": "node e2e/run-rules.mjs",
+    "test:native": "node e2e/native-rest.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "date-fns": "^4.4.0",
     "date-fns-tz": "^3.2.0",
@@ -26,6 +30,7 @@
     "recharts": "^3.10.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.0",
     "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^18.3.31",

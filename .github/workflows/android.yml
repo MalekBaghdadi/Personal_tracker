@@ -1,0 +1,88 @@
+# Builds the Android app (Capacitor, android/) and publishes it as a GitHub release:
+# https://github.com/MalekBaghdadi/Personal_tracker/releases/latest/download/logbook.apk
+#
+# Run it from the Actions tab (Android APK → Run workflow). Only needed when the Android side
+# changes (android/, or NATIVE_API in src/lib/native.ts): web changes reach installed apps through
+# `npm run deploy`, like the PWA.
+#
+# Needs three repository secrets (Settings → Secrets and variables → Actions):
+#   FIREBASE_ENV               the contents of .env.local (the Firebase web config)
+#   ANDROID_KEYSTORE_BASE64    the signing key, base64-encoded (always the same key, or phones
+#                              refuse to install the update over the old app)
+#   ANDROID_KEYSTORE_PASSWORD  its password
+name: Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: 1.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Check the secrets are set
+        env:
+          FIREBASE_ENV: ${{ secrets.FIREBASE_ENV }}
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$FIREBASE_ENV" ] || missing="$missing FIREBASE_ENV"
+          [ -n "$KEYSTORE" ] || missing="$missing ANDROID_KEYSTORE_BASE64"
+          [ -n "$PASSWORD" ] || missing="$missing ANDROID_KEYSTORE_PASSWORD"
+          if [ -n "$missing" ]; then echo "::error::Missing repository secrets:$missing (see the top of this file)"; exit 1; fi
+
+      - run: npm ci
+
+      - name: Build the web app and copy it into the Android project
+        env:
+          FIREBASE_ENV: ${{ secrets.FIREBASE_ENV }}
+        run: |
+          printf '%s\n' "$FIREBASE_ENV" > .env.local
+          npm run android
+
+      - name: Build and sign the APK
+        working-directory: android
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          LOGBOOK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          LOGBOOK_KEYSTORE_FILE: ${{ runner.temp }}/logbook.jks
+          LOGBOOK_VERSION_CODE: ${{ github.run_number }}
+          LOGBOOK_VERSION_NAME: ${{ env.VERSION }}
+        run: |
+          printf '%s' "$KEYSTORE" | base64 -d > "$LOGBOOK_KEYSTORE_FILE"
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/logbook.apk"
+          rm -f "$LOGBOOK_KEYSTORE_FILE"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-$VERSION" "$RUNNER_TEMP/logbook.apk" \
+            --target "$GITHUB_SHA" \
+            --latest \
+            --title "Logbook for Android $VERSION" \
+            --notes "Open this page on your Android phone and tap **logbook.apk** to install or update. The first time, Android asks you to allow installing apps from your browser.
+
+          Sign in with your Logbook account: everything is there. A running timer shows on the lock screen, and Stop works there without unlocking."

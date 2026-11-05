@@ -1,10 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useData } from './DataContext';
 import { useCompete } from './CompeteContext';
 import { usePlans } from './PlansContext';
-import { addEntry, discardTimer, softDeleteEntry, startTimer, stopTimer, updateEntry } from '../lib/repo';
+import { addEntry, discardTimer, finishLockStop, forgetOwnTimer, ownTimer, softDeleteEntry, startTimer, stopTimer, updateEntry } from '../lib/repo';
 import { setTaskDone, updateTask } from '../lib/plansRepo';
 import { formatDuration } from '../lib/format';
+import { formatTimeIn } from '../lib/dates';
+import { local } from '../lib/device';
+import { LockTimer, isNative, onNativeWake, quietly, type LockStop } from '../lib/native';
+import { lockFollowUp, nextLockStep } from '../lib/lockStops';
 import { Button, Sheet, useToast } from '../components/ui';
 import { DurationInput, parseDuration } from '../components/inputs';
 
@@ -59,7 +63,7 @@ export function useTimerActions(): TimerActions {
 }
 
 export function TimerProvider({ children }: { children: ReactNode }) {
-  const { uid, timer, metricById, tz, dayOf } = useData();
+  const { uid, timer, metricById, tz, dayOf, entries, timerKnown, timerFromServer } = useData();
   const { sharedWith } = useCompete();
   const { plans, resultOf } = usePlans();
   const toast = useToast();
@@ -68,6 +72,29 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const elapsed = useElapsed(timer?.startedAt);
 
   const metricName = (id: string) => metricById.get(id)?.name ?? 'Deleted metric';
+
+  /** The toast after a timer session: Undo, and over 10 minutes "What did you accomplish?". */
+  const announce = useCallback((id: string | null, metricId: string, startedAt: string, raw: number, where = '') => {
+    const name = metricName(metricId);
+    const partner = sharedWith(metricId, dayOf(startedAt));
+    // A Plan linked to this metric offers its current task in the note prompt.
+    const linked = plans.find((p) => p.metricId === metricId && !p.archivedAt && resultOf(p.id).current);
+    const current = linked ? resultOf(linked.id).current : null;
+    const task = linked && current
+      ? {
+        title: `${current.title.replace(/[*`_]/g, '')}`,
+        mark: (done: boolean) => setTaskDone(uid, current.id, done),
+        saveNote: (note: string) => updateTask(uid, current.id, { note }),
+      }
+      : undefined;
+    if (id)
+      toast(
+        `Logged ${formatDuration(raw)} to ${name}${where}`,
+        { label: 'Undo', run: () => softDeleteEntry(uid, id) },
+        raw > NOTE_PROMPT_AFTER_S ? { note: { prompt: 'What did you accomplish?', hint: partner ? `${partner} sees this note (challenge day)` : undefined, save: (note) => updateEntry(uid, id, { note }), task } } : undefined,
+      );
+    else toast('Timer stopped. Under a second, so nothing was logged.');
+  }, [uid, dayOf, toast, metricById, sharedWith, plans, resultOf]);
 
   /** Returns false when the stop was diverted to the recovery prompt. */
   const doStop = useCallback((): boolean => {
@@ -83,28 +110,9 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       toast("This device's clock is behind the one that started the timer, so nothing was recorded.");
       return true;
     }
-    const id = stopTimer(uid, timer, raw, dayOf);
-    const name = metricName(timer.metricId);
-    const partner = sharedWith(timer.metricId, dayOf(timer.startedAt));
-    // A Plan linked to this metric offers its current task in the note prompt.
-    const linked = plans.find((p) => p.metricId === timer.metricId && !p.archivedAt && resultOf(p.id).current);
-    const current = linked ? resultOf(linked.id).current : null;
-    const task = linked && current
-      ? {
-        title: `${current.title.replace(/[*`_]/g, '')}`,
-        mark: (done: boolean) => setTaskDone(uid, current.id, done),
-        saveNote: (note: string) => updateTask(uid, current.id, { note }),
-      }
-      : undefined;
-    if (id)
-      toast(
-        `Logged ${formatDuration(raw)} to ${name}`,
-        { label: 'Undo', run: () => softDeleteEntry(uid, id) },
-        raw > NOTE_PROMPT_AFTER_S ? { note: { prompt: 'What did you accomplish?', hint: partner ? `${partner} sees this note (challenge day)` : undefined, save: (note) => updateEntry(uid, id, { note }), task } } : undefined,
-      );
-    else toast('Timer stopped. Under a second, so nothing was logged.');
+    announce(stopTimer(uid, timer, raw, dayOf), timer.metricId, timer.startedAt, raw);
     return true;
-  }, [timer, uid, dayOf, toast, metricById, sharedWith, plans, resultOf]);
+  }, [timer, uid, dayOf, toast, announce]);
 
   const start = useCallback(
     (metricId: string, startedAt?: string) => {
@@ -113,9 +121,113 @@ export function TimerProvider({ children }: { children: ReactNode }) {
         return;
       }
       startTimer(uid, metricId, startedAt);
+      // Android app: the lock-screen Stop needs notifications. Ask once, when it's first useful.
+      if (isNative && local.get('pt.notificationsAsked') !== '1') {
+        local.set('pt.notificationsAsked', '1');
+        void quietly(LockTimer.requestNotifications());
+      }
     },
     [timer, uid],
   );
+
+  // ── Android: the running timer on the lock screen (src/lib/native.ts) ──────
+  const [wake, setWake] = useState(0);
+  useEffect(() => onNativeWake(() => setWake((w) => w + 1)), []);
+  const shownMetric = timer ? metricById.get(timer.metricId) : undefined;
+  const shownName = shownMetric?.name ?? 'Timer';
+  const shownColor = shownMetric?.color ?? '#8590a3';
+  useEffect(() => {
+    if (!isNative || !timerKnown) return;
+    if (!timer) {
+      void quietly(LockTimer.clear());
+      return;
+    }
+    // Shown again on every wake: Android 14+ lets the notification be swiped away.
+    void quietly(LockTimer.show({
+      uid,
+      metricId: timer.metricId,
+      metricName: shownName,
+      color: shownColor,
+      startedAt: timer.startedAt,
+      startedAtMs: Date.parse(timer.startedAt),
+      localDate: dayOf(timer.startedAt),
+      sinceText: formatTimeIn(timer.startedAt, tz),
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerKnown, timer?.startedAt, timer?.metricId, shownName, shownColor, uid, dayOf, tz, wake]);
+
+  // A timer stopped from the lock screen: finish it if the APK couldn't, then owe what the lock
+  // screen couldn't ask (the note prompt, or the over-12-hours sheet). See lib/lockStops.ts.
+  const [heldStops, setHeldStops] = useState<LockStop[]>([]);
+  const live = useRef({ uid, timer, timerFromServer, entries, announce });
+  live.current = { uid, timer, timerFromServer, entries, announce };
+  const processing = useRef(false);
+  const followedUp = useRef(new Set<string>());
+  const processStops = useCallback(async () => {
+    if (!isNative || processing.current) return;
+    processing.current = true;
+    try {
+      const res = await quietly(LockTimer.getStops());
+      let waiting = 0;
+      for (const s of res?.stops ?? []) {
+        const now = live.current;
+        const step = nextLockStep(s, {
+          uid: now.uid,
+          timer: now.timer,
+          timerFromServer: now.timerFromServer,
+          hasEntry: (id) => now.entries.some((e) => e.id === id),
+        });
+        if (step.do === 'skip') continue;
+        if (step.do === 'wait') {
+          waiting++;
+          continue;
+        }
+        let stop: LockStop = s;
+        if (step.do === 'complete' || step.do === 'settle') {
+          const outcome = step.do === 'complete' ? 'saved' : step.outcome;
+          // Claimed before writing, so the APK's own retry never acts on it too.
+          const r = await quietly(LockTimer.markStop({ id: s.id, outcome }));
+          if (!r) {
+            waiting++;
+            continue;
+          }
+          if (r.changed && step.do === 'complete') finishLockStop(now.uid, s);
+          stop = r.changed ? { ...s, synced: true, outcome } : { ...s, ...r };
+        }
+        if (!stop.synced) {
+          waiting++;
+          continue;
+        }
+        if (ownTimer()?.startedAt === stop.startedAt) forgetOwnTimer();
+        const owed = lockFollowUp(stop);
+        if (owed === 'held') {
+          // Removed once answered, so a closed app asks again next time.
+          if (!followedUp.current.has(stop.id)) {
+            followedUp.current.add(stop.id);
+            setHeldStops((q) => [...q, stop]);
+          }
+          continue;
+        }
+        if (owed === 'logged' && !followedUp.current.has(stop.id)) {
+          followedUp.current.add(stop.id);
+          now.announce(stop.id, stop.metricId, stop.startedAt, stop.seconds, ' from the lock screen');
+        }
+        void quietly(LockTimer.removeStop({ id: stop.id }));
+      }
+      if (waiting === 0) void quietly(LockTimer.dismissNotice());
+    } finally {
+      processing.current = false;
+    }
+  }, []);
+  useEffect(() => {
+    if (isNative && timerKnown) void processStops();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timerKnown, timer?.startedAt, timerFromServer, entries.length, wake, processStops]);
+  const held = heldStops[0];
+  const settleHeld = (stop: LockStop) => {
+    setHeldStops((q) => q.filter((x) => x.id !== stop.id));
+    void quietly(LockTimer.removeStop({ id: stop.id }));
+  };
 
   // §8.5: on open (or whenever it's noticed), a timer past 12h asks rather than records.
   const abandoned = timer != null && elapsed > ABANDONED_AFTER_S;
@@ -155,6 +267,34 @@ export function TimerProvider({ children }: { children: ReactNode }) {
         )}
       </Sheet>
 
+      {held && (
+        <AbandonedTimerSheet
+          key={held.id}
+          metricName={metricName(held.metricId)}
+          startedAt={held.startedAt}
+          stoppedAfter={held.seconds}
+          tz={tz}
+          onDiscard={() => {
+            settleHeld(held);
+            toast('Timer discarded');
+          }}
+          onSave={(seconds) => {
+            const id = addEntry(uid, {
+              metricId: held.metricId,
+              value: seconds,
+              source: 'manual',
+              localDate: held.localDate,
+              occurredAt: held.startedAt,
+            });
+            settleHeld(held);
+            toast(`Logged ${formatDuration(seconds)} to ${metricName(held.metricId)}`, {
+              label: 'Undo',
+              run: () => softDeleteEntry(uid, id),
+            });
+          }}
+        />
+      )}
+
       {timer && recovering && (
         <AbandonedTimerSheet
           metricName={metricName(timer.metricId)}
@@ -189,12 +329,15 @@ export function TimerProvider({ children }: { children: ReactNode }) {
 function AbandonedTimerSheet({
   metricName,
   startedAt,
+  stoppedAfter,
   tz,
   onDiscard,
   onSave,
 }: {
   metricName: string;
   startedAt: string;
+  /** Stopped from the Android lock screen after this many seconds. */
+  stoppedAfter?: number;
   tz: string;
   onDiscard: () => void;
   onSave: (seconds: number) => void;
@@ -208,7 +351,10 @@ function AbandonedTimerSheet({
   return (
     <Sheet open onClose={() => {}} dismissable={false} title={`${metricName} timer was left running`}>
       <p className="text-[15px] text-ink-2">
-        It started {started} and has run for over 12 hours. Enter how long you actually spent, or discard it.
+        {stoppedAfter === undefined
+          ? <>It started {started} and has run for over 12 hours.</>
+          : <>It started {started} and ran {formatDuration(stoppedAfter)} before you stopped it from the lock screen.</>}{' '}
+        Enter how long you actually spent, or discard it.
       </p>
       <form
         className="mt-4"

@@ -49,4 +49,9 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - On phones the Profile tab replaced Settings; Settings is unchanged behind Profile's gear (tests: Profile tab, then
   `main a[href="#/settings"]`).
 - New UI a new user should know about gets a `data-tour` marker and a step in `src/lib/tours.ts`.
+- Android app (README "Android app"): the same web app in an APK (Capacitor, `android/`), whose one extra is Stop on the
+  lock screen. Its native code (`LogbookRest.java`) writes exactly what `stopTimer` writes, over Firestore REST; change
+  how timers are stored and you change it too (`npm run test:native`). Web changes reach the APK with a normal deploy
+  (`app-bundle.json`); only `android/` changes need a new APK, published from the Actions tab (Android APK workflow).
+  Bump `NATIVE_API` in `src/lib/native.ts` and `LockTimerPlugin.java` together when the web app needs new native code.
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.
