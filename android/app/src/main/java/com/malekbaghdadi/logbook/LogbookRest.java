@@ -141,7 +141,8 @@ public final class LogbookRest {
         } catch (IOException e) {
             // Connection refused, DNS, timeouts: the network, not the request.
             return Outcome.RETRY;
-        } catch (JSONException | RuntimeException e) {
+        } catch (Exception e) {
+            // A malformed answer (JSONException: checked on Android, unchecked in desktop org.json).
             return Outcome.ERROR;
         }
     }

@@ -162,9 +162,15 @@ export function TimerProvider({ children }: { children: ReactNode }) {
   const live = useRef({ uid, timer, timerFromServer, entries, announce });
   live.current = { uid, timer, timerFromServer, entries, announce };
   const processing = useRef(false);
+  const again = useRef(false);
   const followedUp = useRef(new Set<string>());
-  const processStops = useCallback(async () => {
-    if (!isNative || processing.current) return;
+  const processStops = useCallback(async function run(): Promise<void> {
+    if (!isNative) return;
+    // A stop that lands mid-run gets its own pass straight after.
+    if (processing.current) {
+      again.current = true;
+      return;
+    }
     processing.current = true;
     try {
       const res = await quietly(LockTimer.getStops());
@@ -217,6 +223,10 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       if (waiting === 0) void quietly(LockTimer.dismissNotice());
     } finally {
       processing.current = false;
+      if (again.current) {
+        again.current = false;
+        void run();
+      }
     }
   }, []);
   useEffect(() => {

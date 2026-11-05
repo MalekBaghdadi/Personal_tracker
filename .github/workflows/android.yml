@@ -66,9 +66,10 @@ jobs:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           LOGBOOK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           LOGBOOK_KEYSTORE_FILE: ${{ runner.temp }}/logbook.jks
-          LOGBOOK_VERSION_CODE: ${{ github.run_number }}
           LOGBOOK_VERSION_NAME: ${{ env.VERSION }}
         run: |
+          # Version code 1 was the hand-built preview; releases count up from 2.
+          export LOGBOOK_VERSION_CODE=$((GITHUB_RUN_NUMBER + 1))
           printf '%s' "$KEYSTORE" | base64 -d > "$LOGBOOK_KEYSTORE_FILE"
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease
