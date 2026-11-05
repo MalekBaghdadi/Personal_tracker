@@ -40,7 +40,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 | **Repo** | https://github.com/MalekBaghdadi/Personal_tracker (branch `main`) |
 | **Firebase project** | `personal-tracker-cec8a` (Spark plan) |
 | **Local checkouts** | `C:\Users\Malek Baghdadi\personal-tracker` (Windows 11 PC) and `~/Documents/Personal_tracker` (Mac) |
-| **Last updated** | 4 November 2026 |
+| **Last updated** | 5 November 2026 |
 
 **Built and deployed:**
 - The original MVP: Today, History, Stats, Metrics and Settings screens; timers; quick-add and manual entry; targets and streaks; PWA install and offline support; JSON/CSV export; first-run onboarding.
@@ -80,7 +80,7 @@ It runs on the free Firebase Spark plan with no recurring cost.
 - **Silent updates:** a new version installs itself at a quiet moment (no timer, no sheet, review or tour open, nothing being typed, no tap for 10 seconds); the "Update available" banner is only a fallback.
 - **Edit a log's start and end:** in History, a time entry's edit sheet now has Start and End fields beside the duration; the three stay consistent (see the Day sheet notes under Features).
 
-**Released as a preview (5 November 2026):** the **Android app**, the same app as an APK with a running timer on the lock screen whose Stop works without unlocking (a note, or a timer over 12 hours, waits until the app is opened). See [Android app](#android-app). Download: https://github.com/MalekBaghdadi/Personal_tracker/releases/latest/download/logbook.apk (release `android-1.0-preview`, version code 1, built by hand in a cloud session and published by a one-off workflow, because the release workflow's secrets weren't set yet). **Not yet tried on a real phone.** Before the Android APK workflow can build the next one, the three repository secrets must be added (see Releasing an APK); its releases count up from version code 2, so they install over the preview.
+**Released as a preview (5 November 2026):** the **Android app**, the same app as an APK with a running timer on the lock screen whose Stop works without unlocking (a note, or a timer over 12 hours, waits until the app is opened). See [Android app](#android-app). Download: https://github.com/MalekBaghdadi/Personal_tracker/releases/latest/download/logbook.apk (release `android-1.0-preview`, version code 1, built by hand in a cloud session and published by a one-off workflow, because the release workflow's secrets weren't set yet). The web side was deployed the same day, so the app updates its web code from the live site. **Not yet tried on a real phone.** Before the Android APK workflow can build the next one, the three repository secrets must be added (see Releasing an APK); its releases count up from version code 2, so they install over the preview.
 
 **Verified:** type check, 295 unit tests, 25 browser test suites (`goals` and `extras` failed in the 5 November cloud container on `main` too, so not from the Android work; both last passed on Malek's machines), 22 native REST checks (`npm run test:native`), and 78 security-rules checks against the Firestore emulator (`npm run test:rules`). The browser tests run against the local Auth emulator with Firestore unreachable, so they exercise the **offline path** only. See [Testing](#testing).
 
