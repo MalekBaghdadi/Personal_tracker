@@ -131,11 +131,22 @@ public class LockTimerPlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * A JS number as whole milliseconds. Never call.getDouble(): the bridge parses each call with
+     * org.json, which makes a whole number past the int range (any timestamp) a Long, and
+     * getDouble() answers null for a Long. That made show() refuse every timer up to android-1.1,
+     * so the notification never appeared.
+     */
+    private static Long millis(PluginCall call, String key) {
+        Object v = call.getData().opt(key);
+        return v instanceof Number ? ((Number) v).longValue() : null;
+    }
+
     @PluginMethod
     public void show(PluginCall call) {
         String uid = call.getString("uid");
         String startedAt = call.getString("startedAt");
-        Double startedAtMs = call.getDouble("startedAtMs");
+        Long startedAtMs = millis(call, "startedAtMs");
         if (uid == null || startedAt == null || startedAtMs == null || call.getString("metricId") == null || call.getString("localDate") == null) {
             call.reject("uid, metricId, startedAt, startedAtMs and localDate are required");
             return;
@@ -152,7 +163,7 @@ public class LockTimerPlugin extends Plugin {
                 .put("metricName", call.getString("metricName", "Timer"))
                 .put("color", call.getString("color", "#4f8cff"))
                 .put("startedAt", startedAt)
-                .put("startedAtMs", startedAtMs.longValue())
+                .put("startedAtMs", (long) startedAtMs)
                 .put("localDate", call.getString("localDate"))
                 .put("sinceText", call.getString("sinceText", ""));
             TimerStore.setShown(ctx(), shown);

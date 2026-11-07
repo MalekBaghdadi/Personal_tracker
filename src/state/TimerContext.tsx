@@ -149,7 +149,10 @@ export function TimerProvider({ children }: { children: ReactNode }) {
       metricName: shownName,
       color: shownColor,
       startedAt: timer.startedAt,
-      startedAtMs: Date.parse(timer.startedAt),
+      // Never a whole number: APKs up to android-1.1 read it with Capacitor's getDouble(), which
+      // refuses one this big (the bridge parses it as a Long), so no notification ever showed.
+      // The native side drops the half. Remove once no phone runs android-1.1 or older.
+      startedAtMs: Date.parse(timer.startedAt) + 0.5,
       localDate: dayOf(timer.startedAt),
       sinceText: formatTimeIn(timer.startedAt, tz),
     }));

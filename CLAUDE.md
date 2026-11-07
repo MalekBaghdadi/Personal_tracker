@@ -55,4 +55,6 @@ invariants, decisions, testing and known gaps. This file is just the short versi
   how timers are stored and you change it too (`npm run test:native`). Web changes reach the APK with a normal deploy
   (`app-bundle.json`); only `android/` changes need a new APK, published from the Actions tab (Android APK workflow).
   Bump `NATIVE_API` in `src/lib/native.ts` and `LockTimerPlugin.java` together when the web app needs new native code.
+  In a plugin method, read a number as `call.getData().opt(key)` + `instanceof Number`, never `getDouble`/`getInt`/`getLong`:
+  each refuses the other boxed types, and that silently stopped the notification in android-1.1 (README change 44).
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.

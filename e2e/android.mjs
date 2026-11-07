@@ -36,9 +36,12 @@ await page.evaluateOnNewDocument(() => {
     clearSession: async () => rec('clearSession'),
     show: async (o) => {
       rec('show', o);
+      // As APKs up to android-1.1 read startedAtMs (getDouble): a whole number past the int range
+      // arrives as a Long and is refused, and no notification shows.
+      if (Number.isInteger(o.startedAtMs) && Math.abs(o.startedAtMs) > 2 ** 31 - 1) throw new Error('startedAtMs is required');
       // As LockTimerPlugin.show(): never for a timer already stopped from the lock screen.
       if (state.stops.some((s) => s.startedAt === o.startedAt)) return { shown: false, stopped: true };
-      state.shown = o;
+      state.shown = { ...o, startedAtMs: Math.trunc(o.startedAtMs) };
       return { shown: true };
     },
     clear: async () => {
@@ -114,7 +117,7 @@ try {
   // Start: the notification shows the timer; notifications are asked for once.
   await click('::-p-aria(Start Studying timer)');
   await wait(1200);
-  let shown = (await calls('show')).pop();
+  let shown = await page.evaluate(() => window.__fake.state.shown);
   log('Notification shows the timer:', shown?.metricName === 'Studying' && shown.uid === session.uid && shown.startedAtMs === Date.parse(shown.startedAt)
     && /^\d{4}-\d\d-\d\d$/.test(shown.localDate) && /^\d\d:\d\d$/.test(shown.sinceText), JSON.stringify(shown));
   log('Asks for notifications on the first start:', (await calls('requestNotifications')).length === 1);
