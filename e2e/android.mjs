@@ -21,12 +21,13 @@ page.on('console', (m) => { if (m.type() === 'error' && !/ERR_CONNECTION_REFUSED
 await page.evaluateOnNewDocument(() => {
   window.CapacitorCustomPlatform = { name: 'android', plugins: {} };
   const calls = [];
-  let listeners = { resume: [], stops: [] };
-  const state = { shown: null, stops: [], notifications: 'prompt', bundle: { status: 'current' } };
+  let listeners = { resume: [], stops: [], download: [] };
+  const state = { shown: null, stops: [], notifications: 'prompt', bundle: { status: 'current' }, install: 'installer' };
   const rec = (name, arg) => calls.push({ name, arg: arg === undefined ? null : JSON.parse(JSON.stringify(arg)) });
   window.__fake = { calls, state, fire: (ev) => listeners[ev].forEach((f) => f({})) };
   window.__lockTimerFake = {
-    info: async () => ({ api: 1, versionName: '1.test', versionCode: 1, notifications: state.notifications }),
+    // An APK from android-1.2 (api 2) unless the test says older (localStorage fake.api).
+    info: async () => ({ api: Number(localStorage.getItem('fake.api') ?? 2), versionName: '1.1', versionCode: 2, notifications: state.notifications }),
     requestNotifications: async () => {
       rec('requestNotifications');
       state.notifications = 'granted';
@@ -67,6 +68,15 @@ await page.evaluateOnNewDocument(() => {
       return state.bundle;
     },
     applyUpdate: async (o) => rec('applyUpdate', o),
+    // As AppUpdater: progress while it downloads, then Android's installer opens (or it fails).
+    installUpdate: async (o) => {
+      rec('installUpdate', o);
+      for (const percent of [40, 100]) {
+        listeners.download.forEach((f) => f({ percent }));
+        await new Promise((r) => setTimeout(r, 800));
+      }
+      return state.install === 'error' ? { status: 'error', message: 'The download failed (HTTP 404).' } : { status: state.install };
+    },
     addListener: async (ev, fn) => {
       listeners[ev].push(fn);
       return { remove: async () => { listeners = { ...listeners, [ev]: listeners[ev].filter((f) => f !== fn) }; } };
@@ -85,6 +95,20 @@ await page.evaluateOnNewDocument(() => {
     window.__fake.fire('stops');
     return true;
   };
+});
+
+// GitHub's latest release, as the app looks for a newer APK (state/apkUpdate.ts).
+let release = 'android-1.1';
+const apkUrl = (tag) => `https://github.com/MalekBaghdadi/Personal_tracker/releases/download/${tag}/logbook.apk`;
+await page.setRequestInterception(true);
+page.on('request', (req) => {
+  if (!req.url().startsWith('https://api.github.com/repos/MalekBaghdadi/Personal_tracker/releases/latest')) return void req.continue();
+  void req.respond({
+    status: 200,
+    contentType: 'application/json',
+    headers: { 'Access-Control-Allow-Origin': '*' },
+    body: JSON.stringify({ tag_name: release, assets: [{ name: 'logbook.apk', browser_download_url: apkUrl(release) }] }),
+  });
 });
 
 const click = async (sel) => { await page.locator(sel).setTimeout(8000).click(); await wait(400); };
@@ -174,9 +198,46 @@ try {
   await page.goto('http://localhost:5173/#/settings');
   await wait(1200);
   const settings = await text();
-  log('Settings shows the lock-screen timer:', settings.includes('Lock-screen timer') && settings.includes('Android app version 1.test'));
+  log('Settings shows the lock-screen timer:', settings.includes('Lock-screen timer') && settings.includes('Android app version 1.1'));
   log('No icon badge setting:', !settings.includes('App icon'));
+  log('Up to date: no update offered:', settings.includes('Android app version 1.1, the latest.') && !settings.includes('is available'));
   await page.screenshot({ path: `${OUT}92-android-settings.png` });
+
+  // A newer APK on GitHub: offered in a banner and in Settings, and installed from inside the app.
+  release = 'android-1.2';
+  await page.reload({ waitUntil: 'networkidle0' });
+  await wait(2000);
+  let now = await text();
+  log('Banner offers the new APK:', now.includes('Android app 1.2 is available'));
+  log('Settings offers it too:', now.includes('Version 1.2 is available') && now.includes('Update app'));
+  await page.screenshot({ path: `${OUT}93-android-apk-update.png` });
+  await page.evaluate(() => { window.__fake.state.install = 'error'; });
+  await click('main ::-p-text(Update app)');
+  await wait(1800);
+  log('A failed download says why:', (await text()).includes('The download failed (HTTP 404). Try again.'));
+  await page.evaluate(() => { window.__fake.state.install = 'installer'; });
+  await click('main ::-p-text(Update app)');
+  log('Shows the download going:', /Downloading… (40|100)%/.test(await text()));
+  await wait(1800);
+  log('Downloads that release’s APK:', JSON.stringify(await calls('installUpdate')) === JSON.stringify([{ url: apkUrl('android-1.2') }, { url: apkUrl('android-1.2') }]));
+  log('…then Android’s installer takes over:', (await text()).includes('Tap Update in Android’s installer.'));
+  await page.evaluate(() => window.__fake.fire('resume'));
+  await wait(600);
+  log('Installer cancelled: offered again:', (await text()).includes('Android asks you to confirm'));
+  await click('::-p-aria(Later)');
+  log('Later hides the banner:', !(await text()).includes('Android app 1.2 is available'));
+  await page.reload({ waitUntil: 'networkidle0' });
+  await wait(2000);
+  now = await text();
+  log('…until a newer version, still in Settings:', !now.includes('Android app 1.2 is available') && now.includes('Update app'));
+  // An APK from before android-1.2 can't install it itself: a link that downloads it instead.
+  await page.evaluate(() => localStorage.setItem('fake.api', '1'));
+  await page.reload({ waitUntil: 'networkidle0' });
+  await wait(2000);
+  const link = await page.evaluate(() => [...document.querySelectorAll('main a')].find((a) => a.textContent === 'Download 1.2')?.href ?? null);
+  log('An older APK gets a download link:', link === apkUrl('android-1.2'), link);
+  log('…and the app never asks it to install:', (await calls('installUpdate')).length === 0);
+  await page.evaluate(() => localStorage.removeItem('fake.api'));
 
   // Signing out takes the session back from the APK.
   await click('::-p-text(Sign out)');

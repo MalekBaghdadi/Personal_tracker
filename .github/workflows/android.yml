@@ -86,4 +86,6 @@ jobs:
             --title "Logbook for Android $VERSION" \
             --notes "Open this page on your Android phone and tap **logbook.apk** to install or update. The first time, Android asks you to allow installing apps from your browser.
 
-          Sign in with your Logbook account: everything is there. A running timer shows on the lock screen, and Stop works there without unlocking."
+          Sign in with your Logbook account: everything is there. A running timer shows on the lock screen, and Stop works there without unlocking.
+
+          Already have Logbook 1.2 or later? It offers this update itself: tap Update in the app, then Update in Android's installer."

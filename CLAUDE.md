@@ -54,7 +54,10 @@ invariants, decisions, testing and known gaps. This file is just the short versi
   lock screen. Its native code (`LogbookRest.java`) writes exactly what `stopTimer` writes, over Firestore REST; change
   how timers are stored and you change it too (`npm run test:native`). Web changes reach the APK with a normal deploy
   (`app-bundle.json`); only `android/` changes need a new APK, published from the Actions tab (Android APK workflow).
-  Bump `NATIVE_API` in `src/lib/native.ts` and `LockTimerPlugin.java` together when the web app needs new native code.
+  `LockTimerPlugin.NATIVE_API` is what an APK offers (`info().api`); `NATIVE_API` in `src/lib/native.ts` is the least the
+  web app needs. Bump both when the web app can't run without new native code; for something optional, bump only the Java
+  side and check `info().api` (like `IN_APP_UPDATE_API`), so older APKs keep getting web updates. From android-1.2 the app
+  updates its own APK (`installUpdate`, `AppUpdater.java`, offered from GitHub's latest release, `state/apkUpdate.ts`).
   In a plugin method, read a number as `call.getData().opt(key)` + `instanceof Number`, never `getDouble`/`getInt`/`getLong`:
   each refuses the other boxed types, and that silently stopped the notification in android-1.1 (README change 44).
 - Ask Malek when a request is structurally ambiguous; he prefers a question to a wrong guess.

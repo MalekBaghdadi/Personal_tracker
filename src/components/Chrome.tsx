@@ -9,6 +9,8 @@ import { isIos, isStandalone, local } from '../lib/device';
 import { APK_PAGE, LIVE_SITE, LockTimer, isNative, onNativeResume, quietly } from '../lib/native';
 import { Button, IconButton, cx } from './ui';
 import { TimerStrip } from './TimerStrip';
+import { ApkUpdateButton, apkPhaseText } from './ApkUpdate';
+import { lookForApk, useApkUpdate } from '../state/apkUpdate';
 import type { Route } from '../App';
 
 // ── Sync indicator: a dot, never a banner. Offline is a normal state. ─────
@@ -246,20 +248,24 @@ function WebUpdatePrompt() {
 /**
  * The Android app's web code ships inside the APK; newer versions come from the live site the same
  * way and at the same quiet moments as the PWA's (BundleUpdater.java downloads and checks them, then
- * the app reloads into the new one). Only when a web version needs a newer APK (NATIVE_API) does
- * anything show: a link to the new APK.
+ * the app reloads into the new one). A newer APK is offered here (state/apkUpdate.ts): Update on
+ * android-1.2 and later, a download link before that. Later hides it until the next version; it's
+ * still in Settings. A web version that needs a newer APK (NATIVE_API) offers it the same way.
  */
 function NativeUpdatePrompt() {
   const { timer, settings } = useData();
+  const apk = useApkUpdate();
   const [ready, setReady] = useState<string | null>(null);
   const [needsApk, setNeedsApk] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [dismissedApk, setDismissedApk] = useState(() => local.get('pt.apkDismissed') ?? '');
   const applied = useRef(false);
   const busy = !!timer || settings?.onboardedAt === null;
 
   useEffect(() => {
     let looking = false;
     const look = async () => {
+      void lookForApk();
       if (looking) return;
       looking = true;
       try {
@@ -298,13 +304,22 @@ function NativeUpdatePrompt() {
     };
   }, [ready, busy]);
 
-  if (!needsApk || dismissed || timer) return null;
+  const offer = apk.latest !== null && apk.latest.version !== dismissedApk;
+  if (timer || dismissed || !(needsApk || offer)) return null;
+  const later = () => {
+    setDismissed(true);
+    if (!apk.latest) return;
+    local.set('pt.apkDismissed', apk.latest.version);
+    setDismissedApk(apk.latest.version);
+  };
   return (
     <div className="fixed inset-x-0 top-[calc(env(safe-area-inset-top,0px)+8px)] z-40 flex justify-center px-4">
-      <div className="flex items-center gap-2 rounded-xl border border-line bg-s3 py-1.5 pr-1.5 pl-4 text-[14px] shadow-lg">
-        <span>New Android app available</span>
-        <a href={APK_PAGE} className="press inline-flex min-h-9 items-center rounded-lg bg-ink px-3 text-[15px] font-medium text-bg">Get it</a>
-        <IconButton label="Later" className="size-9" onClick={() => setDismissed(true)}>×</IconButton>
+      <div className="flex items-center gap-2 rounded-xl border border-line bg-s3 py-1.5 pr-1.5 pl-4 text-[14px] shadow-lg" aria-live="polite">
+        <span>{apkPhaseText(apk) || (apk.latest ? `Android app ${apk.latest.version} is available` : 'New Android app available')}</span>
+        {apk.latest
+          ? <ApkUpdateButton compact />
+          : <a href={APK_PAGE} className="press inline-flex min-h-9 items-center rounded-lg bg-ink px-3 text-[15px] font-medium text-bg">Get it</a>}
+        <IconButton label="Later" className="size-9" onClick={later}>×</IconButton>
       </div>
     </div>
   );

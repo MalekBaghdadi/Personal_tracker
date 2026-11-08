@@ -1,6 +1,7 @@
 package com.malekbaghdadi.logbook;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.os.Build;
@@ -13,6 +14,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
+import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,8 +33,12 @@ import org.json.JSONObject;
 )
 public class LockTimerPlugin extends Plugin {
 
-    /** Bump when the web app needs something new from this side (NATIVE_API in src/lib/native.ts). */
-    static final int NATIVE_API = 1;
+    /**
+     * What this APK offers the web app, reported by info(). Bump it with every new plugin method.
+     * The web app's NATIVE_API (src/lib/native.ts) is the least it needs; it checks for anything
+     * newer it can do without (2: installUpdate, IN_APP_UPDATE_API).
+     */
+    static final int NATIVE_API = 2;
 
     private static WeakReference<LockTimerPlugin> instance = new WeakReference<>(null);
     private final ExecutorService updates = Executors.newSingleThreadExecutor();
@@ -259,5 +265,43 @@ public class LockTimerPlugin extends Plugin {
         BundleUpdater.persist(ctx(), path);
         call.resolve();
         getBridge().setServerBasePath(path);
+    }
+
+    /**
+     * Downloads a newer APK (AppUpdater) and opens Android's installer, which asks the user to
+     * confirm. Sends "download" events with {percent}. Resolves {status: installer | current |
+     * error, message}: `installer` once Android's installer is open, `current` if the download
+     * isn't newer than this app.
+     */
+    @PluginMethod
+    public void installUpdate(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null) {
+            call.reject("url is required");
+            return;
+        }
+        updates.execute(() -> {
+            try {
+                File apk = AppUpdater.download(ctx(), url, (p) -> notifyListeners("download", new JSObject().put("percent", p)));
+                Activity activity = getActivity();
+                if (activity == null) {
+                    call.resolve(new JSObject().put("status", "error").put("message", "Open Logbook to update it."));
+                    return;
+                }
+                activity.runOnUiThread(() -> {
+                    try {
+                        AppUpdater.openInstaller(activity, apk);
+                        call.resolve(new JSObject().put("status", "installer"));
+                    } catch (Exception e) {
+                        call.resolve(new JSObject().put("status", "error").put("message", "Android’s installer didn’t open."));
+                    }
+                });
+            } catch (AppUpdater.NotNewer e) {
+                call.resolve(new JSObject().put("status", "current"));
+            } catch (Exception e) {
+                String message = e.getMessage();
+                call.resolve(new JSObject().put("status", "error").put("message", message == null ? "The download didn’t finish." : message));
+            }
+        });
     }
 }

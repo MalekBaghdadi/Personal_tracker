@@ -16,6 +16,7 @@ import { Button, Label, Segmented, Sheet, Switch, inputClass, useToast } from '.
 import { badgeSupported, useBadgeSetting } from '../state/badge';
 import { isIos, isStandalone } from '../lib/device';
 import { APK_PAGE, LockTimer, isNative, onNativeResume, quietly, type NotificationState } from '../lib/native';
+import { ApkVersion } from '../components/ApkUpdate';
 import type { Settings as SettingsT } from '../lib/types';
 
 function allTimezones(current: string): string[] {
@@ -336,13 +337,10 @@ const isAndroid = () => /Android/i.test(navigator.userAgent);
  */
 function AndroidSection() {
   const [state, setState] = useState<NotificationState | null>(null);
-  const [version, setVersion] = useState('');
   useEffect(() => {
     if (!isNative) return;
     const read = () => void quietly(LockTimer.info()).then((i) => {
-      if (!i) return;
-      setState(i.notifications);
-      setVersion(i.versionName);
+      if (i) setState(i.notifications);
     });
     read();
     return onNativeResume(read);
@@ -385,7 +383,7 @@ function AndroidSection() {
           )}
         </>
       )}
-      {version && <p className="mt-1.5 text-[13px] text-ink-3">Android app version {version}.</p>}
+      <ApkVersion />
     </section>
   );
 }

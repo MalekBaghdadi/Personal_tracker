@@ -11,10 +11,15 @@ export const isNative = Capacitor.isNativePlatform();
 
 /**
  * What this web app needs from the APK's native side; LockTimerPlugin.NATIVE_API must be at least
- * this. Bump both together when the web app starts calling something new: an older APK then keeps
- * its current web version and offers the new APK instead (scripts/bundle-manifest.mjs).
+ * this. Bump both together when the web app starts calling something new it can't do without: an
+ * older APK then keeps its current web version and offers the new APK instead
+ * (scripts/bundle-manifest.mjs). Something it can do without is checked instead, like
+ * IN_APP_UPDATE_API, so older APKs keep getting web updates.
  */
 export const NATIVE_API = 1;
+
+/** APKs whose info().api is at least this (android-1.2 on) can update themselves (installUpdate). */
+export const IN_APP_UPDATE_API = 2;
 
 /** The live site: the Android app downloads web updates from it (BundleUpdater.java). */
 export const LIVE_SITE = `https://${app.options.projectId}.web.app`;
@@ -71,7 +76,10 @@ interface LockTimerPlugin {
   removeStop(o: { id: string }): Promise<void>;
   prepareUpdate(o: { base: string; current: string }): Promise<UpdateStatus>;
   applyUpdate(o: { version: string }): Promise<void>;
+  /** IN_APP_UPDATE_API and later: downloads the APK at `url` and opens Android's installer. */
+  installUpdate(o: { url: string }): Promise<{ status: 'installer' | 'current' | 'error'; message?: string }>;
   addListener(event: 'resume' | 'stops', fn: () => void): Promise<PluginListenerHandle>;
+  addListener(event: 'download', fn: (p: { percent: number }) => void): Promise<PluginListenerHandle>;
 }
 
 // Emulator builds only: e2e/android.mjs stands in for the APK with a fake of this plugin
