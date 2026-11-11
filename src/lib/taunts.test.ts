@@ -41,6 +41,11 @@ describe('taunt', () => {
     for (const k of kinds.filter((k) => SPEAKER[k] === 'me')) for (const l of TAUNTS[k]) expect(l).not.toContain('{me}');
   });
 
+  it('a best of 3 has its own winner, loser and draw lines', () => {
+    expect([SPEAKER.wonSeries, SPEAKER.lostSeries, SPEAKER.drewSeries]).toEqual(['me', 'them', 'ref']);
+    for (const k of ['wonSeries', 'lostSeries', 'drewSeries'] as const) expect(TAUNTS[k].length).toBeGreaterThanOrEqual(3);
+  });
+
   it('brags about today only when the speaker is ahead today', () => {
     const fmt = (v: number) => `${v}m`;
     const seen = new Set<string>();

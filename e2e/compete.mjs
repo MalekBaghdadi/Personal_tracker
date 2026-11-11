@@ -543,6 +543,144 @@ try {
   await pressText('Call it off', '[data-testid="challenge-card"] div.rounded-lg.bg-s2');
   log('Called-off challenge gone:', await until(async () => !(await card('challenge-card')).includes('First to')));
 
+  // ── Best of 3 ──
+  // Made up front: three weeks, one card, one accept. Dates follow the app's 5am day.
+  await tab('Challenges');
+  const dm = (offset) => { const [y, m, d] = day(offset).split('-').map(Number); return `${d} ${new Date(y, m - 1, d).toLocaleString('en-US', { month: 'short' })}`; };
+  const cardWith = (needle) => page.evaluate((n) => [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes(n))?.innerText ?? '', needle);
+  const rowsOf = (needle) => page.evaluate((n) => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes(n));
+    return c ? [...c.querySelectorAll('[data-testid="series-week"]')].map((e) => e.innerText.replace(/\s+/g, ' ')) : [];
+  }, needle);
+  const inCard = (needle, sel) => page.evaluate((n, s) => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes(n));
+    c?.querySelector(s)?.click();
+    return !!c?.querySelector(s);
+  }, needle, sel);
+
+  await pressText('New challenge');
+  await pressText('Most', 'dialog[open]');
+  log('Best of 3 is off by default:', !(await page.$('[data-testid="series-preview"]')));
+  await pressText('Best of 3', 'dialog[open]');
+  log('Weeks 2 and 3 are previewed with their dates:', await until(async () => /Week 2: \w{3} \d+ \w{3} – \w{3} \d+ \w{3}\. Week 3: \w{3} \d+ \w{3} – \w{3} \d+ \w{3}\./.test(await card('series-preview'))));
+  log('The prize is for the series winner:', (await page.$eval('label[for="ch-stake"]', (e) => e.innerText)).startsWith('Series winner gets'));
+  await page.type('#ch-stake', 'a pizza');
+  await shot('cp-10-series-form');
+  await pressText('Send challenge', 'dialog[open]');
+  log('One card for all three weeks, waiting for Cousin:', await until(async () => {
+    const c = await cardWith('a pizza');
+    return c.includes('Best of 3 · Week 1 of 3') && c.includes('Waiting for Cousin to accept');
+  }));
+  log('It lists three weeks:', (await rowsOf('a pizza')).length === 3);
+  await hook('acceptMyChallenges');
+  log('One accept covers all three: week 1 in play, the others not started:', await until(async () => {
+    const rows = await rowsOf('a pizza');
+    return rows.length === 3 && rows[0].endsWith('In play') && rows[1].endsWith('Not started') && rows[2].endsWith('Not started');
+  }));
+  log('Score in weeks starts level, prize is the series’:', (await cardWith('a pizza')).includes('You 0 – 0 Cousin') && (await cardWith('a pizza')).includes('Series winner gets a pizza'));
+  log('No End it now on a week of a best of 3:', !(await page.$('[data-testid="challenge-card"]:has([data-testid="series-strip"]) [data-testid="challenge-end"]')));
+  await shot('cp-10b-series-card');
+
+  // Change end moves the later weeks with it, so they stay back to back.
+  await inCard('a pizza', '[data-testid="challenge-change-end"]');
+  await wait(300);
+  log('Change end says the later weeks move too:', (await text()).includes('The weeks after this one move with it'));
+  await setField(editDate, day(8));
+  await pressText('Save', '[data-testid="challenge-end-edit"]');
+  log('Weeks 2 and 3 moved by the same two days:', await until(async () => {
+    const r = await rowsOf('a pizza');
+    return r.length === 3 && r[0].includes(dm(8)) && r[1].includes(dm(9)) && r[1].includes(dm(15)) && r[2].includes(dm(16)) && r[2].includes(dm(22));
+  }));
+
+  // A running challenge (their "most target days") becomes week 1 of a best of 3.
+  log('A plain running challenge offers it:', await inCard('target days', '[data-testid="challenge-make-series"]'));
+  await wait(300);
+  log('Making a series asks first:', (await card('series-confirm')).includes('Make this week 1 of a best of 3?'));
+  await shot('cp-10c-make-series');
+  await pressText('Keep it as is', '[data-testid="series-confirm"]');
+  log('Keeping it leaves it plain:', !(await page.$('[data-testid="series-confirm"]')) && (await rowsOf('target days')).length === 0);
+  await inCard('target days', '[data-testid="challenge-make-series"]');
+  await wait(300);
+  await pressText('Make it a best of 3', '[data-testid="series-confirm"]');
+  log('It becomes week 1 of 3 and says who made it:', await until(async () => {
+    const c = await cardWith('target days');
+    return c.includes('Best of 3 · Week 1 of 3') && c.includes('You made this a best of 3.');
+  }));
+  log('Weeks 2 and 3 follow, already accepted:', await until(async () => {
+    const r = await rowsOf('target days');
+    return r.length === 3 && r[0].endsWith('In play') && r[1].endsWith('Not started') && r[1].includes(weekStart + 7 === 1 ? 'Tomorrow' : dm(weekStart + 7)) && r[2].endsWith('Not started');
+  }));
+  log('A series made from a running one can’t be made again:', !(await page.$('[data-testid="challenge-card"]:has([data-testid="series-strip"]) [data-testid="challenge-make-series"]')));
+
+  // Their best of 3 arrives as one request, not three.
+  const theirWeek = (n) => ({
+    id: `E${n}`, linkId, kind: 'most_total', amount: null, startDate: day(weekStart + 7 * (n - 1)), endDate: day(weekStart + 7 * (n - 1) + 6), startAt: null, endAt: null,
+    stake: 'a coffee', createdBy: '', createdAt: new Date(Date.now() + n).toISOString(), acceptedAt: null, declinedAt: null, cancelledAt: null, series: { id: 'S-theirs', round: n, of: 3 },
+  });
+  for (const n of [1, 2, 3]) await hook('proposeChallenge', theirWeek(n));
+  log('Their best of 3 is one request:', await until(async () => (await text()).includes('Cousin challenges you')));
+  log('Only one card, the prize is the series’:', await page.evaluate(() => {
+    const cs = [...document.querySelectorAll('[data-testid="challenge-card"]')].filter((e) => e.innerText.includes('Cousin challenges you'));
+    return cs.length === 1 && cs[0].innerText.includes('Best of 3 · Week 1 of 3') && cs[0].innerText.includes('Series winner gets a coffee');
+  }));
+  await shot('cp-10d-series-request');
+  await page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="challenge-card"]')].find((e) => e.innerText.includes('Cousin challenges you'));
+    [...c.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Accept').click();
+  });
+  log('Accepting accepts all three weeks:', await until(async () => {
+    const r = await rowsOf('a coffee');
+    return r.length === 3 && r[0].endsWith('In play') && r[1].endsWith('Not started') && !(await text()).includes('Cousin challenges you');
+  }));
+
+  // Calling off the converted one cancels it whole.
+  await inCard('target days', '[data-testid="challenge-call-off"]');
+  await wait(300);
+  log('Call off asks about the whole series:', (await text()).includes('Call off the whole best of 3?'));
+  await pressText('Call off the series', '[data-testid="challenge-call-off-confirm"]');
+  log('Called-off series is gone:', await until(async () => !(await card('challenge-card')).includes('target days')));
+
+  // A settled series: three finished weeks in the past. I take weeks 2 and 3 (1h on last Friday), they take week 1.
+  await page.goto('http://localhost:5173/#/today');
+  await wait(600);
+  await click('::-p-aria(Add a custom amount to Studying)');
+  await page.type('#entry-h', '1');
+  await page.$eval('#entry-date', (el, val) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, val);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, day(weekStart - 3));
+  await click('dialog[open] button[type=submit]');
+  await wait(400);
+  await page.goto('http://localhost:5173/#/compete');
+  await wait(800);
+  const wonRow = async () => (/(\d+)\s*Challenges won\s*(\d+)/.exec(await card('scoreboard')) ?? []).slice(1).map(Number);
+  const [wonMe, wonThem] = await wonRow();
+  const past = (n, from, to) => ({
+    id: `S${n}`, linkId, kind: 'most_total', amount: null, startDate: from, endDate: to, startAt: null, endAt: null, stake: 'a trip',
+    createdBy: '', createdAt: new Date(Date.now() - 4000 + n * 1000).toISOString(), acceptedAt: new Date().toISOString(), declinedAt: null, cancelledAt: null, series: { id: 'S-done', round: n, of: 3 },
+  });
+  await hook('proposeChallenge', past(1, LAST_MON, LAST_TUE));
+  await hook('proposeChallenge', past(2, LAST_WED, day(weekStart - 4)));
+  await hook('proposeChallenge', past(3, day(weekStart - 3), LAST_SUN));
+  const banners = [];
+  for (let i = 0; i < 8; i++) {
+    if (!(await until(async () => !!(await page.$('[data-testid="result-banner"]')), i === 0 ? 8000 : 1500))) break;
+    banners.push(await card('result-banner'));
+    await page.evaluate(() => document.querySelector('[data-testid="result-banner"] button').click());
+    await wait(600);
+  }
+  log('Each week gets its own banner, with no prize:', ['took week 1 of 3', 'You won week 2 of 3', 'You won week 3 of 3'].every((t) => banners.some((b) => b.includes(t))) && !banners.some((b) => /week \d of 3/.test(b) && b.includes('a trip')));
+  log('The series gets one banner with the prize and the score in weeks:', banners.filter((b) => b.includes('You won the best of 3')).length === 1 && banners.some((b) => b.includes('You get a trip') && b.includes('2–1 in weeks')));
+  await tab('History');
+  log('History lists the series once, with its score:', await until(async () => {
+    const f = await card('finished-challenges');
+    return f.includes('Best of 3 · Most Studying') && f.includes('2–1 in weeks') && f.includes('Winner got a trip');
+  }));
+  const [wonMe2, wonThem2] = await wonRow();
+  log('The scoreboard counts the series as one challenge, not three:', wonMe2 === wonMe + 1 && wonThem2 === wonThem);
+  await shot('cp-10e-series-history');
+  await tab('Challenges');
+
   // ── Changing my name ──
   await tab('History');
   log('Shows the name they see:', (await page.$eval('[data-testid="my-name"]', (e) => e.textContent)) === 'Me');

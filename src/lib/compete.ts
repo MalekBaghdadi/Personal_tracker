@@ -1,4 +1,4 @@
-import { addDays } from './dates';
+import { addDays, dateRange } from './dates';
 import { isHitOn, isScheduled, restDays, weekOf } from './streaks';
 import { targetOn } from './targets';
 import type { DayStats, Entry, Metric, MetricType } from './types';
@@ -81,6 +81,19 @@ export interface LinkMember {
 
 export type ChallengeKind = 'first_to' | 'most_total' | 'most_days';
 
+/**
+ * Part of a best of 3: each week is an ordinary challenge (same race, rules and prize), dated back to
+ * back, all accepted together. The series' result is derived from its weeks (`seriesOf`), never stored.
+ */
+export interface SeriesTag {
+  id: string;
+  /** 1-based. */
+  round: number;
+  of: number;
+  /** Set (on every week) when a running challenge was turned into week 1 rather than made as a series: who did it. */
+  madeBy?: string;
+}
+
 export interface Challenge {
   id: string;
   linkId: string;
@@ -110,6 +123,8 @@ export interface Challenge {
   /** "Change end": either side moved the end of a running challenge; the previous end (an instant, or a date for whole days). */
   endChangedBy?: string | null;
   endChangedFrom?: string | null;
+  /** One week of a best of 3. Absent: an ordinary challenge. */
+  series?: SeriesTag;
   createdBy: string;
   createdAt: string;
   acceptedAt: string | null;
@@ -728,6 +743,145 @@ function timedResult(
   if (!ended) return { ...base, status: 'active' };
   if (!theyPast(w.endAt)) return { ...base, status: 'awaiting' };
   return { ...base, status: 'finished', winner: higher(base.me, base.them) };
+}
+
+// ── Best of 3 ──────────────────────────────────────────────────────────────
+
+/**
+ * The weeks after `first` (whose `series` tag is set), back to back and as long as it: a whole-day week
+ * starts the day after the last one ends, a timed one at the instant it ends. They copy its rules,
+ * prize and acceptance (null while it's still a proposal), so they need no accepting of their own.
+ */
+export function laterRounds(first: Challenge, ids: string[], by: string, now: string, dayOf: (instant: string) => string): Challenge[] {
+  const tag = first.series!;
+  const timed = isTimed(first);
+  const length = timed ? Date.parse(first.endAt) - Date.parse(first.startAt) : dateRange(first.startDate, first.endDate).length;
+  let endMs = timed ? Date.parse(first.endAt) : 0;
+  let endDate = first.endDate;
+  return ids.map((id, i) => {
+    let dates: Pick<Challenge, 'startDate' | 'endDate' | 'startAt' | 'endAt'>;
+    if (timed) {
+      const startAt = new Date(endMs).toISOString();
+      endMs += length; // shortcut: ms arithmetic, so a clock change inside the series shifts a week by an hour; fine for weeks, use wall-clock days if it ever matters
+      const endAt = new Date(endMs).toISOString();
+      dates = { startAt, endAt, startDate: dayOf(startAt), endDate: dayOf(endAt) };
+    } else {
+      const startDate = addDays(endDate, 1);
+      endDate = addDays(startDate, length - 1);
+      dates = { startAt: null, endAt: null, startDate, endDate };
+    }
+    return {
+      id, linkId: first.linkId, kind: first.kind, amount: first.amount, ...dates, stake: first.stake ?? null,
+      createdBy: by, createdAt: now, acceptedAt: first.acceptedAt, declinedAt: null, cancelledAt: null,
+      series: { ...tag, round: i + 2 },
+    };
+  });
+}
+
+export type SeriesStatus = 'pending' | 'declined' | 'cancelled' | 'live' | 'finished';
+
+export interface SeriesState {
+  id: string;
+  of: number;
+  /** Its weeks in order, each with where it stands. */
+  rounds: { ch: Challenge; r: ChallengeResult }[];
+  /** Weeks won by each side, and weeks drawn. */
+  wins: { me: number; them: number; draws: number };
+  /** The week in play: the one running, else the first not yet settled, else the last. */
+  current: Challenge;
+  status: SeriesStatus;
+  /** Set once every week is settled: the most weeks won, level is a draw. All weeks always play. */
+  winner: Outcome | null;
+}
+
+/** A best of 3 from its weeks. Null: nothing to show (no weeks, or a week whose race is gone). */
+export function seriesOf(weeks: Challenge[], result: (c: Challenge) => ChallengeResult | null): SeriesState | null {
+  const rounds: SeriesState['rounds'] = [];
+  for (const ch of [...weeks].sort((a, b) => (a.series?.round ?? 0) - (b.series?.round ?? 0))) {
+    const r = result(ch);
+    if (!r) return null;
+    rounds.push({ ch, r });
+  }
+  if (rounds.length === 0) return null;
+  const wins = { me: 0, them: 0, draws: 0 };
+  for (const { r } of rounds) {
+    if (r.status !== 'finished') continue;
+    if (r.winner === 'me') wins.me++;
+    else if (r.winner === 'them') wins.them++;
+    else wins.draws++;
+  }
+  const of = rounds[0].ch.series?.of ?? rounds.length;
+  const open = rounds.find((x) => x.r.status !== 'finished');
+  // A week still waiting for their numbers can be behind the one that is already running.
+  const current = rounds.find((x) => x.r.status === 'active') ?? open ?? rounds[rounds.length - 1];
+  const done = !open && rounds.length >= of;
+  const has = (s: ChallengeStatus) => rounds.some((x) => x.r.status === s);
+  const status: SeriesStatus = has('cancelled') ? 'cancelled' : has('declined') ? 'declined' : done ? 'finished' : current.r.status === 'pending' ? 'pending' : 'live';
+  return {
+    id: rounds[0].ch.series?.id ?? '', of, rounds, wins, current: current.ch, status,
+    winner: done ? (wins.me > wins.them ? 'me' : wins.me < wins.them ? 'them' : 'draw') : null,
+  };
+}
+
+/** The challenges to draw as cards: ordinary ones as they are, and a best of 3 as the week in play. */
+export function cardChallenges(challenges: Challenge[], result: (c: Challenge) => ChallengeResult | null): Challenge[] {
+  const out: Challenge[] = [];
+  const seen = new Set<string>();
+  for (const c of challenges) {
+    if (!c.series) out.push(c);
+    else if (!seen.has(c.series.id)) {
+      seen.add(c.series.id);
+      const s = seriesOf(challenges.filter((x) => x.series?.id === c.series!.id), result);
+      if (s) out.push(s.current);
+    }
+  }
+  return out;
+}
+
+/**
+ * Settled challenges, oldest first: each finished ordinary challenge, and a best of 3 once (its first
+ * week stands for it) when all its weeks are settled. Whatever counts or lists challenges (History,
+ * the scoreboard, achievements) goes through this, or a series would count as three.
+ */
+export function settledChallenges(
+  challenges: Challenge[],
+  result: (c: Challenge) => ChallengeResult | null,
+): { c: Challenge; series: SeriesState | null; winner: Outcome | null }[] {
+  const out: { c: Challenge; series: SeriesState | null; winner: Outcome | null }[] = [];
+  const seen = new Set<string>();
+  for (const c of challenges) {
+    if (!c.series) {
+      const r = result(c);
+      if (r?.status === 'finished') out.push({ c, series: null, winner: r.winner });
+    } else if (!seen.has(c.series.id)) {
+      seen.add(c.series.id);
+      const s = seriesOf(challenges.filter((x) => x.series?.id === c.series!.id), result);
+      if (s?.status === 'finished') out.push({ c: s.rounds[0].ch, series: s, winner: s.winner });
+    }
+  }
+  return out;
+}
+
+/**
+ * Moving the end of week `ch` moves every later week with it, by the same time (timed) or days (whole-day),
+ * so they stay back to back. The patches to write to them.
+ */
+export function shiftedRounds(
+  ch: Challenge,
+  end: { endAt: string | null; endDate: string },
+  later: Challenge[],
+  dayOf: (instant: string) => string,
+): { id: string; patch: Partial<Pick<Challenge, 'startDate' | 'endDate' | 'startAt' | 'endAt'>> }[] {
+  const ms = end.endAt && ch.endAt ? Date.parse(end.endAt) - Date.parse(ch.endAt) : 0;
+  const days = Math.round((Date.parse(end.endDate) - Date.parse(ch.endDate)) / 86_400_000);
+  return later.map((c) => {
+    if (c.startAt && c.endAt) {
+      const startAt = new Date(Date.parse(c.startAt) + ms).toISOString();
+      const endAt = new Date(Date.parse(c.endAt) + ms).toISOString();
+      return { id: c.id, patch: { startAt, endAt, startDate: dayOf(startAt), endDate: dayOf(endAt) } };
+    }
+    return { id: c.id, patch: { startDate: addDays(c.startDate, days), endDate: addDays(c.endDate, days) } };
+  });
 }
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

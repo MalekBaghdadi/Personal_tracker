@@ -30,6 +30,11 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - Challenge times are shown in plain 12-hour words (`clock12`/`whenText` in `lib/dates.ts`: noon and midnight are named, midnight names both days);
   never print a bare "12:00" for a challenge. "Change end" (`changeChallengeEnd`) lets either side move a running challenge's end; it must write
   `endAt` and `endDate` together and records `endChangedBy`/`endChangedFrom` so the other side sees it.
+- Best of 3 (`Challenge.series`, `lib/compete.ts`): three ordinary challenge docs dated back to back (`laterRounds`), proposed, accepted and
+  called off together (`answerChallenge`/`cancelChallenge` take every week's id). The result is derived (`seriesOf`: all weeks always play, the most
+  weeks won takes it, level is a draw), never stored; the prize is the series'. Lists show a series as one entry (`cardChallenges`, `useSettled`), the
+  scoreboard counts it once. Change end moves later weeks along (`shiftedRounds`); "End it now" is hidden on a week; a running challenge becomes
+  week 1 with `makeBestOfThree`. Anything that lists challenges must group by `series.id`, or it shows three of them.
 - Plans (task-based deadline goals, `lib/plans.ts`): a tick is `doneAt` on its own task doc, never an entry; progress,
   the current task (first undone) and pace are derived; dates only shape the pace line, nothing is ever overdue.
   The parser (`lib/planMarkdown.ts`) is tested against `e2e/fixtures/uptime-plan.md`.

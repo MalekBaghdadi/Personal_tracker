@@ -2,7 +2,7 @@ import { collection, deleteDoc, doc, getDocFromServer, setDoc, updateDoc, writeB
 import { db } from './firebase';
 import { uuid } from './device';
 import { nowIso } from './dates';
-import { newInviteCode, type Challenge, type ChallengeKind, type Invite, type Link, type LinkMember, type Pair, type Score } from './compete';
+import { laterRounds, newInviteCode, type Challenge, type ChallengeKind, type Invite, type Link, type LinkMember, type Pair, type Score } from './compete';
 import type { SharedProfile } from './profile';
 import type { MetricType } from './types';
 
@@ -170,12 +170,16 @@ export interface NewChallenge {
   startAt: string | null;
   endAt: string | null;
   stake: string | null;
+  /** A best of this many weeks (3): the dates above are week 1 and the others follow right after. */
+  bestOf?: number;
 }
 
-export function proposeChallenge(pairId: string, uid: string, input: NewChallenge): void {
+/** All of a best of 3's weeks are written in one batch, so they exist together or not at all. */
+export function proposeChallenge(pairId: string, uid: string, input: NewChallenge, dayOf: (instant: string) => string): void {
+  const { bestOf, ...rest } = input;
   const ch: Challenge = {
     id: uuid(),
-    ...input,
+    ...rest,
     amount: input.kind === 'first_to' ? input.amount : null,
     createdBy: uid,
     createdAt: nowIso(),
@@ -183,15 +187,39 @@ export function proposeChallenge(pairId: string, uid: string, input: NewChalleng
     declinedAt: null,
     cancelledAt: null,
   };
-  fire(setDoc(competePaths.challenge(pairId, ch.id), ch));
+  if (!bestOf) return fire(setDoc(competePaths.challenge(pairId, ch.id), ch));
+  const first: Challenge = { ...ch, series: { id: uuid(), round: 1, of: bestOf } };
+  const weeks = [first, ...laterRounds(first, Array.from({ length: bestOf - 1 }, uuid), uid, ch.createdAt, dayOf)];
+  const batch = writeBatch(db);
+  for (const w of weeks) batch.set(competePaths.challenge(pairId, w.id), w);
+  fire(batch.commit());
 }
 
-export function answerChallenge(pairId: string, id: string, accept: boolean): void {
-  fire(updateDoc(competePaths.challenge(pairId, id), accept ? { acceptedAt: nowIso() } : { declinedAt: nowIso() }));
+/** Accept or decline a challenge; `ids` is every week of a best of 3. */
+export function answerChallenge(pairId: string, ids: string[], accept: boolean): void {
+  const batch = writeBatch(db);
+  for (const id of ids) batch.update(competePaths.challenge(pairId, id), accept ? { acceptedAt: nowIso() } : { declinedAt: nowIso() });
+  fire(batch.commit());
 }
 
-export function cancelChallenge(pairId: string, id: string): void {
-  fire(updateDoc(competePaths.challenge(pairId, id), { cancelledAt: nowIso() }));
+/** Withdraw or call off; `ids` is every week of a best of 3 not yet settled. */
+export function cancelChallenge(pairId: string, ids: string[]): void {
+  const batch = writeBatch(db);
+  for (const id of ids) batch.update(competePaths.challenge(pairId, id), { cancelledAt: nowIso() });
+  fire(batch.commit());
+}
+
+/**
+ * Turn a running, accepted challenge into week 1 of a best of 3: it's tagged, and weeks 2 and 3 are made
+ * right after it, already accepted (the exception to proposing a series up front).
+ */
+export function makeBestOfThree(pairId: string, uid: string, ch: Challenge, dayOf: (instant: string) => string): void {
+  const series = { id: uuid(), round: 1, of: 3, madeBy: uid };
+  const now = nowIso();
+  const batch = writeBatch(db);
+  batch.update(competePaths.challenge(pairId, ch.id), { series });
+  for (const w of laterRounds({ ...ch, series }, [uuid(), uuid()], uid, now, dayOf)) batch.set(competePaths.challenge(pairId, w.id), w);
+  fire(batch.commit());
 }
 
 /** "End it now": stop a running challenge at this moment; whoever's ahead then wins. `today` is my tracking day. */
@@ -199,14 +227,23 @@ export function endChallengeNow(pairId: string, id: string, uid: string, today: 
   fire(updateDoc(competePaths.challenge(pairId, id), { endedEarlyAt: nowIso(), endedEarlyOn: today, endedEarlyBy: uid }));
 }
 
-/** "Change end": move a challenge's end. `endAt` is null for whole-day challenges; `was` is the end it had. */
-export function changeChallengeEnd(pairId: string, id: string, uid: string, end: { endAt: string | null; endDate: string }, was: string): void {
-  fire(updateDoc(competePaths.challenge(pairId, id), {
+/**
+ * "Change end": move a challenge's end. `endAt` is null for whole-day challenges; `was` is the end it had.
+ * `later` moves the weeks after it in a best of 3 (`shiftedRounds`), in the same batch.
+ */
+export function changeChallengeEnd(
+  pairId: string, id: string, uid: string, end: { endAt: string | null; endDate: string }, was: string,
+  later: { id: string; patch: object }[] = [],
+): void {
+  const batch = writeBatch(db);
+  batch.update(competePaths.challenge(pairId, id), {
     endDate: end.endDate,
     ...(end.endAt ? { endAt: end.endAt } : {}),
     endChangedBy: uid,
     endChangedFrom: was,
-  }));
+  });
+  for (const l of later) batch.update(competePaths.challenge(pairId, l.id), l.patch);
+  fire(batch.commit());
 }
 
 // ── Publishing ─────────────────────────────────────────────────────────────

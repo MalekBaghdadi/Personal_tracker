@@ -12,11 +12,11 @@ import { weekOf } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import {
-  asRun, canJoin, canLink, challengeResult, challengeSpan, challengeWindow, isTimed, logInWindow, nameFromEmail, normalizeCode, race, sideAt, sideForChallenge, sideMetricIds,
-  type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SharedLog, type SharedMetric, type Side,
+  asRun, canJoin, canLink, cardChallenges, challengeResult, challengeSpan, challengeWindow, isTimed, laterRounds, logInWindow, nameFromEmail, normalizeCode, race, seriesOf, settledChallenges, shiftedRounds, sideAt, sideForChallenge, sideMetricIds,
+  type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SeriesState, type SharedLog, type SharedMetric, type Side,
 } from '../lib/compete';
 import {
-  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, changeChallengeEnd, changeWorth, createInvite, endChallengeNow, endLink, endPair, joinWithCode, proposeChallenge, proposeLink,
+  acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, changeChallengeEnd, changeWorth, createInvite, endChallengeNow, endLink, endPair, joinWithCode, makeBestOfThree, proposeChallenge, proposeLink,
   removeFromSide, renameInPair, restoreSide,
   type JoinError,
 } from '../lib/competeRepo';
@@ -173,8 +173,9 @@ function Paired() {
   };
   const accepted = links.filter((l) => l.acceptedAt && metricById.has(l.metrics[uid]));
   const theirProposals = links.filter((l) => !l.acceptedAt && l.proposedBy !== uid);
-  const challengeRequests = challenges.filter((c) => !c.acceptedAt && !c.declinedAt && !c.cancelledAt && c.createdBy !== uid);
-  const liveCount = challenges.filter((c) => {
+  const cards = cardChallenges(challenges, result);
+  const challengeRequests = cards.filter((c) => !c.acceptedAt && !c.declinedAt && !c.cancelledAt && c.createdBy !== uid);
+  const liveCount = cards.filter((c) => {
     const r = result(c);
     return !!r && LIVE.includes(r.status) && !(r.status === 'pending' && c.createdBy !== uid);
   }).length;
@@ -235,8 +236,8 @@ function Paired() {
 /** Head to head: weeks and challenges each side has won, across every race. */
 function Scoreboard() {
   const { uid, today, metricById } = useData();
-  const { pair, links, challenges, sides, theirScore, partnerUid, partnerName, myName } = useCompete();
-  const result = useChallengeResult();
+  const { pair, links, sides, theirScore, partnerUid, partnerName, myName } = useCompete();
+  const settled = useSettled();
   const { summary, partnerProfile } = useAchievements();
   const ink = useTierInk();
   const [profileOpen, setProfileOpen] = useState(false);
@@ -255,11 +256,9 @@ function Scoreboard() {
     weeks.draws += r.draws;
   }
   const won = { me: 0, them: 0, draws: 0 };
-  for (const c of challenges) {
-    const r = result(c);
-    if (r?.status !== 'finished') continue;
-    if (r.winner === 'me') won.me++;
-    else if (r.winner === 'them') won.them++;
+  for (const { winner } of settled) {
+    if (winner === 'me') won.me++;
+    else if (winner === 'them') won.them++;
     else won.draws++;
   }
   const rows = [
@@ -373,8 +372,8 @@ function RacesTab({ onLink, onTeam }: { onLink: () => void; onTeam: (linkId: str
 /** Past weeks per race, finished challenges, and the pair itself (name, unlink). */
 function HistoryTab() {
   const { uid, today, metricById } = useData();
-  const { pair, partnerName, links, challenges, sides, theirScore } = useCompete();
-  const result = useChallengeResult();
+  const { pair, partnerName, links, sides, theirScore } = useCompete();
+  const done = useSettled();
   const [allWeeks, setAllWeeks] = useState(false);
   const [allChallenges, setAllChallenges] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
@@ -398,10 +397,6 @@ function HistoryTab() {
     }
   }
   weeks.sort((a, b) => b.start.localeCompare(a.start));
-  const done = challenges.flatMap((c) => {
-    const r = result(c);
-    return r?.status === 'finished' ? [{ c, r }] : [];
-  }).reverse();
   const verdict = (o: Outcome | null) => (o === 'me' ? 'You won' : o === 'them' ? `${partnerName} won` : o === 'draw' ? 'Draw' : 'Waiting');
 
   return (
@@ -434,18 +429,16 @@ function HistoryTab() {
           <p className="text-[14px] text-ink-2">Nothing settled yet.</p>
         ) : (
           <ul className="divide-y divide-line border-y border-line" data-testid="finished-challenges">
-            {(allChallenges ? done : done.slice(0, 5)).map(({ c }) => {
-              const r = result(c)!;
-              return (
-                <li key={c.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[14px]">
-                  <span className="min-w-0">
-                    <span className="block truncate">{challengeTitleFor(c, links, uid, sides, metricById)}</span>
-                    {c.stake && <span className="block truncate text-[12px] text-ink-3">Winner got {c.stake}</span>}
-                  </span>
-                  <OutcomeTag outcome={r.winner} label={verdict(r.winner)} />
-                </li>
-              );
-            })}
+            {(allChallenges ? done : done.slice(0, 5)).map(({ c, series, winner }) => (
+              <li key={c.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[14px]">
+                <span className="min-w-0">
+                  <span className="block truncate">{series ? 'Best of 3 · ' : ''}{challengeTitleFor(c, links, uid, sides, metricById)}</span>
+                  {series && <span className="block truncate text-[12px] text-ink-3" data-testid="series-score">{weeksScore(series)}</span>}
+                  {c.stake && <span className="block truncate text-[12px] text-ink-3">Winner got {c.stake}</span>}
+                </span>
+                <OutcomeTag outcome={winner} label={verdict(winner)} />
+              </li>
+            ))}
           </ul>
         )}
         {done.length > 5 && !allChallenges && (
@@ -1097,17 +1090,49 @@ function Results() {
     const theirs = partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
     const fmt = (v: number) => (c.kind === 'most_days' ? `${v} ${v === 1 ? 'day' : 'days'}` : m ? formatValue(m, v) : String(v));
     const title = challengeTitle(c, m);
+    // A week of a best of 3 has no prize of its own: that comes with the series.
+    const week = c.series ? `week ${c.series.round} of ${c.series.of}` : null;
     results.push({
       id: `ch:${c.id}`,
       outcome: r.winner,
-      title: r.winner === 'me' ? `You won “${title}”` : r.winner === 'them' ? `${partnerName} won “${title}”` : `“${title}” ended in a draw`,
+      title: week
+        ? r.winner === 'me' ? `You won ${week}: “${title}”` : r.winner === 'them' ? `${partnerName} took ${week}: “${title}”` : `${week[0].toUpperCase()}${week.slice(1)} was a draw: “${title}”`
+        : r.winner === 'me' ? `You won “${title}”` : r.winner === 'them' ? `${partnerName} won “${title}”` : `“${title}” ended in a draw`,
       score: `${fmt(r.me)} to ${fmt(r.them)}`,
-      kind: r.winner === 'me' ? 'wonChallenge' : r.winner === 'them' ? 'lostChallenge' : 'drewChallenge',
+      kind: week
+        ? r.winner === 'me' ? 'wonWeek' : r.winner === 'them' ? 'lostWeek' : 'drewWeek'
+        : r.winner === 'me' ? 'wonChallenge' : r.winner === 'them' ? 'lostChallenge' : 'drewChallenge',
       facts: { me: myName, them: partnerName, metric: m?.name, gap: r.me !== r.them ? fmt(Math.abs(r.me - r.them)) : undefined },
       myColor: metricById.get(link.metrics[uid])?.color ?? '#8590a3',
       theirColor: theirs?.color ?? '#8590a3',
-      stake: c.stake
+      stake: c.stake && !week
         ? r.winner === 'me' ? `You get ${c.stake}` : r.winner === 'them' ? `${partnerName} gets ${c.stake}` : `Nobody gets ${c.stake}`
+        : undefined,
+    });
+  }
+  // A settled best of 3: the series itself, after its last week's banner.
+  const seenSeries = new Set<string>();
+  for (const c of challenges) {
+    const sid = c.series?.id;
+    if (!sid || seenSeries.has(sid)) continue;
+    seenSeries.add(sid);
+    const s = seriesOf(challenges.filter((x) => x.series?.id === sid), result);
+    const link = links.find((l) => l.id === c.linkId);
+    if (!s || !link || s.status !== 'finished' || !s.winner || challengeSpan(s.rounds[s.rounds.length - 1].ch, dayOf).end < recent) continue;
+    const m = sideForChallenge(sides(link).mine, c);
+    const theirs = partnerUid ? theirScore?.metrics[link.metrics[partnerUid]] : undefined;
+    const title = challengeTitle(c, m);
+    results.push({
+      id: `series:${sid}`,
+      outcome: s.winner,
+      title: s.winner === 'me' ? `You won the best of 3: “${title}”` : s.winner === 'them' ? `${partnerName} won the best of 3: “${title}”` : `The best of 3 “${title}” ended level`,
+      score: weeksScore(s),
+      kind: s.winner === 'me' ? 'wonSeries' : s.winner === 'them' ? 'lostSeries' : 'drewSeries',
+      facts: { me: myName, them: partnerName, metric: m?.name },
+      myColor: metricById.get(link.metrics[uid])?.color ?? '#8590a3',
+      theirColor: theirs?.color ?? '#8590a3',
+      stake: c.stake
+        ? s.winner === 'me' ? `You get ${c.stake}` : s.winner === 'them' ? `${partnerName} gets ${c.stake}` : `Nobody gets ${c.stake}`
         : undefined,
     });
   }
@@ -1169,14 +1194,15 @@ const LIVE: ChallengeResult['status'][] = ['active', 'upcoming', 'awaiting', 'pe
 
 function Challenges({ onNew, canCreate, onTeam }: { onNew: () => void; canCreate: boolean; onTeam: (linkId: string) => void }) {
   const { uid } = useData();
-  const { challenges, links, partnerName } = useCompete();
+  const { challenges, partnerName } = useCompete();
   const result = useChallengeResult();
   // Their open requests are shown at the top of the page instead; finished ones are under History.
-  const live = challenges.filter((c) => {
+  // A best of 3 is one card: the week in play.
+  const live = cardChallenges(challenges, result).filter((c) => {
     const r = result(c);
     return !!r && LIVE.includes(r.status) && !(r.status === 'pending' && c.createdBy !== uid);
   });
-  const done = challenges.filter((c) => links.some((l) => l.id === c.linkId) && result(c)?.status === 'finished').length;
+  const done = useSettled().length;
 
   return (
     <section aria-label="Challenges" data-tour="compete-challenges">
@@ -1204,6 +1230,17 @@ function useChallengeResult(): (c: Challenge) => ChallengeResult | null {
     const s = sides(link);
     return challengeResult(c, s.mine, s.theirs, today, theirScore?.asOf ?? null, now, theirScore?.updatedAt ?? null);
   };
+}
+
+/** Settled challenges, newest first. A best of 3 is one entry, settled when all its weeks are (its first week stands for it). */
+function useSettled(): { c: Challenge; series: SeriesState | null; winner: Outcome | null }[] {
+  const { challenges } = useCompete();
+  return settledChallenges(challenges, useChallengeResult()).reverse();
+}
+
+/** The weeks of a best of 3 each side has won: "2–1 in weeks · 1 drawn". */
+function weeksScore(s: SeriesState): string {
+  return `${s.wins.me}–${s.wins.them} in weeks${s.wins.draws > 0 ? ` · ${s.wins.draws} drawn` : ''}`;
 }
 
 /** "First to 20h of Network+ & Study", from my side as it counts toward the challenge. */
@@ -1245,9 +1282,11 @@ function endNote(date: string, time: string | null, dayStart: number): string {
 /** Inline panel on a running or upcoming challenge: move its end, with the new end spelled out as you pick. */
 function ChangeEnd({ ch, onDone }: { ch: Challenge; onDone: () => void }) {
   const { uid, today, tz, dayOf, dayStart } = useData();
-  const { pair, now, partnerName } = useCompete();
+  const { pair, now, partnerName, challenges } = useCompete();
   const toast = useToast();
   const timedCh = isTimed(ch) ? ch : null;
+  // In a best of 3 the weeks after this one move with its end, so they stay back to back.
+  const later = ch.series ? challenges.filter((x) => x.series?.id === ch.series!.id && x.series.round > ch.series!.round) : [];
   const [date, setDate] = useState(timedCh ? localDateOf(timedCh.endAt, tz) : ch.endDate);
   const [time, setTime] = useState(timedCh ? formatTimeIn(timedCh.endAt, tz) : '');
   const [error, setError] = useState('');
@@ -1260,12 +1299,14 @@ function ChangeEnd({ ch, onDone }: { ch: Challenge; onDone: () => void }) {
       if (endAt === timedCh.endAt) return onDone();
       if (Date.parse(endAt) <= Date.parse(timedCh.startAt)) return setError('The end has to be after the start.');
       if (Date.parse(endAt) <= Date.parse(now)) return setError('The end has to be in the future. To stop it now, use “End it now”.');
-      changeChallengeEnd(pair.id, ch.id, uid, { endAt, endDate: dayOf(endAt) }, timedCh.endAt);
+      const end = { endAt, endDate: dayOf(endAt) };
+      changeChallengeEnd(pair.id, ch.id, uid, end, timedCh.endAt, shiftedRounds(ch, end, later, dayOf));
     } else {
       if (date === ch.endDate) return onDone();
       if (date < ch.startDate) return setError('The end can’t be before the start.');
       if (date < today) return setError('The end has to be today or later. To stop it now, use “End it now”.');
-      changeChallengeEnd(pair.id, ch.id, uid, { endAt: null, endDate: date }, ch.endDate);
+      const end = { endAt: null, endDate: date };
+      changeChallengeEnd(pair.id, ch.id, uid, end, ch.endDate, shiftedRounds(ch, end, later, dayOf));
     }
     toast('End time changed');
     onDone();
@@ -1288,7 +1329,7 @@ function ChangeEnd({ ch, onDone }: { ch: Challenge; onDone: () => void }) {
       </div>
       <FieldError>{error}</FieldError>
       <p className="mt-2 text-[13px] text-ink-3" data-testid="end-note">{endNote(date, timedCh ? time : null, dayStart)}</p>
-      <p className="mt-1 text-[13px] text-ink-3">{partnerName} sees the new end on their side.</p>
+      <p className="mt-1 text-[13px] text-ink-3">{partnerName} sees the new end on their side.{later.length > 0 && ' The weeks after this one move with it, so they stay back to back.'}</p>
       <div className="mt-2 grid grid-cols-2 gap-2">
         <Button variant="primary" onClick={save}>Save</Button>
         <Button onClick={onDone}>Cancel</Button>
@@ -1297,13 +1338,43 @@ function ChangeEnd({ ch, onDone }: { ch: Challenge; onDone: () => void }) {
   );
 }
 
+/** The top of a best of 3's card: which week this is, the score in weeks, and every week with where it stands. */
+function SeriesStrip({ series, ch }: { series: SeriesState; ch: Challenge }) {
+  const { today } = useData();
+  const { partnerName } = useCompete();
+  const { me, them } = series.wins;
+  const state = (r: ChallengeResult): string =>
+    r.status === 'finished' ? (r.winner === 'me' ? 'You won' : r.winner === 'them' ? `${partnerName} won` : 'Draw')
+    : r.status === 'active' ? 'In play'
+    : r.status === 'awaiting' ? `Waiting for ${partnerName}’s numbers`
+    : r.status === 'upcoming' ? 'Not started'
+    : '';
+  return (
+    <div className="mb-3 rounded-lg bg-s2 px-3 py-2 text-[13px]" data-testid="series-strip">
+      <p className="font-medium text-ink" data-testid="series-title">
+        Best of 3 · Week {ch.series!.round} of {series.of}
+        {series.status !== 'pending' && <span className="font-normal text-ink-2" data-testid="series-wins"> · You {me} – {them} {partnerName}</span>}
+      </p>
+      <ol className="mt-1 flex flex-col gap-0.5 text-ink-2">
+        {series.rounds.map(({ ch: w, r }) => (
+          <li key={w.id} className={cx('flex justify-between gap-2', w.id === ch.id && 'text-ink')} data-testid="series-week">
+            <span>Week {w.series!.round} · {fmtDay(w.startDate, today)} – {fmtDay(w.endDate, today)}</span>
+            <span className="shrink-0 text-right">{state(r)}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string) => void }) {
-  const { uid, today, metricById, tz } = useData();
-  const { pair, links, sides, theirScore, partnerUid, partnerName, myName, now } = useCompete();
+  const { uid, today, metricById, tz, dayOf } = useData();
+  const { pair, links, challenges, sides, theirScore, partnerUid, partnerName, myName, now } = useCompete();
   const toast = useToast();
   const result = useChallengeResult();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [confirmSeries, setConfirmSeries] = useState(false);
   const [editEnd, setEditEnd] = useState(false);
   const link = links.find((l) => l.id === ch.linkId);
   const metric = link ? metricById.get(link.metrics[uid]) : undefined;
@@ -1312,6 +1383,10 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
   const theirHue = useHue(theirFirst?.color ?? '#8590a3');
   const r = result(ch);
   if (!pair || !link || !r) return null;
+  // A best of 3: all its weeks, answered and called off together.
+  const series = ch.series ? seriesOf(challenges.filter((x) => x.series?.id === ch.series!.id), result) : null;
+  const answerIds = series ? series.rounds.map((x) => x.ch.id) : [ch.id];
+  const callOffIds = series ? series.rounds.filter((x) => x.r.status !== 'finished').map((x) => x.ch.id) : [ch.id];
   // Each side as it counts toward this challenge: one metric, or several summed.
   const s = sides(link);
   const myC = sideForChallenge(s.mine, ch);
@@ -1360,8 +1435,11 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
     : raceTaunt(r.me, r.them);
 
   // "End it now" on a running challenge; on most days it can only bring the end forward to today.
-  const canEnd = r.status === 'active' && !ch.endedEarlyAt && !(ch.kind === 'most_days' && run.endDate <= today);
+  // Not on a week of a best of 3: Change end moves the weeks after it, and Call off ends the series.
+  const canEnd = r.status === 'active' && !ch.endedEarlyAt && !series && !(ch.kind === 'most_days' && run.endDate <= today);
   const canEdit = (r.status === 'active' || r.status === 'upcoming') && !ch.endedEarlyAt;
+  // A running challenge can become week 1 of a best of 3 (the series is otherwise made up front).
+  const canMakeSeries = !series && !!ch.acceptedAt && (r.status === 'active' || r.status === 'upcoming' || r.status === 'awaiting') && !ch.endedEarlyAt;
   const gap = leader === 'me' && r.me > r.them ? ` by ${fmt(r.me - r.them)}` : leader === 'them' && r.them > r.me ? ` by ${fmt(r.them - r.me, theirs)}` : '';
   const ifEndedNow = leader === 'me' ? `Right now you’re ahead${gap}, so you’d win.`
     : leader === 'them' ? `Right now ${partnerName}’s ahead${gap}, so they’d win.`
@@ -1369,6 +1447,7 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
 
   return (
     <article className={cx('rounded-xl border p-4', theirRequest ? 'border-ink-3 bg-s1' : 'border-line bg-s1')} data-testid="challenge-card">
+      {series && <SeriesStrip series={series} ch={ch} />}
       <header className="flex items-start justify-between gap-2">
         <h3 className="min-w-0 text-[15px] font-medium">{challengeTitle(ch, myC ?? metric)}</h3>
         {(r.status === 'active' || r.status === 'upcoming') && <AddMetricButton onClick={() => onTeam(link.id)} />}
@@ -1379,10 +1458,15 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
           End moved by {ch.endChangedBy === uid ? 'you' : partnerName}, was {isTimed(ch) ? fmtAt(ch.endChangedFrom, tz, now) : fmtDay(ch.endChangedFrom, today)}.
         </p>
       )}
+      {ch.series?.madeBy && (
+        <p className="mt-0.5 text-[13px] text-ink-3" data-testid="series-made">
+          {ch.series.madeBy === uid ? 'You' : partnerName} made this a best of 3.
+        </p>
+      )}
       {ch.stake && (
         <p className="mt-2 flex items-start gap-1.5 text-[14px]" data-testid="challenge-stake">
           <Gift size={16} aria-hidden className="mt-0.5 shrink-0 text-[#e0a03a]" />
-          <span><span className="text-ink-2">Winner gets</span> <span className="font-medium break-words">{ch.stake}</span></span>
+          <span><span className="text-ink-2">{series ? 'Series winner gets' : 'Winner gets'}</span> <span className="font-medium break-words">{ch.stake}</span></span>
         </p>
       )}
       {r.status !== 'pending' && r.status !== 'upcoming' && (
@@ -1407,8 +1491,8 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
 
       {theirRequest ? (
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <Button variant="primary" onClick={() => { answerChallenge(pair.id, ch.id, true); toast('Challenge accepted'); }}>Accept</Button>
-          <Button onClick={() => answerChallenge(pair.id, ch.id, false)}>Decline</Button>
+          <Button variant="primary" onClick={() => { answerChallenge(pair.id, answerIds, true); toast(series ? 'Best of 3 accepted' : 'Challenge accepted'); }}>Accept</Button>
+          <Button onClick={() => answerChallenge(pair.id, answerIds, false)}>Decline</Button>
         </div>
       ) : r.status === 'finished' ? null : confirmEnd ? (
         <div className="mt-3 rounded-lg bg-s2 p-3 text-[14px] text-ink-2" data-testid="challenge-end-confirm">
@@ -1439,11 +1523,21 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
           </div>
         </div>
       ) : confirmCancel ? (
-        <div className="mt-3 rounded-lg bg-s2 p-3 text-[14px] text-ink-2">
-          Call off this challenge? Nobody wins it.
+        <div className="mt-3 rounded-lg bg-s2 p-3 text-[14px] text-ink-2" data-testid="challenge-call-off-confirm">
+          {series ? 'Call off the whole best of 3? Weeks that aren’t settled yet are cancelled and nobody wins the series.' : 'Call off this challenge? Nobody wins it.'}
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <Button variant="danger" onClick={() => cancelChallenge(pair.id, ch.id)}>Call it off</Button>
+            <Button variant="danger" onClick={() => cancelChallenge(pair.id, callOffIds)}>{series ? 'Call off the series' : 'Call it off'}</Button>
             <Button onClick={() => setConfirmCancel(false)}>Keep</Button>
+          </div>
+        </div>
+      ) : confirmSeries ? (
+        <div className="mt-3 rounded-lg bg-s2 p-3 text-[14px] text-ink-2" data-testid="series-confirm">
+          <span className="font-medium text-ink">Make this week 1 of a best of 3?</span> Two more weeks of the same challenge follow right after it, as long as it,
+          with the same rules{ch.stake ? ` and “${ch.stake}” going to the series winner` : ''}. All three weeks are played and whoever wins more of them takes the series.
+          {` ${partnerName} sees that you made it one, and doesn’t need to accept again.`}
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Button variant="primary" onClick={() => { makeBestOfThree(pair.id, uid, ch, dayOf); setConfirmSeries(false); toast('Now a best of 3'); }}>Make it a best of 3</Button>
+            <Button onClick={() => setConfirmSeries(false)}>Keep it as is</Button>
           </div>
         </div>
       ) : editEnd ? (
@@ -1460,8 +1554,13 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
               {ch.kind === 'most_days' ? 'End it today' : 'End it now'}
             </button>
           )}
-          <button type="button" className="text-[13px] text-ink-3 underline underline-offset-2" onClick={() => setConfirmCancel(true)}>
-            {r.status === 'pending' ? 'Withdraw' : 'Call it off'}
+          {canMakeSeries && (
+            <button type="button" className="text-[13px] text-ink-2 underline underline-offset-2" data-testid="challenge-make-series" onClick={() => setConfirmSeries(true)}>
+              Make it a best of 3
+            </button>
+          )}
+          <button type="button" className="text-[13px] text-ink-3 underline underline-offset-2" data-testid="challenge-call-off" onClick={() => setConfirmCancel(true)}>
+            {r.status === 'pending' ? 'Withdraw' : series ? 'Call off the series' : 'Call it off'}
           </button>
         </div>
       )}
@@ -1610,6 +1709,7 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
   const [startTime, setStartTime] = useState(() => nextHour(now, tz));
   const [endTime, setEndTime] = useState(() => nextHour(now, tz));
   const [stake, setStake] = useState('');
+  const [bestOf3, setBestOf3] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   if (!pair) return null;
 
@@ -1622,6 +1722,16 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
   const noTargets = myNow?.target == null || (theirs !== undefined && theirs.target == null);
   // Target days are whole days, so times don't apply to them.
   const timed = withTimes && kind !== 'most_days';
+  // Weeks 2 and 3 as the dates now stand, for the note under the switch.
+  let weeks: Challenge[] = [];
+  if (bestOf3 && startDate && endDate >= startDate && (!timed || (startTime && endTime && instantAt(endDate, endTime, tz) > instantAt(startDate, startTime, tz)))) {
+    const first: Challenge = {
+      id: '', linkId: '', kind, amount: null, startDate, endDate,
+      startAt: timed ? instantAt(startDate, startTime, tz).toISOString() : null, endAt: timed ? instantAt(endDate, endTime, tz).toISOString() : null,
+      createdBy: '', createdAt: '', acceptedAt: null, declinedAt: null, cancelledAt: null, series: { id: '', round: 1, of: 3 },
+    };
+    weeks = laterRounds(first, ['', ''], '', '', dayOf);
+  }
 
   const save = () => {
     const errs: Record<string, string> = {};
@@ -1660,8 +1770,9 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
       startAt: times?.startAt ?? null,
       endAt: times?.endAt ?? null,
       stake: stake.trim().slice(0, STAKE_MAX) || null,
-    });
-    toast(`Challenge sent to ${partnerName}`);
+      bestOf: bestOf3 ? 3 : undefined,
+    }, dayOf);
+    toast(bestOf3 ? `Best of 3 sent to ${partnerName}` : `Challenge sent to ${partnerName}`);
     onDone();
   };
 
@@ -1711,8 +1822,21 @@ function ChallengeForm({ onDone }: { onDone: () => void }) {
           {partnerName} has to accept before it’s on. Once it is, you both see each other’s logs for those days, notes included.
         </p>
       </div>
+      <div data-testid="best-of-3">
+        <Switch checked={bestOf3} onChange={setBestOf3} label="Best of 3" />
+        <p className="mt-1.5 text-[13px] text-ink-3">
+          Those dates are week 1. Week 2 starts right after it and week 3 after that, each as long as week 1 and with the same rules.
+          All three are played and whoever wins more of them takes the series. {partnerName} accepts once for all three.
+        </p>
+        {weeks.length === 2 && (
+          <p className="mt-1.5 text-[13px] text-ink-2" data-testid="series-preview">
+            Week 2: {formatLocalDate(weeks[0].startDate, 'EEE d MMM')} – {formatLocalDate(weeks[0].endDate, 'EEE d MMM')}.{' '}
+            Week 3: {formatLocalDate(weeks[1].startDate, 'EEE d MMM')} – {formatLocalDate(weeks[1].endDate, 'EEE d MMM')}.
+          </p>
+        )}
+      </div>
       <div>
-        <Label htmlFor="ch-stake">Winner gets (optional)</Label>
+        <Label htmlFor="ch-stake">{bestOf3 ? 'Series winner gets (optional)' : 'Winner gets (optional)'}</Label>
         <input id="ch-stake" className={inputClass} maxLength={STAKE_MAX} placeholder="e.g. dinner on the loser" value={stake} onChange={(e) => setStake(e.target.value)} />
         <p className="mt-1.5 text-[13px] text-ink-3">Something at stake. {partnerName} sees it before accepting.</p>
       </div>

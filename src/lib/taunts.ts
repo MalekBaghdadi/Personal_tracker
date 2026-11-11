@@ -15,15 +15,16 @@ export type TauntKind =
   | 'ahead' | 'behind' | 'level' | 'idle' | 'bothIdle'
   | 'wonWeek' | 'lostWeek' | 'drewWeek'
   | 'wonChallenge' | 'lostChallenge' | 'drewChallenge'
+  | 'wonSeries' | 'lostSeries' | 'drewSeries'
   | 'theyReached' | 'iReached';
 
 /** Who says it: me (to them), them (to me), or the ref. */
 export type Speaker = 'me' | 'them' | 'ref';
 
 export const SPEAKER: Record<TauntKind, Speaker> = {
-  ahead: 'me', iReached: 'me', wonWeek: 'me', wonChallenge: 'me',
-  behind: 'them', idle: 'them', theyReached: 'them', lostWeek: 'them', lostChallenge: 'them',
-  level: 'ref', bothIdle: 'ref', drewWeek: 'ref', drewChallenge: 'ref',
+  ahead: 'me', iReached: 'me', wonWeek: 'me', wonChallenge: 'me', wonSeries: 'me',
+  behind: 'them', idle: 'them', theyReached: 'them', lostWeek: 'them', lostChallenge: 'them', lostSeries: 'them',
+  level: 'ref', bothIdle: 'ref', drewWeek: 'ref', drewChallenge: 'ref', drewSeries: 'ref',
 };
 
 export const TAUNTS: Record<TauntKind, string[]> = {
@@ -99,6 +100,23 @@ export const TAUNTS: Record<TauntKind, string[]> = {
   drewChallenge: [
     'All that effort for a tie.',
     'A tie. {me} and {them} both need to try harder.',
+  ],
+  wonSeries: [
+    'Three weeks, {them}. I won more of them. Sit with that.',
+    'Best of 3, {them}. And I’m the best.',
+    '{them}, the series is mine. Frame it, I will.',
+    'Series over, {them}. Rematch whenever you’re brave.',
+  ],
+  lostSeries: [
+    'Three weeks and the series is mine, {me}. Tragic.',
+    'I’ll bring up this series at every dinner, {me}.',
+    'Best of 3, {me}. Guess who’s the best.',
+    'Maybe try {metric} next series, {me}?',
+  ],
+  drewSeries: [
+    'A level series. Three weeks of effort for a shrug.',
+    '{me} and {them}: three weeks, nothing to show. Rematch?',
+    'Dead level after three weeks. Somebody call a fourth.',
   ],
   theyReached: [
     'Got there first, {me}. Clock’s ticking.',

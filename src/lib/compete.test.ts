@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canJoin, checkAsRace, worthOn, challengeDays, challengeResult, challengeSpan, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
+import { canJoin, cardChallenges, checkAsRace, laterRounds, seriesOf, settledChallenges, shiftedRounds, worthOn, challengeDays, challengeResult, challengeSpan, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type ChallengeResult, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
 import type { DayStats, Entry, Metric } from './types';
 
 // 2026-10-05 is a Monday.
@@ -479,6 +479,122 @@ describe('check-offs on a side', () => {
     expect(raced.logs).toEqual({
       '2026-10-05': [{ v: 45 * M, at: '2026-10-05T18:00:00Z', src: 'm', note: 'legs', c: true }],
       '2026-10-06': [],
+    });
+  });
+});
+
+describe('best of 3', () => {
+  const dayOf = (iso: string) => iso.slice(0, 10);
+  const tag = (round: number) => ({ id: 's1', round, of: 3 });
+  const first = (over: Partial<Challenge> = {}) => challenge({ id: 'r1', series: tag(1), stake: 'dinner', ...over });
+
+  describe('laterRounds', () => {
+    it('whole-day weeks follow back to back, as long as the first', () => {
+      const [r2, r3] = laterRounds(first(), ['r2', 'r3'], 'b', '2026-10-06T00:00:00Z', dayOf);
+      expect([r2.startDate, r2.endDate]).toEqual(['2026-10-12', '2026-10-18']);
+      expect([r3.startDate, r3.endDate]).toEqual(['2026-10-19', '2026-10-25']);
+      expect([r2.id, r2.series, r3.series]).toEqual(['r2', tag(2), tag(3)]);
+      expect([r2.startAt, r2.endAt]).toEqual([null, null]);
+    });
+    it('copies the rules and the acceptance, and is made by whoever writes it', () => {
+      const [r2] = laterRounds(first({ kind: 'first_to', amount: 7200 }), ['r2', 'r3'], 'b', '2026-10-06T00:00:00Z', dayOf);
+      expect(r2).toMatchObject({ linkId: 'l1', kind: 'first_to', amount: 7200, stake: 'dinner', createdBy: 'b', createdAt: '2026-10-06T00:00:00Z', acceptedAt: '2026-10-04T11:00:00Z', declinedAt: null, cancelledAt: null });
+      expect(laterRounds(first({ acceptedAt: null }), ['r2'], 'b', 'x', dayOf)[0].acceptedAt).toBeNull();
+    });
+    it('timed weeks start at the instant the last one ends and run as long', () => {
+      const t = first({ startAt: '2026-10-05T09:00:00.000Z', endAt: '2026-10-12T09:00:00.000Z', endDate: '2026-10-12' });
+      const [r2, r3] = laterRounds(t, ['r2', 'r3'], 'b', 'x', dayOf);
+      expect([r2.startAt, r2.endAt]).toEqual(['2026-10-12T09:00:00.000Z', '2026-10-19T09:00:00.000Z']);
+      expect([r2.startDate, r2.endDate]).toEqual(['2026-10-12', '2026-10-19']);
+      expect([r3.startAt, r3.endAt]).toEqual(['2026-10-19T09:00:00.000Z', '2026-10-26T09:00:00.000Z']);
+    });
+  });
+
+  describe('seriesOf', () => {
+    const rounds = [1, 2, 3].map((n) => first({ id: `r${n}`, series: tag(n) }));
+    const res = (status: ChallengeResult['status'], winner: ChallengeResult['winner'] = null): ChallengeResult => ({
+      status, winner, me: 0, them: 0, meSide: { total: 0, hits: 0, due: 0, hasTarget: false }, themSide: { total: 0, hits: 0, due: 0, hasTarget: false }, reached: { me: null, them: null },
+    });
+    const of = (...rs: ChallengeResult[]) => seriesOf(rounds, (c) => rs[Number(c.id.slice(1)) - 1]);
+
+    it('tallies finished weeks and points at the one in play', () => {
+      const s = of(res('finished', 'me'), res('active'), res('upcoming'))!;
+      expect([s.wins, s.current.id, s.status, s.winner]).toEqual([{ me: 1, them: 0, draws: 0 }, 'r2', 'live', null]);
+    });
+    it('all three weeks play: two wins do not end it early', () => {
+      const s = of(res('finished', 'me'), res('finished', 'me'), res('active'))!;
+      expect([s.current.id, s.status, s.winner]).toEqual(['r3', 'live', null]);
+    });
+    it('the most weeks won takes the series', () => {
+      expect(of(res('finished', 'me'), res('finished', 'them'), res('finished', 'them'))).toMatchObject({ status: 'finished', winner: 'them', wins: { me: 1, them: 2, draws: 0 } });
+      expect(of(res('finished', 'me'), res('finished', 'draw'), res('finished', 'draw'))).toMatchObject({ winner: 'me', wins: { me: 1, them: 0, draws: 2 } });
+    });
+    it('level weeks are a draw', () => {
+      expect(of(res('finished', 'me'), res('finished', 'them'), res('finished', 'draw'))!.winner).toBe('draw');
+    });
+    it('a week waiting for their numbers keeps the series open', () => {
+      expect(of(res('finished', 'me'), res('finished', 'me'), res('awaiting'))).toMatchObject({ status: 'live', winner: null, current: { id: 'r3' } });
+    });
+    it('shows the week that is running even while the one before still waits for their numbers', () => {
+      const s = of(res('awaiting'), res('active'), res('upcoming'))!;
+      expect([s.current.id, s.status]).toEqual(['r2', 'live']);
+    });
+    it('reads as pending, declined or called off from its weeks', () => {
+      expect(of(res('pending'), res('pending'), res('pending'))!.status).toBe('pending');
+      expect(of(res('declined'), res('declined'), res('declined'))!.status).toBe('declined');
+      expect(of(res('finished', 'me'), res('cancelled'), res('cancelled'))!.status).toBe('cancelled');
+    });
+    it('is nothing without all its weeks or when a week has no race', () => {
+      expect(seriesOf(rounds.slice(0, 2), () => res('finished', 'me'))!.status).toBe('live');
+      expect(seriesOf(rounds, () => null)).toBeNull();
+    });
+  });
+
+  describe('settledChallenges', () => {
+    const weeks = (id: string) => [1, 2, 3].map((n) => first({ id: `${id}${n}`, series: { id, round: n, of: 3 } }));
+    const done = challenge({ id: 'plain-done' });
+    const open = challenge({ id: 'plain-open' });
+    const status = (c: Challenge): ChallengeResult['status'] =>
+      c.id === 'plain-done' || c.id.startsWith('A') || c.id === 'B1' || c.id === 'B2' ? 'finished' : c.id === 'gone' ? 'finished' : 'active';
+    const result = (c: Challenge): ChallengeResult | null => (c.id === 'gone' ? null : ({ status: status(c), winner: 'me' }) as ChallengeResult);
+    it('lists each finished challenge once, a settled series as one entry, oldest first', () => {
+      const out = settledChallenges([done, ...weeks('A'), open, ...weeks('B')], result);
+      expect(out.map((x) => [x.c.id, x.series ? 'series' : 'plain', x.winner])).toEqual([['plain-done', 'plain', 'me'], ['A1', 'series', 'me']]);
+      expect(out[1].series?.wins).toEqual({ me: 3, them: 0, draws: 0 });
+    });
+    it('leaves out a challenge whose race is gone', () => {
+      expect(settledChallenges([challenge({ id: 'gone' })], result)).toEqual([]);
+    });
+  });
+
+  describe('cardChallenges', () => {
+    it('draws ordinary challenges as they are and a series as the week in play', () => {
+      const rounds = [1, 2, 3].map((n) => first({ id: `r${n}`, series: tag(n) }));
+      const plain = challenge({ id: 'plain' });
+      const status = (c: Challenge): ChallengeResult['status'] => (c.id === 'r1' ? 'finished' : c.id === 'r2' ? 'active' : 'upcoming');
+      const result = (c: Challenge) => ({ status: status(c), winner: c.id === 'r1' ? 'me' : null }) as ChallengeResult;
+      expect(cardChallenges([plain, ...rounds], result).map((c) => c.id)).toEqual(['plain', 'r2']);
+    });
+  });
+
+  describe('shiftedRounds', () => {
+    const later = [2, 3].map((n) => first({ id: `r${n}`, series: tag(n), startDate: n === 2 ? '2026-10-12' : '2026-10-19', endDate: n === 2 ? '2026-10-18' : '2026-10-25' }));
+    it('moves whole-day weeks by the days the end moved', () => {
+      const patches = shiftedRounds(first(), { endAt: null, endDate: '2026-10-13' }, later, dayOf);
+      expect(patches).toEqual([
+        { id: 'r2', patch: { startDate: '2026-10-14', endDate: '2026-10-20' } },
+        { id: 'r3', patch: { startDate: '2026-10-21', endDate: '2026-10-27' } },
+      ]);
+    });
+    it('moves timed weeks by the time the end moved, and back', () => {
+      const t = first({ startAt: '2026-10-05T09:00:00.000Z', endAt: '2026-10-12T09:00:00.000Z' });
+      const lt = [{ ...later[0], startAt: '2026-10-12T09:00:00.000Z', endAt: '2026-10-19T09:00:00.000Z' }];
+      expect(shiftedRounds(t, { endAt: '2026-10-11T21:00:00.000Z', endDate: '2026-10-11' }, lt, dayOf)).toEqual([
+        { id: 'r2', patch: { startAt: '2026-10-11T21:00:00.000Z', endAt: '2026-10-18T21:00:00.000Z', startDate: '2026-10-11', endDate: '2026-10-18' } },
+      ]);
+    });
+    it('a challenge with no later weeks has nothing to move', () => {
+      expect(shiftedRounds(first(), { endAt: null, endDate: '2026-10-13' }, [], dayOf)).toEqual([]);
     });
   });
 });

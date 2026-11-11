@@ -8,7 +8,7 @@ import { competePaths, publishProfile, unpublishProfile } from '../lib/competeRe
 import { evaluate, type CompeteWin, type Evaluation, type Unlock } from '../lib/achievements';
 import { SECRETS, achievementById } from '../lib/achievementCatalog';
 import { computeGoal } from '../lib/goals';
-import { challengeResult, challengeSpan, challengeWindow, nameFromEmail, race, sideAt, sideForChallenge } from '../lib/compete';
+import { challengeResult, challengeSpan, challengeWindow, nameFromEmail, race, settledChallenges, sideAt, sideForChallenge, type Challenge } from '../lib/compete';
 import { formatValue } from '../lib/format';
 import { local } from '../lib/device';
 import { nowIso } from '../lib/dates';
@@ -97,19 +97,24 @@ export function AchievementsProvider({ children }: { children: ReactNode }) {
           });
         }
       }
-      for (const c of challenges) {
+      const result = (c: Challenge) => {
         const link = links.find((l) => l.id === c.linkId);
-        if (!link) continue;
+        if (!link) return null;
         const s = sides(link);
-        const r = challengeResult(c, s.mine, s.theirs, today, theirScore?.asOf ?? null, now, theirScore?.updatedAt ?? null);
-        if (r.status !== 'finished' || r.winner !== 'me') continue;
-        const first = c.kind === 'first_to' ? [r.reached.me, r.reached.them].filter((d): d is string => !!d).sort()[0] : undefined;
-        const decided = first ? (challengeWindow(c) ? dayOf(first) : first) : challengeSpan(c, dayOf).end;
-        const m = sideForChallenge(s.mine, c);
+        return challengeResult(c, s.mine, s.theirs, today, theirScore?.asOf ?? null, now, theirScore?.updatedAt ?? null);
+      };
+      // A best of 3 is one win (its prize with it), not one per week.
+      for (const { c, series, winner } of settledChallenges(challenges, result)) {
+        const r = result(c);
+        const link = links.find((l) => l.id === c.linkId);
+        if (winner !== 'me' || !r || !link) continue;
+        const first = !series && c.kind === 'first_to' ? [r.reached.me, r.reached.them].filter((d): d is string => !!d).sort()[0] : undefined;
+        const decided = series ? challengeSpan(series.rounds[series.rounds.length - 1].ch, dayOf).end : first ? (challengeWindow(c) ? dayOf(first) : first) : challengeSpan(c, dayOf).end;
+        const m = sideForChallenge(sides(link).mine, c);
         const what = c.kind === 'first_to'
           ? `First to ${m && c.amount ? formatValue(m, c.amount) : 'the target'}${m ? ` of ${m.name}` : ''}`
           : c.kind === 'most_total' ? `Most ${m?.name ?? 'logged'}` : `Most ${m ? `${m.name} ` : ''}target days`;
-        out.push({ kind: 'challenge', on: decided, label: `${what}, against ${partnerName}`, stake: c.stake ?? null });
+        out.push({ kind: 'challenge', on: decided, label: `${what}${series ? ' (best of 3)' : ''}, against ${partnerName}`, stake: c.stake ?? null });
       }
     }
     return JSON.stringify(out);
