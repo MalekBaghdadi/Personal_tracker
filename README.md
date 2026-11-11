@@ -157,7 +157,7 @@ He's happy to answer questions when a request is ambiguous, and prefers being as
 - **All view:**
   - calendar with a dot per metric logged that day (filled when the target was met or none is set, a ring when it wasn't)
   - cells shaded in a neutral tone by the **average streak** that day: each metric due that day contributes its streak position (0 if missed), so one miss dims the day instead of resetting it
-  - a marker on days with events or reminders
+  - the **title of a day's first open event or reminder** written on the day, with `+N` in the corner for the others (`cellItemLine` in `lib/dayItems.ts`; a ticked-off reminder shows dimmed and struck through only when nothing is open). Malek asked for events to "show visually" after the old tiny corner pill was missed. On such a day the metric dots shrink to one row so the title line has the bottom edge
   - a month summary table of total and days the target was met, per metric
 - **Single-metric view:** GitHub-style streak shading in the metric's colour: day 1 of a streak is dim and each further day is one step brighter, full from day 7 (`streakDays` and `streakLevel` in `lib/streaks.ts`). A logged day that isn't a streak day gets a faint tint. Metrics with no target have no streaks and are shaded by amount instead. Plus month total and days the target was met.
 - Streaks carry across months (counted from the first entry), skip unscheduled days, and today never breaks one; same rules as Stats.

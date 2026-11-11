@@ -99,13 +99,39 @@ try {
   await addItem('event', 'Flight to Paris', '09:30');
   await page.keyboard.press('Escape');
   await wait(300);
-  const marked = await page.evaluate(() => [...document.querySelectorAll('section[aria-label^="All metrics"] button')].find((x) => x.textContent.trim() === '15').getAttribute('aria-label'));
+  // The cell's first span is its day number; the rest of its text can now be an event title.
+  const marked = await page.evaluate(() => [...document.querySelectorAll('section[aria-label^="All metrics"] button')].find((x) => x.querySelector(':scope > span')?.textContent.trim() === '15').getAttribute('aria-label'));
   console.log('• Future cell label:', marked);
   await page.screenshot({ path: `${OUT}62-next-month.png` });
+
+  // The day cell writes its first open item's title, and how many more there are.
+  const cellOf = (needle, section = 'All metrics') => page.evaluate((n, s) => {
+    const b = [...document.querySelectorAll(`section[aria-label^="${s}"] button`)].find((x) => x.innerText.includes(n));
+    if (!b) return null;
+    const title = b.querySelector('[data-testid="day-item-title"]')?.getBoundingClientRect();
+    const dots = b.querySelector('span.flex-wrap')?.getBoundingClientRect();
+    const t = b.querySelector('[data-testid="day-item-title"]');
+    // "Dentist" fits whole: the title isn't cut by an ellipsis.
+    return { text: b.innerText.replace(/\s+/g, ' '), label: b.getAttribute('aria-label'), title: !!title, fullWidth: !!t && t.scrollWidth <= t.clientWidth, clear: !title || !dots || dots.bottom <= title.top, inside: !title || (title.bottom <= b.getBoundingClientRect().bottom && title.right <= b.getBoundingClientRect().right) };
+  }, needle, section);
+  const flight = await cellOf('Flight to Paris');
+  console.log('• Future day shows its event title on the cell:', !!flight && flight.title && !/\+\d/.test(flight.text) && flight.label.includes('Flight to Paris'));
 
   // Month title jumps back to the current month.
   await click('button[aria-label$="Go to this month"]');
   console.log('• Back on current month:', await page.evaluate(() => [...document.querySelectorAll('main button')].find((b) => /\d{4}$/.test(b.textContent))?.textContent));
+  // Today has Dentist, Call bank (ticked off), Pay rent and the exam: the first open one, and three more.
+  const todayCell = await cellOf('Dentist');
+  console.log('• Today shows the first open item, in full, and +3 in the corner:', !!todayCell && todayCell.text.includes('Dentist') && /\+3/.test(todayCell.text) && todayCell.label.includes('Dentist') && todayCell.fullWidth);
+  console.log('• Metric dots sit clear above the title, and the title stays in its cell:', !!todayCell && todayCell.clear && todayCell.inside);
+  console.log('• A plain day has no title line:', await page.evaluate(() => [...document.querySelectorAll('section[aria-label^="All metrics"] button')].filter((b) => !b.querySelector('[data-testid="day-item-title"]')).length > 20));
+  await page.screenshot({ path: `${OUT}63-calendar-titles.png` });
+  // The single-metric view shows it too.
+  await page.evaluate(() => [...document.querySelectorAll('[data-tour="history-picker"] button, [data-tour="history-picker"] [role=radio]')].find((b) => b.innerText.includes('Studying')).click());
+  await wait(500);
+  const metricCell = await cellOf('Dentist', 'Studying');
+  console.log('• Metric view shows the title too, clear of its own marks:', !!metricCell && metricCell.text.includes('Dentist') && /\+3/.test(metricCell.text) && metricCell.inside);
+  await page.screenshot({ path: `${OUT}64-calendar-titles-metric.png` });
 
   // Reload persists items.
   await page.reload({ waitUntil: 'networkidle0' });

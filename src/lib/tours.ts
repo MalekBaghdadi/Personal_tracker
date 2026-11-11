@@ -53,7 +53,7 @@ export const TOURS: Tour[] = [
     name: 'History',
     steps: [
       { target: 'history-picker', title: 'All or one', body: 'See every metric at once, or pick one to look at it on its own.' },
-      { target: 'history-calendar', title: 'Your calendar', body: 'Days get brighter the longer your streak runs. Tap a day to see or fix what you logged, or add events and reminders.' },
+      { target: 'history-calendar', title: 'Your calendar', body: 'Days get brighter the longer your streak runs. Tap a day to see or fix what you logged, or add events and reminders; a day with one shows its name.' },
       { target: 'history-month', title: 'Months', body: 'Go back or ahead a month. Tap the month’s name to jump back to this one.' },
     ],
   },

@@ -9,6 +9,7 @@ import { targetOn } from '../lib/targets';
 import { isHitDay, isScheduled, restDays, streakDays, streakLevel } from '../lib/streaks';
 import { formatValue } from '../lib/format';
 import { entryRows, mergedLabel } from '../lib/entryRows';
+import { cellItemLine } from '../lib/dayItems';
 import { EntrySheet, sourceLabel, type EntrySheetState } from '../components/EntrySheet';
 import { Button, IconButton, Sheet, WEEKDAYS, cx } from '../components/ui';
 import { PhraseDayStatus } from '../components/PhraseControls';
@@ -171,9 +172,10 @@ function DayCell({
   const { today } = data;
   const future = date > today;
   const items = itemsOn(data, date);
-  // Marker counts what's still open; ticked-off reminders don't nag.
-  const open = items.filter((it) => !(it.kind === 'reminder' && it.doneAt)).length;
-  const itemsLabel = items.length ? `; ${items.length} ${items.length === 1 ? 'event or reminder' : 'events and reminders'}` : '';
+  // The first open item's title, and how many others (a ticked-off reminder is dimmed and struck through).
+  const line = cellItemLine(items);
+  const itemsLabel = items.length ? `; ${items.length} ${items.length === 1 ? 'event or reminder' : 'events and reminders'}: ${items.map((it) => it.title).join(', ')}` : '';
+  const ink = onFill === 'dark' ? 'text-[#0e1420]' : onFill === 'bg' ? 'text-bg' : 'text-ink';
   return (
     <button
       type="button"
@@ -190,18 +192,15 @@ function DayCell({
       style={fill ? { background: fill } : undefined}
     >
       <span className={cx('absolute top-1 left-1.5', onFill === 'dark' ? 'text-[#0e1420]' : onFill === 'bg' ? 'text-bg' : 'text-ink-2')}>{Number(date.slice(8))}</span>
-      {items.length > 0 && (
-        <span
-          aria-hidden
-          className={cx(
-            'absolute top-1.5 right-1.5 h-1.5 w-2.5 rounded-sm',
-            onFill === 'dark' ? (open > 0 ? 'bg-[#0e1420]/80' : 'bg-[#0e1420]/35')
-              : onFill === 'bg' ? (open > 0 ? 'bg-bg' : 'bg-bg/50')
-              : open > 0 ? 'bg-ink' : 'bg-ink-3',
-          )}
-        />
+      {/* The marks below the number sit one line higher on a day with a title, so the title has the bottom edge. */}
+      <span className={cx('absolute inset-x-0 top-0', line ? 'bottom-[7px]' : 'bottom-0')}>{children}</span>
+      {line && (
+        <>
+          {/* How many more the day has, top right, so the title keeps the whole width. */}
+          {line.more > 0 && <span aria-hidden data-testid="day-item-more" className={cx('absolute top-1.5 right-1.5 text-[9px] leading-[9px] font-medium', ink)}>+{line.more}</span>}
+          <span aria-hidden data-testid="day-item-title" className={cx('absolute inset-x-1 bottom-[3px] truncate text-left text-[9px] leading-[9px] font-medium', ink, line.done && 'line-through opacity-60')}>{line.title}</span>
+        </>
       )}
-      {children}
     </button>
   );
 }
@@ -306,14 +305,14 @@ function visibleMetrics(metrics: Metric[], dayStats: Map<string, DayStats>, days
   return metrics.filter((m) => !m.archivedAt || days.some((d) => dayStats.get(m.id)?.has(d)));
 }
 
-function MetricDot({ metric, state }: { metric: Metric; state: 'met' | 'logged' }) {
+function MetricDot({ metric, state, small }: { metric: Metric; state: 'met' | 'logged'; small?: boolean }) {
   const hue = useHue(metric.color);
-  // Filled: logged and not a miss. Ring: logged but the target wasn't met.
+  // Filled: logged and not a miss. Ring: logged but the target wasn't met. Small: on a day with an event title.
   return (
     <span
       aria-hidden
-      className="size-1.5 rounded-full"
-      style={state === 'met' ? { background: hue } : { boxShadow: `inset 0 0 0 1.5px ${hue}` }}
+      className={small ? 'size-1 rounded-full' : 'size-1.5 rounded-full'}
+      style={state === 'met' ? { background: hue } : { boxShadow: `inset 0 0 0 ${small ? 1 : 1.5}px ${hue}` }}
     />
   );
 }
@@ -371,14 +370,16 @@ function AllMonth({ month, onDay }: { month: string; onDay: (d: string) => void 
           const parts = logged.map((l) => `${l.metric.name} ${formatValue(l.metric, l.total)}`);
           const logText = parts.length ? `: ${parts.join(', ')}` : d > today ? '' : ': nothing logged';
           const doneTasks = tasksDone.get(d) ?? 0;
+          const hasItems = itemsOn(data, d).length > 0;
           const label = `${formatLocalDate(d, 'EEEE d MMMM')}${logText}${due > 0 ? `; ${met} of ${due} targets met; average streak ${Math.round(avg * 10) / 10} days` : ''}${doneTasks ? `; ${doneTasks} plan ${doneTasks === 1 ? 'task' : 'tasks'} done` : ''}`;
           return (
             <DayCell key={d} date={d} label={label} onDay={onDay} fill={fill} onFill={level >= 6 ? 'bg' : undefined} allowFuture>
               {doneTasks > 0 && <Check aria-hidden size={11} strokeWidth={3} className={cx('absolute top-1 right-[18px]', level >= 6 ? 'text-bg' : 'text-ink-2')} />}
               {logged.length > 0 && (
-                <span className="absolute inset-x-1.5 bottom-1.5 flex flex-wrap gap-[3px]">
+                // A day with an event title keeps its dots to one tight row of smaller ones (6 × 4px + gaps fits the narrowest cell).
+                <span className={cx('absolute inset-x-1.5 bottom-1.5 flex', hasItems ? 'flex-nowrap gap-[1.5px]' : 'flex-wrap gap-[3px]')}>
                   {logged.slice(0, 6).map((l) => (
-                    <MetricDot key={l.metric.id} metric={l.metric} state={l.met ? 'met' : 'logged'} />
+                    <MetricDot key={l.metric.id} metric={l.metric} state={l.met ? 'met' : 'logged'} small={hasItems} />
                   ))}
                 </span>
               )}
