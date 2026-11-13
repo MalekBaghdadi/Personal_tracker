@@ -80,11 +80,14 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const goalIds = initial ? goals.filter((g) => g.metricId === initial.id).map((g) => g.id) : [];
   const reviewIds = initial ? reviews.filter((r) => r.metricId === initial.id).map((r) => r.id) : [];
   const activeGoal = initial ? goals.find((g) => g.metricId === initial.id && !g.archivedAt) : undefined;
-  // Compete races "at least" amounts (or time ranges) and goals add amounts up:
-  // a check-off can be neither, and a range of counts can't be raced, so a
-  // metric in use there can't become one.
+  // Compete races "at least" amounts (or time ranges) and goals add amounts up.
+  // A race's main metric can't become a check-off or a range of counts. A
+  // check-off can sit on a side as an extra (each check is worth a value), so
+  // editing one there is fine; it just can't switch to or from a check-off.
   const { pair, links } = useCompete();
-  const raced = !!initial && !!pair && !pair.endedAt && links.some((l) => !l.endedAt && sideMetricIds(l, uid).includes(initial.id));
+  const liveLinks = initial && pair && !pair.endedAt ? links.filter((l) => !l.endedAt && sideMetricIds(l, uid).includes(initial.id)) : [];
+  const racedMain = liveLinks.some((l) => l.metrics[uid] === initial?.id);
+  const racedExtra = liveLinks.some((l) => l.metrics[uid] !== initial?.id);
 
   const changeType = (t: MetricType) => {
     if (t === type) return;
@@ -138,7 +141,8 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
     if (quickAdd.some((v) => !Number.isFinite(v) || v <= 0 || (type === 'count' && !Number.isInteger(v)))) {
       errs.quick = 'Use positive numbers separated by commas.';
     } else if (quickAdd.length > 5) errs.quick = 'Up to five buttons.';
-    if ((check || (range && type !== 'duration')) && raced) errs.target = 'This metric is in a Compete race, which needs an “at least” amount or a time range. Take it out of the race first.';
+    const wasCheck = initial?.type === 'check';
+    if ((racedMain && (check || (range && type !== 'duration'))) || (racedExtra && (check !== wasCheck || (!check && range && type !== 'duration')))) errs.target = 'This metric is in a Compete race, which needs an “at least” amount or a time range. Take it out of the race first.';
     if (initial && targetEdited && !check && !/^\d{4}-\d{2}-\d{2}$/.test(applyFrom)) errs.from = 'Pick the day the new target starts.';
     else if (initial && targetEdited && !check && applyFrom > today) errs.from = 'The new target can start today at the latest.';
     if (check && activeGoal) errs.target = 'This metric has a deadline goal, which adds up amounts. Archive the goal first.';
