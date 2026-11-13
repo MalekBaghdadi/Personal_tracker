@@ -83,7 +83,7 @@ try {
   await pressText('Tu', 'dialog[open]');
   await pressText('Th', 'dialog[open]');
   const restOptions = await page.evaluate(() => [...document.querySelectorAll('[aria-label="Rest days a week"] [role=radio]')].map((b) => b.textContent));
-  log('Rest options for 5 days (None, 1, 2, 3):', restOptions.join(',') === 'None,1,2,3');
+  log('Rest options for 5 days (None, 1, 2, 3, 4):', restOptions.join(',') === 'None,1,2,3,4');
   await page.evaluate(() => [...document.querySelectorAll('[aria-label="Rest days a week"] [role=radio]')][1].click());
   await wait(200);
   log('Hint explains it:', (await text()).includes('one due day can be skipped without breaking the streak'));

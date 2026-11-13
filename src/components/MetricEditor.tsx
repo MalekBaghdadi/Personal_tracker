@@ -60,9 +60,9 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
   const [schedule, setSchedule] = useState<Schedule>(initial?.schedule ?? { kind: 'daily' });
   const [timerEnabled, setTimerEnabled] = useState(initial?.timerEnabled ?? true);
   const [restPerWeek, setRestPerWeek] = useState(initial?.restDaysPerWeek ?? 0);
-  // At least one due day a week has to stay; offer up to 3.
+  // At least one due day a week has to stay; offer up to 6 (a once-a-week habit is 6 rest days).
   const dueDaysPerWeek = schedule.kind === 'daily' ? 7 : schedule.days.length;
-  const maxRest = Math.max(0, Math.min(3, dueDaysPerWeek - 1));
+  const maxRest = Math.max(0, Math.min(6, dueDaysPerWeek - 1));
   const [quick, setQuick] = useState(initial ? quickAddToText(initial) : '15, 30, 60');
   const [color, setColor] = useState(initial?.color ?? defaultColor);
   const [icon, setIcon] = useState(initial?.icon ?? 'Target');
