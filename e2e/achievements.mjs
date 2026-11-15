@@ -404,6 +404,58 @@ try {
   await page.evaluate(() => [...document.querySelectorAll('[role=switch]')].find((s) => s.innerText.includes('Show my profile')).click());
   log('Switched off: taken down:', await until(async () => (await page.evaluate(() => window.__e2eAch.myShared())) === null));
 
+  // ── Reordering the showcase: press and hold a card, drag it, let go ──
+  await go('#/profile');
+  await openMini('study.session', 0);
+  await pressText('Pin', 'dialog');
+  await closeSheet();
+  await go('#/profile');
+  const showNames = () => page.$$eval('[data-testid=showcase] li', (lis) => lis.map((l) => [...l.querySelectorAll('span')].find((s) => s.className.includes('line-clamp-2'))?.textContent).filter(Boolean));
+  const showBoxes = () => page.$$eval('[data-testid=showcase] li', (lis) => lis.filter((l) => l.querySelector('button')).map((l) => { const r = l.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }));
+  await page.$eval('[data-testid=showcase]', (e) => e.scrollIntoView({ block: 'center' }));
+  await wait(400);
+  const before = await showNames();
+  log('Two cards pinned:', before.length === 2, '|', before.join(' / '));
+  const [boxA, boxB] = await showBoxes();
+  await page.touchscreen.tap(boxA.x, boxA.y);
+  await wait(600);
+  log('A tap still opens the card:', !!(await sheet()));
+  await closeSheet();
+  // Moving before the hold is up is a plain touch, not a reorder.
+  await page.touchscreen.touchStart(boxA.x, boxA.y);
+  for (let i = 1; i <= 6; i++) { await page.touchscreen.touchMove(boxA.x + ((boxB.x - boxA.x) * i) / 6, boxA.y); await wait(20); }
+  await page.touchscreen.touchEnd();
+  await wait(500);
+  log('Moving before the hold is up reorders nothing:', (await showNames()).join('|') === before.join('|'));
+  await closeSheet();
+  // Hold, then drag past the second card.
+  await page.touchscreen.touchStart(boxA.x, boxA.y);
+  await wait(650);
+  log('Held: the card lifts:', await page.evaluate(() => !!document.querySelector('[data-testid=showcase] li[data-dragging=true]')));
+  for (let i = 1; i <= 8; i++) { await page.touchscreen.touchMove(boxA.x + ((boxB.x + 20 - boxA.x) * i) / 8, boxA.y); await wait(40); }
+  await shot('ac-22-showcase-drag');
+  await page.touchscreen.touchEnd();
+  await wait(500);
+  const swapped = await showNames();
+  log('Held and dragged: the order is swapped:', swapped.join('|') === [before[1], before[0]].join('|'), '|', swapped.join(' / '));
+  log('Letting go does not open the card:', !(await sheet()));
+  log('Nothing is left lifted:', await page.evaluate(() => !document.querySelector('[data-testid=showcase] li[data-dragging=true]')));
+  // Keyboard: Shift + arrow moves the focused card, and focus stays on it.
+  const focusedName = () => page.evaluate(() => [...(document.activeElement?.closest('li')?.querySelectorAll('span') ?? [])].find((s) => s.className.includes('line-clamp-2'))?.textContent ?? null);
+  await page.evaluate(() => [...document.querySelectorAll('[data-testid=showcase] li button')][1].focus());
+  await page.keyboard.down('Shift'); await page.keyboard.press('ArrowLeft'); await page.keyboard.up('Shift');
+  await wait(400);
+  log('Shift + Left moves the focused card first:', (await showNames()).join('|') === before.join('|') && (await focusedName()) === before[0], '|', await focusedName());
+  await page.keyboard.down('Shift'); await page.keyboard.press('ArrowRight'); await page.keyboard.up('Shift');
+  await wait(400);
+  log('Shift + Right moves it back, still focused:', (await showNames()).join('|') === swapped.join('|') && (await focusedName()) === before[0]);
+  log('Fits a phone:', await fitsPhone());
+  // The order is saved.
+  await page.reload({ waitUntil: 'networkidle0' });
+  await wait(1500);
+  await go('#/profile');
+  log('The new order survives a reload:', (await showNames()).join('|') === swapped.join('|'), '|', (await showNames()).join(' / '));
+
   // ── Light theme ──
   await go('#/settings');
   await page.evaluate(() => [...document.querySelectorAll('[role=radio]')].find((r) => r.innerText.trim() === 'Light').click());

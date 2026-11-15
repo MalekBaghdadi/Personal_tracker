@@ -16,6 +16,7 @@ import { local } from '../lib/device';
 import { iconFor } from '../lib/icons';
 import { AchievementCard, Avatar, CardBack, MiniCard, useTierInk, type CardState } from '../components/AchievementCard';
 import { SharedProfileView, TierCounts } from '../components/ProfileView';
+import { useHoldDragOrder } from '../components/DragOrder';
 import { Reveal } from '../components/Reveal';
 import { Button, FieldError, Label, Sheet, Switch, cx, inputClass, useToast } from '../components/ui';
 import type { ThemeId } from '../lib/types';
@@ -254,16 +255,26 @@ function ReadyShelf({ onFlip, onAll }: { onFlip: (id: string) => void; onAll: ()
 // ── Showcase: up to three pinned cards ──────────────────────────────────────
 
 function Showcase({ onOpen }: { onOpen: (id: string) => void }) {
+  const { uid } = useData();
   const { summary } = useAchievements();
-  const slots = Array.from({ length: MAX_PINNED }, (_, i) => summary.pinned[i] ?? null);
+  // Hold a card and drag it to put the showcase in the order you want; the order is `settings.pinned`.
+  const row = useHoldDragOrder(summary.pinned.map((d) => d.id), (ids) => saveSettings(uid, { pinned: ids }));
+  const byId = new Map(summary.pinned.map((d) => [d.id, d]));
+  const shown = row.order.flatMap((id) => byId.get(id) ?? []);
+  const slots = Array.from({ length: MAX_PINNED }, (_, i) => shown[i] ?? null);
   return (
     <section aria-label="Showcase" className="mt-6">
       <h2 className="mb-2 text-[15px] font-semibold">Showcase</h2>
-      <ul className="grid grid-cols-3 gap-2" data-testid="showcase">
+      <ul className="relative grid grid-cols-3 gap-2" data-testid="showcase">
         {slots.map((def, i) => (
-          <li key={def?.id ?? `empty-${i}`}>
+          <li key={def?.id ?? `empty-${i}`} {...(def ? row.item(def.id) : {})} className={def ? 'rounded-xl data-[dragging=true]:shadow-xl' : undefined}>
             {def ? (
-              <button type="button" onClick={() => onOpen(def.id)} className="press flex w-full flex-col items-center gap-1.5 rounded-xl p-1.5 hover:bg-s1">
+              <button
+                type="button"
+                onClick={row.guard(() => onOpen(def.id))}
+                aria-keyshortcuts={shown.length > 1 ? 'Shift+ArrowLeft Shift+ArrowRight' : undefined}
+                className="press flex w-full flex-col items-center gap-1.5 rounded-xl p-1.5 hover:bg-s1"
+              >
                 <MiniCard def={def} state="collected" w={72} />
                 <span className="line-clamp-2 text-center text-[12px] leading-tight font-medium">{def.name}</span>
               </button>
@@ -279,6 +290,7 @@ function Showcase({ onOpen }: { onOpen: (id: string) => void }) {
         ))}
       </ul>
       {summary.pinned.length === 0 && <p className="mt-2 text-[13px] text-ink-3">Open any card you’ve collected and pin it here.</p>}
+      {summary.pinned.length > 1 && <p className="mt-2 text-[13px] text-ink-3">Hold a card and drag it to change the order.</p>}
     </section>
   );
 }
