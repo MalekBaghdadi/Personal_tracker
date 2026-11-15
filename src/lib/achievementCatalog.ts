@@ -581,6 +581,22 @@ export const ACHIEVEMENTS: AchievementDef[] = [
 
 export const achievementById = new Map(ACHIEVEMENTS.map((a) => [a.id, a]));
 
+/**
+ * Ladders whose rules were tightened, and the revision that did it. A card collected under an older
+ * revision is checked once against the data (`auditCollected`): kept if the data still earns it,
+ * revoked if not. Bump a ladder only for a fix like that, never for a new tier.
+ */
+export const RULE_REVISION: Record<string, { rev: number; /** Key into `REVOKED_WHY` (lib/achievements.ts). */ why: string }> = {
+  // 2: counted against a target of at least an hour, and time metrics only (a 10-minute target made 1h20m a Platinum).
+  over: { rev: 2, why: 'over-floor' },
+};
+const ruleOf = (id: string) => RULE_REVISION[id.replace(/\.\d+$/, '')];
+
+/** The revision a card's ladder is on; 1 for every ladder never tightened. */
+export const revisionOf = (id: string): number => ruleOf(id)?.rev ?? 1;
+/** Why a card of this ladder gets revoked when its rules were tightened. */
+export const whyRevoked = (id: string): string => ruleOf(id)?.why ?? 'rules';
+
 // ── Levels ──────────────────────────────────────────────────────────────────
 
 /** XP needed to reach a level: 25, 75, 150, 250… (each level costs 25 more than the last). */

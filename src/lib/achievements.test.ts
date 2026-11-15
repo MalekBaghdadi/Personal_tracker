@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { bestText, evaluate, needFor, needOf, xpOf, type AchievementInput, type CompeteWin, type Finished } from './achievements';
+import { OVER_FLOOR, auditCollected, bestText, evaluate, needFor, needOf, xpOf, type AchievementInput, type CompeteWin, type Finished } from './achievements';
 import { ACHIEVEMENTS, LADDERS, SECRETS, achievementById, levelFor, rankFor, xpForLevel } from './achievementCatalog';
 import { themeFromIcon, themeOf } from './themes';
 import { artOf, hasArt } from './achievementArt';
 import { buildDayStats } from './admin';
 import { dayOf } from './dates';
-import type { Entry, Metric } from './types';
+import type { CollectedAchievement, Entry, Metric } from './types';
 
 const H = 3600;
 
@@ -108,7 +108,7 @@ describe('the catalogue', () => {
     expect(needOf(achievementById.get('study.session.6')!)).toBe('10h straight on one timer');
     expect(needOf(achievementById.get('streak.2')!)).toBe('A 7-day streak');
     expect(needOf(achievementById.get('sleep.days.2')!)).toBe('30 nights on target');
-    expect(needOf(achievementById.get('over.1')!)).toBe('1.5× a daily target in one day');
+    expect(needOf(achievementById.get('over.1')!)).toBe('1.5× a daily time target in one day (counted as 1h at the least)');
     expect(needOf(achievementById.get('secret.over9000')!)).toBe('Log over 9,000 of something in one day.');
     expect(needFor(LADDERS.find((l) => l.id === 'sweep')!, 1)).toBe('Meet every target due in one day');
     expect(bestText(LADDERS.find((l) => l.id === 'over')!, 2.56)).toBe('2.5×');
@@ -240,6 +240,43 @@ describe('the grind', () => {
     expect(on(r, 'over.2')).toBe('2026-10-05');
     expect(on(r, 'over.3')).toBe(null);
     expect(r.best.get('over')).toBe(2.5);
+  });
+  it('overachiever never counts a target as under an hour: a 10-minute target can’t make 1h20m a Platinum', () => {
+    const tiny = metric({ id: 'tiny', target: 10 * 60 });
+    const small = run([tiny], [entry('tiny', '2026-10-05', 80 * 60)]);
+    expect(on(small, 'over.1')).toBe(null); // 80 min is 1.33× of an hour
+    expect(small.best.get('over')).toBeCloseTo(80 / 60);
+    const long = run([tiny], [entry('tiny', '2026-10-05', 7 * H), entry('tiny', '2026-10-06', 10 * H)]);
+    expect(on(long, 'over.5')).toBe('2026-10-05'); // Diamond = 7h in a day
+    expect(on(long, 'over.6')).toBe('2026-10-06'); // Mythic = 10h in a day
+    expect(on(long, 'over.6') && long.unlocked.get('over.6')!.detail).toBe('10h of tiny, counted against 1h');
+    // A target of an hour or more is untouched.
+    const two = run([metric({ id: 'two', target: 2 * H })], [entry('two', '2026-10-05', 4 * H)]);
+    expect(on(two, 'over.2')).toBe('2026-10-05');
+    expect(on(two, 'over.3')).toBe(null);
+    expect(OVER_FLOOR).toBe(H);
+  });
+  it('overachiever is time only: ten pages against a target of one is nothing', () => {
+    const pages = metric({ id: 'pages', type: 'count', unit: 'pages', target: 1, timerEnabled: false, icon: 'BookOpen' });
+    const r = run([pages], [entry('pages', '2026-10-05', 10)]);
+    expect(on(r, 'over.1')).toBe(null);
+    expect(r.ladders.some((l) => l.id === 'over')).toBe(false);
+  });
+});
+
+describe('auditing cards collected under older rules', () => {
+  const card = (id: string, rev?: number): CollectedAchievement => ({ id, on: '2026-10-05', detail: null, collectedAt: '2026-10-06T00:00:00.000Z', ...(rev ? { rev } : {}) });
+  const col = (...cs: CollectedAchievement[]) => new Map(cs.map((c) => [c.id, c]));
+  const earned = (...ids: string[]) => new Map(ids.map((id) => [id, { id, on: '2026-10-05', detail: null }]));
+  it('keeps what the data still earns, revokes what it no longer does', () => {
+    const { keep, revoke } = auditCollected(col(card('over.1'), card('over.6')), earned('over.1'));
+    expect(keep.map((c) => c.id)).toEqual(['over.1']);
+    expect(revoke.map((c) => c.id)).toEqual(['over.6']);
+  });
+  it('checks each card once: stamped cards, new ladders and unknown ids are left alone, even without the data', () => {
+    const { keep, revoke } = auditCollected(col(card('over.6', 2), card('streak.3'), card('study.session.6'), card('secret.bullseye'), card('over.99x')), earned());
+    expect(keep).toEqual([]);
+    expect(revoke).toEqual([]);
   });
 });
 

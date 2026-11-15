@@ -5,8 +5,9 @@ import {
 import { db } from './firebase';
 import { deviceId, uuid } from './device';
 import { nowIso } from './dates';
+import { revisionOf, whyRevoked } from './achievementCatalog';
 import type { ExistingData, ImportPlan } from './importer';
-import type { ActiveTimer, CalendarItem, CollectedAchievement, Entry, EntrySource, Goal, Metric, Review, Settings, ThemeId } from './types';
+import type { ActiveTimer, CalendarItem, CollectedAchievement, Entry, EntrySource, Goal, Metric, RevokedAchievement, Review, Settings, ThemeId } from './types';
 
 /**
  * Every write here returns immediately. With the persistent cache, Firestore
@@ -38,6 +39,8 @@ export const paths = {
   planTask: (uid: string, id: string) => doc(db, 'users', uid, 'planTasks', id),
   achievements: (uid: string) => collection(db, 'users', uid, 'achievements'),
   achievement: (uid: string, id: string) => doc(db, 'users', uid, 'achievements', id),
+  revoked: (uid: string) => collection(db, 'users', uid, 'revoked'),
+  revokedCard: (uid: string, id: string) => doc(db, 'users', uid, 'revoked', id),
   reviews: (uid: string) => collection(db, 'users', uid, 'reviews'),
   review: (uid: string, id: string) => doc(db, 'users', uid, 'reviews', id),
 };
@@ -400,16 +403,50 @@ export function setMetricTheme(uid: string, id: string, theme: ThemeId | null): 
 
 /**
  * Collect cards: one doc each, keyed by the achievement's id, so collecting
- * the same card on two devices is the same write. Never deleted.
+ * the same card on two devices is the same write. Only `settleAudit` ever
+ * deletes one, when a ladder's rules were tightened.
  */
 export function collectAchievements(uid: string, cards: Pick<CollectedAchievement, 'id' | 'on' | 'detail'>[]): void {
   const now = nowIso();
   for (let i = 0; i < cards.length; i += MAX_BATCH) {
     const batch = writeBatch(db);
     for (const c of cards.slice(i, i + MAX_BATCH)) {
-      const card: CollectedAchievement = { id: c.id, on: c.on, detail: c.detail, collectedAt: now };
+      const card: CollectedAchievement = { id: c.id, on: c.on, detail: c.detail, collectedAt: now, rev: revisionOf(c.id) };
       batch.set(paths.achievement(uid, c.id), card);
     }
+    fire(batch.commit());
+  }
+}
+
+/**
+ * Settle cards collected under older rules (`auditCollected`): stamp the ones the data
+ * still earns, and take back the rest, leaving a notice (users/{uid}/revoked/{id}) with why.
+ * Idempotent, so two devices doing it at once agree.
+ */
+export function settleAudit(uid: string, keep: CollectedAchievement[], revoke: CollectedAchievement[]): void {
+  const now = nowIso();
+  const todo = [...keep.map((c) => ({ c, revoked: false })), ...revoke.map((c) => ({ c, revoked: true }))];
+  for (let i = 0; i < todo.length; i += MAX_BATCH / 2) {
+    const batch = writeBatch(db);
+    for (const { c, revoked } of todo.slice(i, i + MAX_BATCH / 2)) {
+      if (revoked) {
+        batch.delete(paths.achievement(uid, c.id));
+        const notice: RevokedAchievement = { id: c.id, on: c.on, detail: c.detail, collectedAt: c.collectedAt, revokedAt: now, reason: whyRevoked(c.id), seenAt: null };
+        batch.set(paths.revokedCard(uid, c.id), notice);
+      } else {
+        batch.set(paths.achievement(uid, c.id), { ...c, rev: revisionOf(c.id) });
+      }
+    }
+    fire(batch.commit());
+  }
+}
+
+/** The user has read the revoked-cards notice. */
+export function acknowledgeRevoked(uid: string, ids: string[]): void {
+  const now = nowIso();
+  for (let i = 0; i < ids.length; i += MAX_BATCH) {
+    const batch = writeBatch(db);
+    for (const id of ids.slice(i, i + MAX_BATCH)) batch.set(paths.revokedCard(uid, id), { seenAt: now }, { merge: true });
     fire(batch.commit());
   }
 }

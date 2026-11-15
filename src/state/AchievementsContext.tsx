@@ -1,11 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { getDocFromCache, onSnapshot, setDoc } from 'firebase/firestore';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { getDocFromCache, getDocsFromCache, onSnapshot, setDoc } from 'firebase/firestore';
 import { useData } from './DataContext';
 import { usePlans } from './PlansContext';
 import { useCompete } from './CompeteContext';
-import { collectAchievements, paths } from '../lib/repo';
+import { acknowledgeRevoked, collectAchievements, paths, settleAudit } from '../lib/repo';
 import { competePaths, publishProfile, unpublishProfile } from '../lib/competeRepo';
-import { evaluate, type CompeteWin, type Evaluation, type Unlock } from '../lib/achievements';
+import { auditCollected, evaluate, type CompeteWin, type Evaluation, type Unlock } from '../lib/achievements';
 import { SECRETS, achievementById } from '../lib/achievementCatalog';
 import { computeGoal } from '../lib/goals';
 import { challengeResult, challengeSpan, challengeWindow, nameFromEmail, race, settledChallenges, sideAt, sideForChallenge, type Challenge } from '../lib/compete';
@@ -13,7 +13,7 @@ import { formatValue } from '../lib/format';
 import { local } from '../lib/device';
 import { nowIso } from '../lib/dates';
 import { sameProfile, sharedProfile, summarize, type ProfileSummary, type SharedProfile } from '../lib/profile';
-import type { CollectedAchievement } from '../lib/types';
+import type { CollectedAchievement, RevokedAchievement } from '../lib/types';
 
 interface Achievements {
   /** Data and collected cards have been read at least once. */
@@ -28,6 +28,9 @@ interface Achievements {
   /** The name on the profile. */
   name: string;
   collect: (ids: string[]) => void;
+  /** Cards taken back that the user hasn't read the notice for yet, rarest first. */
+  revokedNotices: RevokedAchievement[];
+  dismissRevoked: () => void;
   /** Just unlocked (or, the first time on a device, everything waiting), for the banner. */
   announcement: { ids: string[]; backlog: boolean } | null;
   dismissAnnouncement: () => void;
@@ -64,10 +67,11 @@ function announceEnabled(): boolean {
  * profile summary published to the Compete pair while sharing is on.
  */
 export function AchievementsProvider({ children }: { children: ReactNode }) {
-  const { uid, user, metrics, entries, reviews, dayStats, today, tz, dayOf, weekStartsOn, goals, settings, metricById, ready: dataReady, entriesReady } = useData();
+  const { uid, user, metrics, entries, reviews, dayStats, today, tz, dayOf, weekStartsOn, goals, settings, metricById, ready: dataReady, entriesReady, sync } = useData();
   const plans = usePlans();
   const { pair, links, challenges, sides, theirScore, now, partnerName, partnerUid } = useCompete();
   const [collected, setCollected] = useState<Map<string, CollectedAchievement> | null>(null);
+  const [revoked, setRevoked] = useState<RevokedAchievement[]>([]);
 
   useEffect(() => onSnapshot(paths.achievements(uid), (snap) => {
     setCollected(new Map(snap.docs.map((d) => [d.id, d.data() as CollectedAchievement])));
@@ -75,6 +79,10 @@ export function AchievementsProvider({ children }: { children: ReactNode }) {
     console.error('[achievements]', err);
     setCollected(new Map());
   }), [uid]);
+
+  useEffect(() => onSnapshot(paths.revoked(uid), (snap) => {
+    setRevoked(snap.docs.map((d) => d.data() as RevokedAchievement));
+  }, (err) => console.error('[revoked]', err)), [uid]);
 
   // Weeks and challenges won, the same way the Compete tab works them out.
   // Keyed as text so the 30-second clock there doesn't re-run everything here.
@@ -186,6 +194,25 @@ export function AchievementsProvider({ children }: { children: ReactNode }) {
   }, [loaded, evaluation, waiting, uid]);
   const dismissAnnouncement = useCallback(() => setAnnouncement(null), []);
 
+  // ── Cards collected under older rules: checked once, when everything has come in from the server ──
+  // (An emulator build is never "synced", so it checks as soon as it's loaded.)
+  const settled = sync === 'synced' || import.meta.env.VITE_USE_EMULATORS === '1';
+  const audited = useRef(new Set<string>());
+  useEffect(() => {
+    if (!loaded || !settled) return;
+    const { keep, revoke } = auditCollected(col, evaluation.unlocked);
+    const fresh = (c: CollectedAchievement) => !audited.current.has(c.id);
+    const [k, r] = [keep.filter(fresh), revoke.filter(fresh)];
+    if (!k.length && !r.length) return;
+    for (const c of [...k, ...r]) audited.current.add(c.id);
+    settleAudit(uid, k, r);
+  }, [loaded, settled, col, evaluation, uid]);
+  const revokedNotices = useMemo(
+    () => revoked.filter((r) => !r.seenAt && achievementById.has(r.id)).sort((a, b) => achievementById.get(b.id)!.tier - achievementById.get(a.id)!.tier),
+    [revoked],
+  );
+  const dismissRevoked = useCallback(() => acknowledgeRevoked(uid, revokedNotices.map((r) => r.id)), [uid, revokedNotices]);
+
   // ── Sharing with the Compete partner ──
   const pairId = pair?.id ?? null;
   const [profiles, setProfiles] = useState<Map<string, SharedProfile>>(new Map());
@@ -224,6 +251,8 @@ export function AchievementsProvider({ children }: { children: ReactNode }) {
     summary,
     name,
     collect,
+    revokedNotices,
+    dismissRevoked,
     announcement,
     dismissAnnouncement,
     partnerProfile: partnerUid ? profiles.get(partnerUid) ?? null : null,
@@ -248,6 +277,11 @@ function useE2eHooks(uid: string, pairId: string | null) {
       partnerProfile: (p: SharedProfile) => {
         if (pairId) void setDoc(competePaths.profile(pairId, p.uid), p);
       },
+      // Cards collected before the rules changed: no `rev`, as every card was then.
+      seedOldCards: (ids: string[]) => {
+        for (const id of ids) void setDoc(paths.achievement(uid, id), { id, on: '2026-10-05', detail: 'old rule', collectedAt: '2026-10-06T00:00:00.000Z' });
+      },
+      collectedRevs: async () => Object.fromEntries((await getDocsFromCache(paths.achievements(uid))).docs.map((d) => [d.id, d.data().rev ?? null])),
     };
   }, [uid, pairId]);
 }

@@ -152,6 +152,26 @@ export interface CollectedAchievement {
   /** What earned it, e.g. "10h 12m of Studying". */
   detail: string | null;
   collectedAt: string;
+  /** Rule revision it was last checked under (`RULE_REVISION`). Absent: 1, i.e. before any ladder was tightened. */
+  rev?: number;
+}
+
+/**
+ * A collected card taken back because its ladder's rules were tightened and the data no
+ * longer earns it (users/{uid}/revoked/{id}, id = the achievement's). Kept as the record
+ * of what was revoked and why, and as the unread notice until `seenAt` is set.
+ */
+export interface RevokedAchievement {
+  id: string;
+  /** What earned it, as collected. */
+  on: string;
+  detail: string | null;
+  collectedAt: string;
+  revokedAt: string;
+  /** Why, as a key into `REVOKED_WHY` (lib/achievements.ts), so the wording can improve without touching data. */
+  reason: string;
+  /** When the user read the notice. null: not yet. */
+  seenAt: string | null;
 }
 
 /**

@@ -3,9 +3,9 @@ import { isHitDay, isScheduled, restDays, streakDays, weekOf } from './streaks';
 import { targetOn } from './targets';
 import { formatDuration, formatNumber, formatValue } from './format';
 import { themeById, themeOf } from './themes';
-import { LADDERS, TIERS, achievementById, type AchievementDef, type Ladder, type LadderKind, type SecretKey } from './achievementCatalog';
+import { LADDERS, TIERS, achievementById, revisionOf, type AchievementDef, type Ladder, type LadderKind, type SecretKey } from './achievementCatalog';
 import { REMEMBERED } from './phrases';
-import type { DayStat, DayStats, Entry, Metric, Review } from './types';
+import type { CollectedAchievement, DayStat, DayStats, Entry, Metric, Review } from './types';
 
 /*
  * Which achievements are unlocked, worked out from the data every time, like
@@ -99,6 +99,12 @@ function counts(m: Metric, d: string, s: DayStat | undefined, today: string): bo
   if (t.targetDirection !== 'at_least' && d >= today) return false;
   return isHitDay(m, d, s) === true;
 }
+
+/**
+ * Overachiever measures a day against its target, but never against less than this: a 10-minute target
+ * made 1h20m an 8× "Mythic". With the floor, Mythic (10×) is always at least ten hours in a day.
+ */
+export const OVER_FLOOR = 3600;
 
 const clockCache = new Map<string, Intl.DateTimeFormat>();
 
@@ -313,7 +319,8 @@ export function evaluate(input: AchievementInput): Evaluation {
 
   // At-least amounts only, and not Health or Sleep: double the water or the sleep isn't an achievement.
   const amounts = metrics.filter((m) => m.targetDirection === 'at_least' && m.type !== 'check' && m.type !== 'phrase' && (m.target ?? 0) > 0);
-  const overMetrics = amounts.filter((m) => theme.get(m.id) !== 'health' && theme.get(m.id) !== 'sleep');
+  // Overachiever is time only: an hour is the one amount that means the same effort for everyone (10 pages or 10 glasses don't).
+  const overMetrics = amounts.filter((m) => isDuration(m) && theme.get(m.id) !== 'health' && theme.get(m.id) !== 'sleep');
   const overEvents: Event[] = [];
   for (const m of overMetrics) {
     const stats = statsOf(m);
@@ -321,7 +328,8 @@ export function evaluate(input: AchievementInput): Evaluation {
       const t = stats.get(d)!.total;
       const day = targetOn(m, d); // the target that applied that day
       if (day.targetDirection !== 'at_least' || !((day.target ?? 0) > 0)) continue;
-      overEvents.push({ on: d, value: t / day.target!, detail: `${formatValue(m, t)} of ${m.name}, target ${formatValue(m, day.target!)}` });
+      const base = Math.max(day.target!, OVER_FLOOR);
+      overEvents.push({ on: d, value: t / base, detail: `${formatValue(m, t)} of ${m.name}, ${base === day.target ? 'target' : 'counted against'} ${formatValue(m, base)}` });
     }
   }
   record(ladder('over'), firstReaching(stepsOf(ladder('over')), overEvents.sort(byOn)));
@@ -485,7 +493,7 @@ export function needFor(l: Ladder, at: number): string {
     case 'showUp': return `${plural(at, 'day')} with something logged`;
     case 'bigDay': return `${formatDuration(at)} on one metric in a day`;
     case 'bigWeek': return `${formatDuration(at)} logged in one week`;
-    case 'over': return `${at}× a daily target in one day`;
+    case 'over': return `${at}× a daily time target in one day (counted as 1h at the least)`;
     case 'finisher': return at === 1 ? 'Finish a deadline goal or plan' : `Finish ${at} deadline goals or plans`;
     case 'tasks': return `${plural(at, 'plan task')} done`;
     case 'weeksWon': return at === 1 ? 'Win a week in Compete' : `Win ${at} weeks in Compete`;
@@ -548,6 +556,29 @@ export function placeOf(def: AchievementDef): string {
   if (def.secret) return 'Secret';
   const l = def.ladder!;
   return l.theme ? `${themeById.get(l.theme)!.label} · ${l.title}` : l.title;
+}
+
+// ── Rule changes ────────────────────────────────────────────────────────────
+
+/** Why a card was revoked, in words, by `RevokedAchievement.reason`. */
+export const REVOKED_WHY: Record<string, string> = {
+  'over-floor':
+    'Overachiever used to compare a day with its target however small the target was, so a 10-minute target made 1h 20m look like 8×. It now counts a target as at least 1 hour, on time metrics only, so Diamond is 7 hours or more in a day and Mythic is 10 hours or more. Your logged time no longer earns this card.',
+};
+
+/**
+ * Cards collected before their ladder's rules were tightened (`RULE_REVISION`): the ones the data
+ * still earns get stamped with the current revision, the rest are revoked. Run once the data is
+ * fully loaded; a revoked card that the data later earns again just shows up as ready to collect.
+ */
+export function auditCollected(collected: Map<string, CollectedAchievement>, unlocked: Map<string, Unlock>): { keep: CollectedAchievement[]; revoke: CollectedAchievement[] } {
+  const keep: CollectedAchievement[] = [];
+  const revoke: CollectedAchievement[] = [];
+  for (const c of collected.values()) {
+    if (!achievementById.has(c.id) || (c.rev ?? 1) >= revisionOf(c.id)) continue;
+    (unlocked.has(c.id) ? keep : revoke).push(c);
+  }
+  return { keep, revoke };
 }
 
 export function xpOf(ids: Iterable<string>): number {

@@ -48,7 +48,9 @@ invariants, decisions, testing and known gaps. This file is just the short versi
 - Achievements (`lib/achievements.ts`, cards in `lib/achievementCatalog.ts`): unlocks are derived from the data; collecting a
   card (`users/{uid}/achievements/{id}`) is the only stored fact, so card ids are never renamed. A metric's theme (its
   targeted binder) is its `theme`, else its icon (`lib/themes.ts`), never its name, and must suit every user. Nothing rewards
-  more water, food or sleep than the target. The profile is shared with the Compete partner only while its switch is on. The showcase's order is `settings.pinned`,
+  more water, food or sleep than the target. Overachiever is time metrics only and never measures against less than an hour (`OVER_FLOOR`): a tiny target must not make a normal day a Mythic.
+  Collected cards outlive their data, so tightening a ladder means a `RULE_REVISION` entry: cards under the old revision are checked once (`auditCollected`) and the ones the data no longer earns are
+  revoked into `users/{uid}/revoked` with a notice (`RevokedNotice`, `REVOKED_WHY`); never delete a collected card any other way. The profile is shared with the Compete partner only while its switch is on. The showcase's order is `settings.pinned`,
   set by press-and-hold drag (`useHoldDragOrder`, placement in `lib/reorder.ts`) and Shift + arrows; the items keep `touch-action: pan-y` so the page still scrolls.
 - Card art is a stained-glass enamel pin (`components/PinArt.tsx`), one icon per card in `lib/achievementArt.ts` (a new ladder
   needs six there). No emoji on the profile; the catalog's emoji are only sent to partners on older apps. Binders
