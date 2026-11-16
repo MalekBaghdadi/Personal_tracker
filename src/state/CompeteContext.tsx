@@ -4,7 +4,7 @@ import { useData } from './DataContext';
 import { deviceTimezone, nowIso, todayIn } from '../lib/dates';
 import { competePaths, publishScore } from '../lib/competeRepo';
 import {
-  challengeDays, challengeWindow, checkAsRace, everSideMetricIds, sharesLogs, shareLogs, shareMetric, teamOf,
+  challengeDays, challengeWindow, checkAsRace, skipDays, everSideMetricIds, sharesLogs, shareLogs, shareMetric, teamOf,
   type Challenge, type Invite, type Link, type LinkMember, type Pair, type Score, type SharedMetric, type Team,
 } from '../lib/compete';
 
@@ -132,7 +132,7 @@ export function CompeteProvider({ children }: { children: ReactNode }) {
         // A check-off goes out in the race's own units: each checked day as what a check is worth.
         const first = metricById.get(l.metrics[uid]);
         if (metric.type === 'check' && first && first.id !== metric.id) shared = checkAsRace(shared, l.extra?.[uid] ?? [], metric.id, { type: l.type, unit: first.unit });
-        out[metric.id] = shared;
+        out[metric.id] = skipDays(shared, metric.competeSkip, l.startDate, today);
       }
     }
     return out;

@@ -13,7 +13,7 @@ import { formatValue } from '../lib/format';
 import { iconFor } from '../lib/icons';
 import {
   asRun, canJoin, canLink, cardChallenges, challengeResult, challengeSpan, challengeWindow, isTimed, laterRounds, logInWindow, nameFromEmail, normalizeCode, race, seriesOf, settledChallenges, shiftedRounds, sideAt, sideForChallenge, sideMetricIds,
-  type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SeriesState, type SharedLog, type SharedMetric, type Side,
+  type Challenge, type Outcome, type ChallengeKind, type ChallengeResult, type Link, type SeriesState, type SharedLog, type SharedMetric, type Side, type Team,
 } from '../lib/compete';
 import {
   acceptLink, addToSide, answerChallenge, cancelChallenge, cancelInvite, changeChallengeEnd, changeWorth, createInvite, endChallengeNow, endLink, endPair, joinWithCode, makeBestOfThree, proposeChallenge, proposeLink,
@@ -880,6 +880,8 @@ function RaceCard({ link, onTeam }: { link: Link; onTeam: () => void }) {
         <Contender label={partnerName} value={formatValue(metric, them.total)} suffix={targetDays(them)} pct={top ? them.total / top : 0} hue={theirHue} leader={gap < 0} />
       </div>
 
+      <SkipNote link={link} />
+
       <Bubble
         kind={raceTaunt(me.total, them.total)}
         seed={`${link.id}:${today}`}
@@ -915,6 +917,25 @@ function RaceCard({ link, onTeam }: { link: Link; onTeam: () => void }) {
         <button type="button" className="mt-2 text-[13px] text-ink-3 underline underline-offset-2" onClick={() => setConfirmStop(true)}>Stop racing</button>
       )}
     </article>
+  );
+}
+
+/** Who sat which metric out of Compete today (`skipDays`): mine by my day, theirs by their last publish's day. */
+function SkipNote({ link }: { link: Link }) {
+  const { today } = useData();
+  const { sides, theirScore, partnerName } = useCompete();
+  const s = sides(link);
+  const skipped = (team: Team, day: string | undefined) =>
+    day ? team.members.filter((x) => !x.removedOn && x.metric?.days[day]?.sk).map((x) => x.metric!.name) : [];
+  const lines = [
+    ...skipped(s.mine, today).map((n) => `You skipped ${n} today`),
+    ...skipped(s.theirs, theirScore?.asOf).map((n) => `${partnerName} skipped ${n} today`),
+  ];
+  if (lines.length === 0) return null;
+  return (
+    <p className="mt-2 text-[13px] font-medium text-danger" data-testid="skip-note">
+      {lines.join(' · ')}: it counts as 0 and a missed day.
+    </p>
   );
 }
 
@@ -1475,6 +1496,7 @@ function ChallengeCard({ ch, onTeam }: { ch: Challenge; onTeam: (linkId: string)
           <Contender label={partnerName} value={fmt(r.them, theirs)} pct={max > 0 ? r.them / max : 0} hue={theirHue} leader={leader === 'them'} />
         </div>
       )}
+      {r.status === 'active' && <SkipNote link={link} />}
       {tauntKind && metric && (
         <Bubble
           kind={tauntKind}

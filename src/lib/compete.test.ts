@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canJoin, cardChallenges, checkAsRace, laterRounds, seriesOf, settledChallenges, shiftedRounds, worthOn, challengeDays, challengeResult, challengeSpan, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type ChallengeResult, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
+import { canJoin, cardChallenges, checkAsRace, skipDays, laterRounds, seriesOf, settledChallenges, shiftedRounds, worthOn, challengeDays, challengeResult, challengeSpan, combine, counts, everSideMetricIds, sideMetricIds, teamOf, logInWindow, newInviteCode, shareLogs, normalizeCode, race, shareMetric, sideFor, weekOutcome, type Challenge, type ChallengeResult, type Link, type LinkMember, type SharedDay, type SharedLog, type SharedMetric } from './compete';
 import type { DayStats, Entry, Metric } from './types';
 
 // 2026-10-05 is a Monday.
@@ -599,3 +599,30 @@ describe('best of 3', () => {
   });
 });
 
+
+describe('skipDays', () => {
+  const m: SharedMetric = {
+    name: 'Study', type: 'duration', unit: 'min', target: 3600, color: '#000', icon: 'book',
+    days: { '2026-11-15': { t: 4000, s: 'h' }, '2026-11-16': { t: 5000, s: 'h' }, '2026-11-14': { t: 100, s: 'r' } },
+    logs: { '2026-11-16': [{ v: 5000, at: '2026-11-16T10:00:00.000Z', src: 't', note: 'x' }] },
+  };
+  it('turns a skipped day into 0 and a miss, withholds its logs and flags it', () => {
+    const out = skipDays(m, ['2026-11-16'], '2026-11-09', '2026-11-16');
+    expect(out.days['2026-11-16']).toEqual({ t: 0, s: 'd', sk: true });
+    expect(out.days['2026-11-15']).toEqual({ t: 4000, s: 'h' });
+    expect(out.logs!['2026-11-16']).toEqual([]);
+    expect(sideFor(out, '2026-11-15', '2026-11-17', '2026-11-17')).toMatchObject({ total: 4000, hits: 1, due: 2 });
+  });
+  it('keeps rest days, flags an empty day, and ignores days outside the race', () => {
+    const out = skipDays(m, ['2026-11-14', '2026-11-13', '2026-11-01', '2026-11-20'], '2026-11-09', '2026-11-16');
+    expect(out.days['2026-11-14']).toEqual({ t: 0, s: 'r', sk: true });
+    expect(out.days['2026-11-13']).toEqual({ t: 0, s: 'o', sk: true });
+    expect(out.days['2026-11-01']).toBeUndefined();
+    expect(out.days['2026-11-20']).toBeUndefined();
+    expect(skipDays(m, undefined, '2026-11-09', '2026-11-16')).toBe(m);
+  });
+  it('a combined side keeps the flag', () => {
+    const other: SharedMetric = { ...m, name: 'Net+', days: { '2026-11-16': { t: 60, s: 'd' } }, logs: undefined };
+    expect(combine([skipDays(m, ['2026-11-16'], '2026-11-09', '2026-11-16'), other])!.days['2026-11-16']).toEqual({ t: 60, s: 'd', sk: true });
+  });
+});

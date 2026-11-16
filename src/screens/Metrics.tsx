@@ -3,7 +3,9 @@ import { ChevronRight, FileText, Flag, GripVertical, ListChecks, Plus } from 'lu
 import { useData } from '../state/DataContext';
 import { usePlans } from '../state/PlansContext';
 import { useHue } from '../state/theme';
-import { reorderMetrics } from '../lib/repo';
+import { reorderMetrics, setCompeteSkip } from '../lib/repo';
+import { useCompete } from '../state/CompeteContext';
+import { sideMetricIds } from '../lib/compete';
 import { iconFor } from '../lib/icons';
 import { formatTarget } from '../lib/format';
 import { Sheet, WEEKDAYS, cx } from '../components/ui';
@@ -269,10 +271,14 @@ function MetricLine({
 }) {
   const hue = useHue(metric.color);
   const Icon = iconFor(metric.icon);
+  const { uid, today } = useData();
+  const { links, partnerName } = useCompete();
+  const raced = !metric.archivedAt && links.some((l) => l.acceptedAt && sideMetricIds(l, uid).includes(metric.id));
+  const skipped = (metric.competeSkip ?? []).includes(today);
   return (
     <li ref={liRef} className={cx('flex items-center gap-1', dragging && 'relative z-10 rounded-lg bg-s2')}>
       {handle}
-      <button type="button" onClick={onOpen} className="flex min-h-14 flex-1 items-center gap-3 py-2 pr-1 text-left">
+      <button type="button" onClick={onOpen} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 py-2 pr-1 text-left">
         <Icon size={18} style={{ color: hue }} aria-hidden className={handle ? '' : 'ml-3'} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[15px] font-medium">{metric.name}</span>
@@ -284,6 +290,21 @@ function MetricLine({
         </span>
         <ChevronRight size={18} className="text-ink-3" aria-hidden />
       </button>
+      {raced && (
+        <button
+          type="button"
+          data-testid="compete-skip"
+          aria-pressed={skipped}
+          title={skipped ? `Count ${metric.name} in Compete today again` : `Leave today's ${metric.name} out of Compete. ${partnerName} sees you skipped it.`}
+          onClick={() => setCompeteSkip(uid, metric.id, today, !skipped)}
+          className={cx(
+            'press mr-1 inline-flex min-h-9 shrink-0 items-center rounded-lg px-2.5 text-[12px] font-medium',
+            skipped ? 'bg-danger text-bg' : 'border border-danger/60 text-danger',
+          )}
+        >
+          {skipped ? 'Skipped · Undo' : 'Skip today'}
+        </button>
+      )}
     </li>
   );
 }

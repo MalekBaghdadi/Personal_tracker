@@ -346,6 +346,11 @@ export function setRestDay(uid: string, metricId: string, date: string, on: bool
   fire(updateDoc(paths.metric(uid, metricId), { restDates: on ? arrayUnion(date) : arrayRemove(date), updatedAt: nowIso() }));
 }
 
+/** Sit a metric out of Compete for one day, or bring it back. Array ops, like rest days. */
+export function setCompeteSkip(uid: string, metricId: string, date: string, on: boolean): void {
+  fire(updateDoc(paths.metric(uid, metricId), { competeSkip: on ? arrayUnion(date) : arrayRemove(date), updatedAt: nowIso() }));
+}
+
 export function reorderMetrics(uid: string, orderedIds: string[]): void {
   const batch = writeBatch(db);
   const now = nowIso();

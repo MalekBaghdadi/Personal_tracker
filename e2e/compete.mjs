@@ -290,6 +290,29 @@ try {
   await hook('score', TODAY, theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } }));
   log('Duolingo unpublished: back to 1h behind:', await until(async () => (await card('race-verdict')).includes('Cousin is 1h ahead')));
 
+  // Skip today: a red button on a raced metric in Metrics leaves today out of Compete (0 and a miss), and back.
+  await page.goto('http://localhost:5173/#/metrics');
+  log('Skip today only on raced metrics:', await until(async () => (await page.$$('[data-testid="compete-skip"]')).length === 1));
+  await click('[data-testid="compete-skip"]');
+  log('Button says skipped:', await until(async () => (await card('compete-skip')).includes('Skipped · Undo')));
+  await shot('cp-04g-skip-today');
+  log('Published today as 0, a miss, flagged:', await until(async () => {
+    const d = Object.values((await hook('myScore'))?.metrics ?? {})[0]?.days[TODAY];
+    return d?.t === 0 && d.s === 'd' && d.sk === true;
+  }, 6000));
+  await page.goto('http://localhost:5173/#/compete');
+  log('Race counts today as 0: Cousin 3h ahead:', await until(async () => (await card('race-verdict')).includes('Cousin is 3h ahead')));
+  log('Card says I skipped it:', (await card('skip-note')).includes('You skipped Studying today'));
+  await hook('score', TODAY, theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 0, s: 'd', sk: true } }));
+  log('Their skip shows too:', await until(async () => (await card('skip-note')).includes('Cousin skipped Study today')));
+  await shot('cp-04h-skip-note');
+  await hook('score', TODAY, theirStudy({ [LAST_TUE]: { t: H, s: 'h' }, [TODAY]: { t: 3 * H, s: 'h' } }));
+  await page.goto('http://localhost:5173/#/metrics');
+  await click('[data-testid="compete-skip"]');
+  log('Undo:', await until(async () => (await card('compete-skip')).trim() === 'Skip today'));
+  await page.goto('http://localhost:5173/#/compete');
+  log('Back to 1h behind, no note:', await until(async () => (await card('race-verdict')).includes('Cousin is 1h ahead') && !(await card('skip-note'))));
+
   // Their request on a count metric I don't have.
   await hook('proposeLink', 'L-count', 'their-pushups', 'count');
   log('Link request shown:', await until(async () => (await card('link-request')).includes('Cousin wants to race a count metric')));

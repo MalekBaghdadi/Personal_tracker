@@ -138,6 +138,8 @@ export type DayStatus = 'h' | 'd' | 'r' | 'o' | 'n';
 export interface SharedDay {
   t: number;
   s: DayStatus;
+  /** The owner sat this metric out of Compete that day (its total is 0 and a due day is a miss). */
+  sk?: true;
 }
 
 /**
@@ -236,6 +238,24 @@ export function checkAsRace(m: SharedMetric, members: LinkMember[], metricId: st
 }
 
 /**
+ * A metric with some days sat out of Compete (`Metric.competeSkip`, Malek's call): each such day from
+ * `from` through `today` goes out as 0 with its logs withheld, and a day that was a target day becomes a
+ * miss (rest and unscheduled days stay as they were). The day carries `sk` so the partner sees why.
+ */
+export function skipDays(m: SharedMetric, skip: string[] | undefined, from: string, today: string): SharedMetric {
+  const list = (skip ?? []).filter((d) => d >= from && d <= today);
+  if (list.length === 0) return m;
+  const days = { ...m.days };
+  const logs = m.logs ? { ...m.logs } : undefined;
+  for (const d of list) {
+    const s = days[d]?.s ?? 'o';
+    days[d] = { t: 0, s: s === 'h' ? 'd' : s, sk: true };
+    if (logs && d in logs) logs[d] = [];
+  }
+  return { ...m, days, ...(logs ? { logs } : {}) };
+}
+
+/**
  * What the owner publishes for one metric, from `from` through today. Rest
  * days follow the metric's weekly allowance and the owner's own week start,
  * exactly as their streaks do, so a rest day is never a missed target day.
@@ -323,7 +343,11 @@ export function combine(metrics: SharedMetric[]): SharedMetric | undefined {
   for (const m of metrics) {
     for (const [d, day] of Object.entries(m.days)) {
       const cur = days[d];
-      days[d] = !cur ? { ...day } : { t: cur.t + day.t, s: STATUS_RANK.indexOf(day.s) < STATUS_RANK.indexOf(cur.s) ? day.s : cur.s };
+      if (!cur) days[d] = { ...day };
+      else {
+        days[d] = { t: cur.t + day.t, s: STATUS_RANK.indexOf(day.s) < STATUS_RANK.indexOf(cur.s) ? day.s : cur.s };
+        if (cur.sk || day.sk) days[d].sk = true;
+      }
     }
   }
   let logs: Record<string, SharedLog[]> | undefined;

@@ -53,6 +53,8 @@ export interface Metric {
   restDaysPerWeek?: number;
   /** Days marked "Rest day" ahead (localDate). Only count within the weekly allowance. */
   restDates?: string[];
+  /** Days (localDate) this metric sits out Compete: published as 0 and a miss, logs withheld, flagged to the partner. Set from Metrics, today only. */
+  competeSkip?: string[];
   /** Phrase metrics only: cycle the collection on Today. Absent: off. */
   carousel?: { style: CarouselStyle; pace: CarouselPace };
   /** Base-unit values for one-tap buttons. */

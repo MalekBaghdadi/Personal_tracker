@@ -169,6 +169,8 @@ function Form({ initial, onDone, onGoal }: { initial: Metric | null; onDone: () 
       restDaysPerWeek: Math.min(restPerWeek, maxRest),
       // Marks are set from Today; keep the live list rather than this form's copy.
       restDates: metrics.find((m) => m.id === initial?.id)?.restDates ?? [],
+      // Compete skips are set from the Metrics list; keep the live list too.
+      ...(metrics.find((m) => m.id === initial?.id)?.competeSkip?.length ? { competeSkip: metrics.find((m) => m.id === initial?.id)!.competeSkip } : {}),
       quickAdd: [...new Set(quickAdd.map((v) => (type === 'duration' ? Math.round(v * 60) : v)))].sort((a, b) => a - b),
       color,
       icon,
